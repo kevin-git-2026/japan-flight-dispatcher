@@ -1,0 +1,44 @@
+# ===== 日本航班调度器 .gitignore =====
+# 原则：源码 + 文档进仓库；个人隐私 / 第三方授权数据 / 运行时自动生成的文件 一律不进。
+# 注意：.gitignore 的 # 只有在行首才是注释，模式后面不能跟行尾注释，否则会被当成文件名的一部分。
+
+# ---- Python 缓存 / 字节码 ----
+__pycache__/
+*.py[cod]
+*.pyo
+
+# ---- PyInstaller 构建产物（exe 走 GitHub Releases，不进版本库）----
+build/
+dist/
+*.spec
+
+# ---- 运行时自动生成的配置 / 缓存（首次运行会自动重建，不必入库）----
+# installed_scenery.json 含本机 XP/MSFS 安装路径，隐私 + 环境相关
+installed_scenery.json
+# routes_cache.csv AIP 航路缓存，联网自动重建
+routes_cache.csv
+# airlines.json 首次运行从内置默认生成（默认数据在 dispatcher/airlines.py）
+airlines.json
+# xp_path_config.txt 旧版 XP 路径记忆（已并入 installed_scenery.json）
+xp_path_config.txt
+
+# ---- Volanta 个人数据（隐私：你的真实飞行历史 / 登录态衍生，绝不上传）----
+volanta_data.json
+volanta_flights.json
+volanta_flights.csv
+volanta_flown.json
+volanta_config.txt
+
+# ---- Navigraph 导航数据（第三方授权，体积大、不可公开分发；用户自行从 navigraph.com 下载）----
+NavData/
+earth_aptmeta.dat
+scenery_packs.ini
+
+# ---- 编辑器 / 操作系统杂项 ----
+.vscode/
+.idea/
+*.swp
+*~
+Thumbs.db
+desktop.ini
+.DS_Store
