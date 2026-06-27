@@ -29,6 +29,15 @@ from .volanta import (
 )
 from .routing import calculate_distance_nm, find_aip_route, get_random_route
 from .planner import build_flight_plan, parse_runway_ft, parse_dist
+from .aircraft import aircraft_choices
+from .router import generate_route, route_geometry, route_length_nm
+
+try:                                                 # 地图可视化（第三方库；缺失则地图按钮不显示，不影响其它功能）
+    import tkintermapview
+    from PIL import Image, ImageDraw, ImageTk
+    _HAS_MAP = True
+except Exception:
+    _HAS_MAP = False
 
 
 class _TkTextWriter:
@@ -68,6 +77,7 @@ class DispatcherGUI:
         self.aip_index = set()
         self.flown_counts = {}
         self._last_url = None
+        self._last_simbrief_url = None
 
         self._build_widgets()
 
@@ -135,6 +145,10 @@ class DispatcherGUI:
         self.result.tag_bind("link", "<Button-1>", self._open_link)
         self.result.tag_bind("link", "<Enter>", lambda e: self.result.config(cursor="hand2"))
         self.result.tag_bind("link", "<Leave>", lambda e: self.result.config(cursor=""))
+        self.result.tag_configure("sblink", foreground="#1a6fdb", underline=True)
+        self.result.tag_bind("sblink", "<Button-1>", self._open_simbrief)
+        self.result.tag_bind("sblink", "<Enter>", lambda e: self.result.config(cursor="hand2"))
+        self.result.tag_bind("sblink", "<Leave>", lambda e: self.result.config(cursor=""))
 
         # 底部：日志
         logf = ttk.LabelFrame(root, text="日志 / 状态", padding=4)
@@ -160,9 +174,15 @@ class DispatcherGUI:
         ttk.Separator(form, orient="horizontal").grid(row=r, column=0, columnspan=2, sticky="ew", pady=6); r += 1
         ttk.Label(form, text="高级筛选（可留空）", foreground="#888").grid(row=r, column=0, columnspan=2, sticky="w"); r += 1
 
-        ttk.Label(form, text="机型代码（如 737）").grid(row=r, column=0, sticky="w")
+        ttk.Label(form, text="机型（可搜索/下拉）").grid(row=r, column=0, sticky="w")
         self.var_aircraft = tk.StringVar()
-        e_ac = ttk.Entry(form, textvariable=self.var_aircraft, width=12); e_ac.grid(row=r, column=1, sticky="w", pady=2); r += 1
+        self._ac_rows = aircraft_choices()                          # [(显示串, id, 搜索blob), ...]
+        self._ac_labels = [lbl for lbl, _id, _blob in self._ac_rows]
+        self._ac_label_to_id = {lbl: _id for lbl, _id, _blob in self._ac_rows}
+        self.cb_aircraft = ttk.Combobox(form, textvariable=self.var_aircraft, width=22,
+                                        values=self._ac_labels)
+        self.cb_aircraft.grid(row=r, column=1, sticky="w", pady=2); r += 1
+        self.cb_aircraft.bind("<KeyRelease>", self._on_aircraft_type)   # 输入即过滤候选
         ttk.Label(form, text="时间区间（08:00-15:30）").grid(row=r, column=0, sticky="w")
         self.var_time = tk.StringVar()
         e_tm = ttk.Entry(form, textvariable=self.var_time, width=12); e_tm.grid(row=r, column=1, sticky="w", pady=2); r += 1
@@ -205,7 +225,7 @@ class DispatcherGUI:
         self.btn_plan.grid(row=r, column=0, columnspan=2, sticky="ew", ipady=4); r += 1
 
         # 受 _refresh_controls 统一启停的表单控件
-        self._form_widgets = [e_dep, e_dest, e_air, e_ac, e_tm, e_rw, e_dmin, e_dmax, chk_strict, self.chk_auto]
+        self._form_widgets = [e_dep, e_dest, e_air, self.cb_aircraft, e_tm, e_rw, e_dmin, e_dmax, chk_strict, self.chk_auto]
         self._set_controls_state(False)  # 初始化完成前禁用
 
     # ---------- 线程 / 状态辅助 ----------
@@ -338,7 +358,7 @@ class DispatcherGUI:
             "dep": self.var_dep.get().strip().upper(),
             "dest": self.var_dest.get().strip().upper(),
             "airline": self.var_airline.get().strip().upper(),
-            "aircraft": self.var_aircraft.get().strip(),
+            "aircraft": self._resolve_aircraft(),
             "time": self.var_time.get().strip(),
             "runway": self.var_runway.get(),
             "dmin": self.var_dmin.get(),
@@ -379,9 +399,46 @@ class DispatcherGUI:
                     all_airports, dmin, dmax, self.aip_data, strict, f["dep"], f["dest"],
                     self.flown_counts, self.aip_index, require_both_scenery=f["scenery_only"])
 
+            # F15：无 AIP 航路且非严格模式 → 用本地导航数据 A* 生成一条参考航路（两分支统一在此处理）
+            generated = generated_warn = generated_dist = gr = None
+            if route is None and not strict:
+                try:
+                    gr = generate_route(dep_obj, arr_obj, dat_path=self.dat_path,
+                                        aip_data=self.aip_data, airports=all_airports)
+                    if gr:
+                        generated = gr["route_str"]
+                        generated_dist = gr["dist_nm"]
+                        generated_warn = gr["warn"] if gr.get("suspect") else None
+                        print("🧭 无 AIP 航路，已用本地导航数据生成参考航路。")
+                    else:
+                        print("ℹ️ 本地导航数据未能连通该航线，跳过航路生成。")
+                except Exception as e:
+                    print(f"⚠️ 航路生成失败（已忽略）: {e}")   # 绝不让生成中断规划
+
+            # 各 AIP 航路：长度（与 find_aip_route 同序）+ 地图航点（每条一份，可分别打开窗口）
+            aip_dists = aip_maps = None
+            gen_map = None
+            if route:
+                matched = [r for r in self.aip_data
+                           if len(r) > 5 and r[0].strip().upper() == dep_obj.code and r[1].strip().upper() == arr_obj.code]
+                aip_dists, aip_maps = [], []
+                for r in matched:
+                    rs = r[5].strip()
+                    try:
+                        pts = route_geometry(dep_obj, arr_obj, rs, self.dat_path) if rs else None
+                    except Exception:
+                        pts = None
+                    aip_dists.append(route_length_nm(pts) if pts else None)
+                    aip_maps.append((pts, "%s→%s  %s" % (dep_obj.code, arr_obj.code, rs)) if pts else None)
+            elif generated and gr and gr.get("coords"):
+                gen_map = (gr["coords"], "%s→%s  %s" % (dep_obj.code, arr_obj.code, generated))
+
             print("🔎 正在拉取现实排班...")
             plan = build_flight_plan(dep_obj, arr_obj, dist, route,
-                                     f["airline"], f["aircraft"], f["time"], flown_count)
+                                     f["airline"], f["aircraft"], f["time"], flown_count,
+                                     generated_route=generated, generated_route_warn=generated_warn,
+                                     generated_route_dist=generated_dist, aip_route_dists=aip_dists,
+                                     aip_maps=aip_maps, gen_map=gen_map)
             self._post(self._render_plan, plan)
         except Exception as e:
             print(f"❌ 发生错误: {e}")
@@ -399,6 +456,7 @@ class DispatcherGUI:
         self.result.delete("1.0", "end")
         self.result.configure(state="disabled")
         self._last_url = None
+        self._last_simbrief_url = None
 
     def _show_error(self, msg):
         self.result.configure(state="normal")
@@ -411,9 +469,25 @@ class DispatcherGUI:
         R = self.result
         R.configure(state="normal")
         R.delete("1.0", "end")
+        for _t in getattr(self, "_map_tags", []):        # 清理上一轮的动态地图链接 tag
+            R.tag_delete(_t)
+        self._map_tags = []
 
         def ins(text, *tags):
             R.insert("end", text, tags)
+
+        def _map_link(mp):
+            """mp=(coords,title)：为该条航路插入一个独立的「在地图查看」链接（点击各自弹窗，可同时开多个）。"""
+            if not (_HAS_MAP and mp and mp[0]):
+                return
+            coords, title = mp
+            tag = "maproute_%d" % len(self._map_tags)
+            R.tag_configure(tag, foreground="#137333", underline=True)
+            R.tag_bind(tag, "<Button-1>", lambda e, c=coords, t=title: self._open_map(c, t))
+            R.tag_bind(tag, "<Enter>", lambda e: R.config(cursor="hand2"))
+            R.tag_bind(tag, "<Leave>", lambda e: R.config(cursor=""))
+            self._map_tags.append(tag)
+            ins("       🗺️ 在地图查看本航路\n", tag)
 
         def ins_airport(role, ap):
             ins(f"  {role} : ", "label")
@@ -433,10 +507,34 @@ class DispatcherGUI:
         if plan.flown_count and plan.flown_count > 0:
             ins(f"  🔁 Volanta : 这条有向航线你已飞过 {plan.flown_count} 次（可考虑换一条）\n", "flown")
 
+        def _dev(route_len):
+            """航路长度 + 相对大圆偏差的展示串；缺数据返回 None。"""
+            if not route_len or not plan.dist_nm:
+                return None
+            pct = (route_len - plan.dist_nm) / plan.dist_nm * 100.0
+            return "航路长 %.0f NM（较大圆 %+.1f%%）" % (route_len, pct)
+
         if plan.aip_routes:
             ins("\n  📜 AIP 航路\n", "section")
+            _dists = plan.aip_route_dists or []
+            _maps = plan.aip_maps or []
             for i, rr in enumerate(plan.aip_routes, 1):
                 ins(f"  [{i}] ", "muted"); ins(f"{rr}\n", "aip")
+                _dd = _dev(_dists[i - 1] if i - 1 < len(_dists) else None)
+                if _dd:
+                    ins("       └ " + _dd + "\n", "muted")
+                _map_link(_maps[i - 1] if i - 1 < len(_maps) else None)
+
+        if plan.generated_route:
+            ins("\n  🧭 生成航路（本地导航数据，非官方 AIP）\n", "section")
+            ins("  " + plan.generated_route + "\n", "aip")
+            _gd = _dev(plan.generated_route_dist)
+            if _gd:
+                ins("  " + _gd + "\n", "muted")
+            _map_link(plan.gen_map)
+            ins("  ⚠️ 起讫点取自 SID/STAR 衔接点、中间为 A* 连出的 enroute 航路；仅供参考，未含具体 SID/STAR 程序段。\n", "warn")
+            if plan.generated_route_warn:
+                ins("  ⚠️ " + plan.generated_route_warn + "——存在大角度转弯，可能非最优/有问题，请自行检查斟酌。\n", "warn")
 
         if (not dep.has_scenery) or (not arr.has_scenery):
             ins("  ⚠️ 地景提醒: [⚠️无地景] = 未在 XP/MSFS 地景文件夹中检测到该机场插件地景\n", "warn")
@@ -459,8 +557,13 @@ class DispatcherGUI:
         ins("\n  🔗 查看 FlightAware 完整排班表:\n", "label")
         ins("  ", "label"); ins(plan.url + "\n", "link")
 
+        if plan.simbrief_url:
+            ins("\n  🛩️ SimBrief 一键派遣 : ", "label")
+            ins("点击生成专业航路计划（需登录 SimBrief）\n", "sblink")
+
         R.configure(state="disabled")
         self._last_url = plan.url
+        self._last_simbrief_url = plan.simbrief_url
 
     def _open_link(self, _event=None):
         if self._last_url:
@@ -468,6 +571,68 @@ class DispatcherGUI:
                 webbrowser.open(self._last_url)
             except Exception:
                 pass
+
+    def _open_simbrief(self, _event=None):
+        if self._last_simbrief_url:
+            try:
+                webbrowser.open(self._last_simbrief_url)
+            except Exception:
+                pass
+
+    def _open_map(self, coords, title=""):
+        """弹出独立地图窗口，把指定航路画在真实地图上（tkintermapview，可拖拽 / 缩放）。"""
+        if not (_HAS_MAP and coords):
+            return
+        try:
+            majors = set((title or "").split())                      # 换路点 ident（标字）；其余为加密出的中间点
+            win = tk.Toplevel(self.root)
+            win.title("航路地图 · " + (title or ""))
+            win.geometry("1000x680")
+            mapw = tkintermapview.TkinterMapView(win, corner_radius=0)
+            mapw.pack(fill="both", expand=True)
+            mapw.set_tile_server("https://a.tile.openstreetmap.org/{z}/{x}/{y}.png")
+
+            def _dot(d, fill, outline="#ffffff"):
+                img = Image.new("RGBA", (d + 2, d + 2), (0, 0, 0, 0))
+                ImageDraw.Draw(img).ellipse([1, 1, d, d], fill=fill, outline=outline)
+                return ImageTk.PhotoImage(img)
+            icon_ap, icon_wp, icon_mid = _dot(12, "#e53935"), _dot(8, "#1a6fdb"), _dot(4, "#6aa8e0")
+            win._icons = [icon_ap, icon_wp, icon_mid]                # 挂到窗口保活，防 GC
+
+            pts = [(la, lo) for _id, la, lo in coords]
+            if len(pts) >= 2:
+                mapw.set_path(pts, color="#1a6fdb", width=2)
+            for i, (ident, la, lo) in enumerate(coords):
+                if i == 0 or i == len(coords) - 1:                   # 起降机场：红点 + 字
+                    mapw.set_marker(la, lo, text=ident, icon=icon_ap, text_color="#b00020", font=("Segoe UI", 9, "bold"))
+                elif ident in majors:                               # 换路点：蓝点 + 字
+                    mapw.set_marker(la, lo, text=ident, icon=icon_wp, text_color="#0b3d91", font=("Segoe UI", 7, "bold"))
+                else:                                               # 中间过渡点：小点 + 小号淡字（放大可看清）
+                    mapw.set_marker(la, lo, text=ident, icon=icon_mid,
+                                    text_color="#5a7fa0", font=("Segoe UI", 6))
+            if len(pts) >= 2:
+                lats, lons = [p[0] for p in pts], [p[1] for p in pts]
+                mapw.fit_bounding_box((max(lats) + 0.6, min(lons) - 0.6), (min(lats) - 0.6, max(lons) + 0.6))
+            elif pts:
+                mapw.set_position(pts[0][0], pts[0][1]); mapw.set_zoom(7)
+        except Exception as e:
+            print(f"⚠️ 打开地图失败: {e}")
+
+    def _on_aircraft_type(self, event=None):
+        """机型可搜索下拉：按输入内容过滤候选（匹配 icao / 名字 / 厂商别名）。"""
+        if event is not None and event.keysym in ("Up", "Down", "Return", "Escape", "Left", "Right"):
+            return
+        typed = self.var_aircraft.get().strip().lower()
+        if not typed:
+            self.cb_aircraft["values"] = self._ac_labels
+            return
+        filt = [lbl for lbl, _id, blob in self._ac_rows if typed in blob]
+        self.cb_aircraft["values"] = filt or self._ac_labels
+
+    def _resolve_aircraft(self):
+        """机型框取值：下拉选中的显示串 → 其 SimBrief id；手输则原样返回（供 FlightAware 匹配 + planner 再规范化）。"""
+        v = self.var_aircraft.get().strip()
+        return self._ac_label_to_id.get(v, v) if v else ""
 
     # ---------- Volanta ----------
     def _on_auto_toggle(self):

@@ -16,6 +16,220 @@
 
 ---
 
+## v1.4.0(🚧 开发中 · 2026-06-27)— 本地航路生成 + SimBrief 集成 + 机型库 + 交互地图（F15/F16…；首次引入第三方库）
+
+- **关联**:`PRD.md` §8.2（原「规划中」）/ 新功能 F15；用户书面规则见工作目录 `flight_planning.txt`。
+- **背景**:无直连 AIP 航路时希望自动生成参考航路。曾评估 SimBrief `/v2/routes/generate`（逆向可用），但其 Navigraph 登录 token **只在浏览器 JS 内存（LS/SS/IndexedDB 全无）、磁盘抠不到** → 放弃，改为**完全自给**：解析程序自带 `NavData/` 的 X-Plane 导航数据，本地 A* 寻路。纯标准库、离线、无第三方。
+- **状态**:核心逻辑全实现并自测通过；**几个可调旋钮待用户实测后再定**；文档本次先存盘；**dist 尚未重编**。
+
+### 数据（已核实，AIRAC 2605）
+- `NavData/` 含：`earth_awy.dat`(航路 4.5MB,v1100)/`earth_fix.dat`(航点 15MB,v1200)/`earth_nav.dat`(导航台 3.6MB,v1200)/`earth_aptmeta.dat`/`earth_hold.dat`/`earth_mora.dat`/`earth_msa.dat`，**外加 `CIFP/` 文件夹(16543 个机场程序文件，~160MB)**——SID/STAR/APPCH 程序数据齐全。
+- 行格式：`earth_awy` = `id1 reg1 t1 id2 reg2 t2 dir lowhigh baseFL topFL name`（t 11=fix/2=NDB/3=VOR；dir N双向/F正向/B反向；dir 后 1/2 是**序号非方向**；多名用 `-` 连）。`earth_fix` enroute 即 col3=="ENRT"。`earth_nav` col0=2(NDB)/3(VOR)，ident/region 锚定 "ENRT" token。**节点键 = (ident, region)**（ident 全球重复）。
+- CIFP 行：`<TYPE>:seq,rtype,proc,trans,fix,region,section,sub,desccode,...`。**SID/STAR 出/入口 = section=='E' 的航点**；**APPCH 的 IAF/IF = 描述码(字段8)第4位为 'A'/'I'**；**本场 VOR = section=='D' 的导航台**（在 SID/STAR/APPCH 任意处）。
+
+### 新增模块 `dispatcher/router.py`（纯标准库 os/math/heapq/threading）
+- **建图**：解析 fix+nav+awy → `AirwayGraph`（`nodes{(id,reg):(lat,lon,kind)}`、`adj`、`outset`有出边、`inset`有进边、`by_ident`）。按**日本 bbox `(24,46,122,149)`** 过滤节点；边须两端都在 nodes。规模 ≈ **2406 节点 / 4582 航段**。**懒加载 + 单例缓存 + Lock**（首次 generate 才解析，~0.12s；冷启动不变）。
+- **A***：`heapq`（元组带自增计数器避免比较 key）；`h=到目的地大圆距离`（可采纳）；虚拟终点 `_ARR`；起点集=入航候选(g0=DCT)、终点集=出航候选(+DCT to arr)。生成 ~1–2ms。
+- **CIFP 端点** `_cifp_endpoints(icao)` → `(sid_exits, star_entries, iaf_if, vors)`，按机场缓存。
+- **端点选择（真实管制衔接，逐级降级，全要求落在航路网上）**：
+  - 离场：`(SID出口 ∪ 本场VOR) ∩ outset` → 几何兜底（朝目标最近点）。**本场 VOR 作 SID 枢纽很关键**——如 RJEC 的 section=E 出口 `KAGRA`(out2/in0,死端)不可靠，真正枢纽是 VOR `AWE`(12 条航路、可达全网)。
+  - 进场：`STAR入口 ∩ inset` → `本场VOR ∩ inset` → `IAF/IF ∩ inset` → 几何兜底。**VOR 优先于 IAF/IF**（填本场 VOR、无 STAR 时管制雷达引导至 IF）。
+  - **连通性过滤(inset)** 剔除不在任何航路上的孤立进近 VOR（如 RJTO 的 `OSE` 0 边）——这种点该退到 IAF（`SUNOD` 4 进 4 出）。
+- **航路串格式化**：AIP 风格 `ENTRY AWY FIX AWY … EXIT`，仅换路点保留；多名段优先延续上一段已选名。
+- **连贯性检查** `_check_continuity`：只看 enroute 航点间转向角，>`_MAX_TURN_DEG`(100°) 记 `suspect`（SID/STAR 衔接处不计）。
+
+### Rule 5：借邻近机场的官方 AIP 航路（`_try_aip_bridge`）
+- 机制（`D'=dep`）：找 **arr 附近(≤100nm)的机场 A'**，使 `dep→A'` 存在官方 AIP → 用该 AIP 航路 + A* 补接(A' 到达端→arr 端点)。多个 A' 取总程最短。
+- **三道闸全过才借**：① **干净**（补出来无大锐角弯，`suspect=False`）；② **≤ `_BRIDGE_TOLERANCE`(1.25) × 最优 A***；③ **不冲过头**（航路对目的地最近点不在中途——超 `_OVERSHOOT_NM`(20nm) 即「过站折返」，拒）。任一不过 → 退回最优 A*。
+- 实例：RJFK→RJFR——借 RJFK-RJFF(有 IKE 锐角弯→闸①拒)、借 RJFK-RJOM(松山偏东 2.11×→闸②拒)、ATSAG 那条冲过头→闸③拒 → 用最优 `SASIK G339 OSTEP Y14 DGC V28 SWE`(1.20)。RJER→RJSO 是唯一命中的干净桥接(1.08)。
+
+### 完整优先级链 & 集成
+- **Rule 0（直连 AIP 最高优先）在 app 层（`gui._plan_worker` 的 `find_aip_route`）**：查到直连官方 AIP 就用它（📜），`generate_route` **不调**；仅 `route is None` 才调 `generate_route`（🧭）。
+- `generate_route(dep, arr, dat_path, aip_data, airports)`：先算最优 `_direct_route`（case1–4），再试 Rule 5 桥接，过闸则用桥接否则用最优。
+- `planner.FlightPlan` 加 `generated_route` / `generated_route_warn` 字段（独立于 `aip_routes`）；`build_flight_plan(..., generated_route=, generated_route_warn=)` 透传。
+- `gui.py`：`from .router import generate_route`；`_plan_worker` 在 `route is None and not strict` 时调（传 `aip_data=self.aip_data, airports=all_airports`）；`_render_plan` 加「🧭 生成航路（非官方 AIP）」段 + 大转弯警告行。`routing.py` 不改。
+- `__init__.py` `__version__` → `1.4.0`；`flight_dispatcher.py` 模块清单加 router.py。
+
+### 可调旋钮（待实测后定）
+`JP_BBOX`、`_MAX_ENTRY_NM=120`、`_K_ENTRY=5`、`_MAX_TURN_DEG=100`、`_BRIDGE_TOLERANCE=1.25`、`_OVERSHOOT_NM=20`、桥接 A' 邻近 `max_near_nm=100`。
+
+### 验证（本机，真实坐标）
+整包 `py_compile`/import 过；RJSC→RJOM 生成 `…V30 KMC V38 OLIVE Y28 BAMBO Y283 ITUKI`（核心与 SimBrief 一致）；抽样 40 条无 AIP 真实航线比率多在 1.0–1.05、仅个别被标记；overshoot 修复后 RJAA→RJFF 直接调 generate 也退回最优（=官方 AIP 逐字一致）。**待办**：用户实机验航路质量 → 定旋钮 → 文档收尾(PRD/README) → 老规矩重编 dist。
+
+### 续作（2026-06-27 同会话 · 同属 v1.4.0 开发周期；dist 未重编、git 未提交）
+
+> 在「本地 A* 航路生成」基础上叠加 6 项：双端桥接、航路加密、航路距离/偏差、SimBrief 一键派遣(F16)、机型库下拉、交互地图。**首次引入第三方库**(地图)，项目不再纯标准库。
+
+**1. Rule 5 升级为「双端替身」桥接**（`router._try_aip_bridge`）
+原单端(dep 精确、A'=arr 替身) → **双端**：dep 侧也允许替身 D'(dep 附近 ≤`max_near_nm`=100nm)，借 `D'→A'` 官方 AIP 中段、dep DCT 接其头点——仅当头点离 dep ≤ 新旋钮 `_BRIDGE_HEAD_NM`(50nm)。尾补接 / 三道闸 / 取最短复用。RJFR→RJEC 由东线 888.8 改西线 840.9(=SimBrief)。
+
+**2. 航路加密**（`router._trace_airway` + `_parse_aip_route(densify=True)`）
+AIP 串只标 airway 转折点；加密用 **Dijkstra(限定该 airway 名的边)** 沿 airway 补出两换路点间的中间过渡点。价值：① **距离精确**(沿折线累加，而非换路点直线)；② 画图更密(RJFR→RJEC 11→21 点，= SimBrief 逐字一致)。影响 `_parse_aip_route` 所有调用(桥接 mid_path / `route_geometry` / 生成航路 coords·dist)。性能 1–2ms；多数中间 fix 共线故距离变化小(RJAA→RJBB +1.6NM)。
+
+**3. 航路距离 + 较大圆偏差**（`router.route_geometry` / `route_length_nm`；`_finish` 加 `coords`）
+`route_geometry(dep,arr,route_str,dat)` → `[(ident,lat,lon),...]`(含起降首尾·加密)；`route_length_nm` 累计大圆。`FlightPlan` 加 `generated_route_dist` / `aip_route_dists`；GUI 每条 AIP / 生成航路显示「航路长 X NM（较大圆 +Y%）」。揭示分时段绕行(RJAA→RJBB 白天 +40.6% vs 夜间 +7%)。
+
+**4. SimBrief 一键派遣（F16）**（`planner` + `gui`）
+背景：曾想用 Navigraph token 调 SimBrief API(token 只在浏览器内存抠不到 → 放弃)。改为生成 **SimBrief custom-options 预填 URL**(`dispatch.simbrief.com/options/custom?...`)，用用户**自己浏览器的 SimBrief 登录态**出专业 OFP——零凭据、**可公开**(区别于借我的 Navigraph 订阅替别人生成)，和 FlightAware 链接同模式。`planner._build_simbrief_url(orig,dest,airline,fltnum,actype,route)`(必填 orig/dest/type；route 空→SimBrief 自算) + `_normalize_actype`(查机型库) + `_split_callsign`。`FlightPlan.simbrief_url`；结果卡「🛩️ SimBrief 一键派遣」链接。`build_flight_plan(timed_route=)` 预留 route 参数给分时段。
+
+**5. 机型库**（`aircrafts.json` + `dispatcher/aircraft.py`）
+SimBrief 抓的 909KB → 精简 34KB(212 机型，每行一条，字段 id/icao/name/engines/pax/cargo/search)；**剥离 34 个用户 UUID 隐私**(airframes)，`.gitignore` 警示禁原始覆盖入库。`aircraft.py`：`load_aircraft_db` + `find_aircraft_id`(精确 id/icao → `_ALIAS` 消歧(737→B738 / Q400→DH8D) → 名字/搜索串 → 数字简写) + `aircraft_choices`。**SimBrief type 用 `aircraft_id`**(唯一；公务机/货机共享 ICAO 但 id 不同，如 B738 客机 vs BBJ2)。`planner._normalize_actype` 改用机型库(删原硬编码 `_ACTYPE_MAP`)；GUI 机型框 Entry → **可搜索 Combobox**(`_on_aircraft_type` 输入过滤 + 下拉选 → id；`_resolve_aircraft` 取值；手输兜底)。
+
+**6. 交互地图**（`tkintermapview`，**首次第三方库**）
+**打破纯标准库**：`pip install tkintermapview`(连带 Pillow / customtkinter / requests / pywin32 等)。GUI 顶部容错 import → `_HAS_MAP`(缺失则地图链接不显示、不影响其它)。`FlightPlan` 加 `aip_maps`(每条 AIP 的 `(coords,标题)`，与 aip_routes 对应) + `gen_map`。`gui._open_map(coords,title)`：弹独立 `Toplevel` + `TkinterMapView`(OSM 真实底图)，三档 marker(起降红点 / 换路点蓝点标字 / 中间过渡点 4px 小点 + 6px 淡字) + 航路线 + `fit_bounding_box`。**每条航路各一个独立「🗺️ 在地图查看本航路」链接**(`_render_plan` 内动态建 `maproute_N` tag，开头清旧)，可同时开多个窗口——解决分时段多航路(RJSF→RJBB 两段)分别查看。
+
+**验证**：`compileall` 全过；**GUI headless 构造冒烟成例**(教训：曾把机型 `Entry`(`e_ac`)换 `Combobox`(`self.cb_aircraft`) 漏改 `_form_widgets` 旧引用，编译过但启动 `NameError`「打不开主程序」——`py_compile` 只查语法、抓不到运行时未定义名。此后 GUI 改动一律先 headless 构造 + `_render_plan` + `_open_map` 冒烟，见记忆 `gui-headless-smoke`)。RJFR→RJEC 双端=西线 840.9；加密 21 点；RJSF→RJBB 2 条分时段 AIP 各自开图 OK；机型 737→B738/Q400→DH8D。
+
+### ⏸️ 分时段规划 + 向 SimBrief 提交航路（**设计保留、功能延后** · 2026-06-27）
+
+> **状态**：计算层一度在 `routing.py` 完整实现，但**从未接进 GUI**（dead code），且「按机型/高度精筛唯一航路」一层不可靠 → 按用户决定**整段删除、整体延后**。完整被删代码 + 删除原因见本节末「🗑️ 已删除代码留底」。以下设计意图**保留**，供日后重做参考；`planner` 的休眠接口 `build_flight_plan(timed_route=)` / `_build_simbrief_url(route=)` 也保留。用户将另写业务文档系统梳理可分析逻辑。
+- **数据**：`routes.csv` 的 `Time Restriction` 列即分时段载体——`EOBT HHMM-HHMM`(离场段，≈起飞时间，最好用) / `ETA HHMM-HHMM`(进场段，需 +飞行时长推到达) / 复合 `EOBT…&ETA…`；**UTC**；叠加 `Altitude`(FL250+/-) + `Aircraft`(JET/DH8D)。全库 **366 条**带时段(占 25%)。不同时段头尾过渡点不同(已隐含离场/进场走向差异)。
+- **时区基准(已定)**：现状 GUI 起飞时间按 **JST(机场本地)** 与 FlightAware 比 → 匹配 AIP 时段需 **JST−9h=UTC**。
+- **逻辑**：加 GUI 开关「按真实运行时间与规则规划航路」(用户构思)；勾选 → 按起飞时间(→UTC) + 可选高度/机型，从多条 AIP 里选**唯一适用**那条 → 填进 `simbrief_url` 的 `route` 参数(补 SimBrief 不看时段的盲区) + 我们自己显示也用它；提示「夜间因减噪可能更长/复杂」。不勾 → route 留空让 SimBrief 自算。ETA 段用 航程÷巡航速度 估时长。
+- **待定旋钮**：起飞时间取点(区间起点 / 中点)、巡航速度、高度无输入时默认(高 / 低)、开关默认(勾 / 不勾)。
+- **已就绪的接口**：`build_flight_plan(timed_route=)`、`_build_simbrief_url(route=)`、`route_geometry`(加密)。
+
+#### 🗑️ 已删除代码留底（2026-06-27 整段删除、延后）
+
+- **决策**：上一会话在 `routing.py` 写了整套分时段计算层（未接 GUI），本会话核查发现「按机型/高度精筛唯一航路」不可靠 → 用户指示**整段删除、整体延后**（时间解析核心其实扎实，但一并删了，重做时再取舍）。删除后 headless 回归全过（NavData / 地景62 / AIP1436 / Volanta177 / RJTT→RJBB 规划+渲染正常）。
+- **保留**：`planner.build_flight_plan(timed_route=)` / `_build_simbrief_url(route=)` 休眠形参（无坏逻辑，GUI 不传它恒 None＝现状），重做可直接对接。`routing.py` 顶部 `import re` 随段删除（仅该段用到）。
+- **删除原因 1 — JET/PROP 区分不可靠**：`Aircraft` 列**不是纯机型列**，是自由文本「适用条件」。实测 routes_cache.csv 1436 行、非空 105：`JET`×53 / `DH8D`×23 / `PROP`×14，外加 `for PROP except DH8D`×2、地理条件 `for AP located west of 139E …`×4 +东×4、机场条件 `only for RJCW`×1 / `for RJCx/RJEx/RJSx …`×2。代码只精确匹配 `JET/DH8D/PROP`、其余一律放行；JET↔PROP 还靠**硬编码 `_PROP_ICAO` 白名单**（必不完整，表外涡桨全误判成 JET）。**这正是上个 CC 反复纠结的死结——靠白名单精确解析这列本质无解。**
+- **删除原因 2 — 高度层误解析**：`route_matches_alt` 用单阈值正则 `FL(\d+)([+\-])`，把 `FL180-FL230`（区间）误读成「≤FL180」（方向反了）；`A120-` / `13000ft` / `FL240`(无号) 直接忽略（各 1–3 行）。
+- **重做建议**：`Time Restriction`（时间）可解析、是核心价值；但 `Aircraft`/`Altitude` 是脏的自由文本，**机型/高度应留给用户自选**（更晚写的 `select_timed_routes` 已这么设计：只按时间过滤、返回多条带 label 让用户挑对应 SimBrief 链接），不要程序自动选唯一。
+
+被删完整代码（贴回 `routing.py` 末尾、并恢复顶部 `import re` 即可复原）：
+
+```python
+# ================= 分时段规划（F16：按真实运行时间与规则选官方航路）=================
+# 日本不少航线按【运行时段】规定不同航路(夜间因减噪等可能更长/更绕)，载体是 routes.csv 的
+# Time Restriction 列：'EOBT HHMM-HHMM'(离场/撤轮挡段) / 'ETA HHMM-HHMM'(到达段) / 复合
+# 'EOBT a-b &ETA c-d'(AND)；时间一律 **UTC**，区间常【跨午夜】(lo>hi)。叠加 Altitude(FLxxx±)
+# 与 Aircraft(JET/DH8D/PROP)二次细分。本模块把这些解析出来，按用户的离港/到达时刻选唯一航路。
+
+CRUISE_KT = 450.0          # ETA 推算用的粗略巡航地速(机型库无速度字段；涡桨偏慢，估算够用)
+
+# 涡桨机型 ICAO 小白名单——区分 Aircraft 列的 JET 与 DH8D/PROP(engines 字段是发动机型号、不可靠)
+_PROP_ICAO = {"DH8D", "DH8A", "DH8B", "DH8C", "AT72", "AT76", "AT75", "AT45", "AT43",
+              "SF34", "SF50", "E120", "SB20", "D328", "JS41", "JS32", "SW4", "BE20", "C208"}
+
+_TIME_PAT = re.compile(r'(EOBT|ETA)\s*(\d{2})(\d{2})\s*-\s*(\d{2})(\d{2})')   # 固定 4 位 HHMM
+_ALT_PAT = re.compile(r'FL\s*(\d{2,3})\s*([+\-])')                            # 'FL230-' / 'FL240+'
+
+
+def parse_hhmm(s):
+    """'08:30' / '0830' / '8:30' → 当天分钟数(0-1439)；非法/空 → None。"""
+    m = re.match(r'^\s*(\d{1,2})\s*[:：]?\s*(\d{2})\s*$', s or "")
+    if not m:
+        return None
+    h, mi = int(m.group(1)), int(m.group(2))
+    return h * 60 + mi if (h <= 23 and mi <= 59) else None
+
+
+def parse_time_restriction(s):
+    """解析 Time Restriction → [('EOBT', lo, hi), ('ETA', lo, hi), ...](UTC 当天分钟)。
+    支持复合 'EOBT a-b &ETA c-d' 与 csv 多行引号字段(含换行)；无法解析/空 → []。"""
+    return [(kind, int(h1) % 24 * 60 + int(m1), int(h2) % 24 * 60 + int(m2))
+            for kind, h1, m1, h2, m2 in _TIME_PAT.findall(s or "")]
+
+
+def _in_window(t, lo, hi):
+    """环形区间[lo,hi]判断，支持跨午夜(lo>hi，如 2115-1329 表示 21:15→次日 13:29)。闭区间。"""
+    return lo <= t <= hi if lo <= hi else (t >= lo or t <= hi)
+
+
+def route_matches_time(restr, eobt_utc_min, eta_utc_min):
+    """无时段限制→True；有 EOBT 段→需 eobt 落入；有 ETA 段→需 eta 落入；复合(都有)→AND。"""
+    wins = parse_time_restriction(restr)
+    if not wins:
+        return True
+    for kind, lo, hi in wins:
+        t = eobt_utc_min if kind == "EOBT" else eta_utc_min
+        if t is None or not _in_window(t, lo, hi):
+            return False
+    return True
+
+
+def route_matches_alt(alt, fl):
+    """alt 如 'FL230-'/'FL240+'；fl=用户巡航高度(百英尺，如 230)。无限制/无 fl/非标准高度→True(不约束)。"""
+    if not (alt or "").strip() or fl is None:
+        return True
+    m = _ALT_PAT.search(alt)
+    if not m:
+        return True                                   # 区间/A120-/13000ft 等非标准写法不参与自动过滤
+    lvl, sign = int(m.group(1)), m.group(2)
+    return fl >= lvl if sign == "+" else fl <= lvl
+
+
+def route_matches_aircraft(ac, actype):
+    """ac 如 'JET'/'DH8D'/'PROP'；actype=用户机型 ICAO/id。无限制/无机型→True。
+    只处理三种主流标记；地理/特例条件(for AP west of 139E…)不参与过滤。"""
+    ac = (ac or "").strip().upper()
+    at = (actype or "").strip().upper()
+    if not ac or not at:
+        return True
+    if ac == "JET":
+        return at not in _PROP_ICAO
+    if ac == "DH8D":
+        return at == "DH8D"
+    if ac == "PROP":
+        return at in _PROP_ICAO
+    return True                                       # 其它复杂条件不约束
+
+
+def plan_times_utc(eobt_jst_min, taxi_min, dist_nm, cruise_kt=CRUISE_KT):
+    """GUI 输入 → 分时段匹配用的 UTC 时刻。EOBT_utc = EOBT_jst − 9h；起飞 = EOBT + 滑行；
+    ETA = 起飞 + 航程÷巡航速度。返回 (eobt_utc_min, eta_utc_min)，均取模 1440(当天分钟)。"""
+    eobt_utc = (int(eobt_jst_min) - 9 * 60) % 1440
+    enroute = (dist_nm / cruise_kt * 60.0) if (dist_nm and cruise_kt) else 0.0
+    eta_utc = (eobt_utc + (taxi_min or 0) + enroute) % 1440
+    return eobt_utc, int(round(eta_utc)) % 1440
+
+
+def select_timed_route(aip_rows, eobt_utc_min, eta_utc_min=None, fl=None, actype=None):
+    """从同一航线的多条 AIP 原始行里，按离港(EOBT)/到达(ETA)时刻 + 可选高度/机型，选出唯一适用那条。
+    aip_rows: 形如 [DEP,DEST,Time,Alt,Aircraft,Route,Remarks] 的原始 csv row 列表。
+    返回 dict{row, route_str, idx, n_match, ambiguous, time_restr} 或 None(无任何行通过时间过滤)。"""
+    rows = [(i, r) for i, r in enumerate(aip_rows) if len(r) > 5]
+    timed = [(i, r) for i, r in rows if route_matches_time(r[2], eobt_utc_min, eta_utc_min)]
+    if not timed:
+        return None
+    # 高度 + 机型二次过滤；过滤后为空则放宽到「仅时间命中」(避免因机型/高度信息不足而无解)
+    refined = [(i, r) for i, r in timed
+               if route_matches_alt(r[3], fl) and route_matches_aircraft(r[4], actype)]
+    cand = refined or timed
+    cand = [(i, r) for i, r in cand if (r[5] or "").strip()] or cand   # 优先有航路串的
+    idx, row = cand[0]
+    return {
+        "row": row, "route_str": (row[5] or "").strip(), "idx": idx,
+        "n_match": len(cand), "ambiguous": len(cand) > 1,
+        "time_restr": (row[2] or "").strip().replace("\n", " "),
+    }
+
+
+def select_timed_routes(aip_rows, eobt_utc_min, eta_utc_min):
+    """按运行时段(EOBT/ETA)过滤候选 AIP 行，返回**所有**时间命中的行（通常 1 条；
+    同一时段下因 JET/PROP 或巡航高度限制并存时多条）。机型/高度不再由程序自动选唯一——
+    留给用户按自己机型与巡航高度，从返回的多条里挑对应的 SimBrief 链接。
+    返回 list[dict]：{'route': 航路串, 'restr': 规整后的时段串, 'alt': 高度限制, 'aircraft': 机型限制,
+                     'label': 供用户区分的标签('JET'/'PROP FL220+' 之类)}。
+    无任何带时段行命中时，回退到无时段约束的行（至少给用户一条）。"""
+    hits, plain = [], []
+    for r in aip_rows:
+        restr = ((r[2] if len(r) > 2 else "") or "").strip()
+        if not route_matches_time(restr, eobt_utc_min, eta_utc_min):
+            continue
+        alt = ((r[3] if len(r) > 3 else "") or "").strip()
+        ac = ((r[4] if len(r) > 4 else "") or "").strip()
+        route = ((r[5] if len(r) > 5 else "") or "").strip()
+        item = {"route": route, "restr": " ".join(restr.split()),
+                "alt": alt, "aircraft": ac,
+                "label": " ".join(x for x in (ac, alt) if x)}
+        (hits if parse_time_restriction(restr) else plain).append(item)
+    return hits if hits else plain
+```
+
+---
+
 ## v1.3.1(✅ 已实现 · 2026-06-26)— 移除 CLI / 终端 + GUI 配色高亮 + 高分屏适配
 
 - **关联**:用户决策——v1.3.0 GUI 实测稳定,命令行版(CLI/终端)不再需要,移除以精简代码。

@@ -11,6 +11,7 @@
 #   flightaware.py 机型匹配 + FlightAware 现实排班爬虫
 #   routing.py     大圆距离 / AIP 匹配 / 按已飞次数加权抽线（含「仅两端有地景」过滤）
 #   planner.py     build_flight_plan：一次规划的计算（供 GUI 调用）
+#   router.py      无 AIP 航路时本地 A* 航路生成（解析 NavData 的 airway/fix/nav，F15）
 #   gui.py         tkinter 图形界面（唯一前端）
 #
 # v1.3.1 起【只保留 GUI】，已移除命令行版（CLI/终端）。

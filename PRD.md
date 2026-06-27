@@ -3,10 +3,10 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | 日本航班智能搜索与规划脚本 (Japan Flight Dispatcher) |
-| 当前版本 | v1.3.1 |
+| 当前版本 | v1.3.1（已发布）；**v1.4.0 开发中**（本地航路生成 + SimBrief 集成 + 机型库 + 交互地图） |
 | 交付形态 | PyInstaller 打包的 `flight_dispatcher.exe`（v1.3.1 起**仅 tkinter 图形界面**；命令行版已移除） |
 | 运行平台 | Windows 为主(全盘扫描逻辑针对盘符),兼容类 Unix |
-| 技术栈 | Python 标准库(无第三方依赖);启动时可选调用系统浏览器同步 Volanta 数据,仍仅用标准库 |
+| 技术栈 | Python 标准库为主；**v1.4.0 起引入第三方库 `tkintermapview` + `Pillow`（交互地图）**——缺失时地图功能自动禁用、其它仍纯标准库可用 |
 | 语言约定 | 全部用户界面文案为简体中文 + emoji 前缀 |
 | 文档维护 | 与 `CLAUDE.md` 保持架构描述一致 |
 
@@ -55,6 +55,11 @@
 | F12 | 自带导航数据 + AIRAC 自检 | 导航数据改为程序根目录自带的 `NavData` 文件夹(摆脱 XP 目录依赖,只飞 MSFS 的用户也可用);启动读 `cycle_info.txt` 自检 AIRAC 周期,过期则提示通过 Navigraph 更新 |
 | F13 | 图形界面(GUI) | v1.3.1 起**唯一前端**为 **tkinter 图形界面**(`dispatcher/gui.py`):表单输入 + 结果卡 + 日志区 + Volanta 同步控件;所有阻塞/联网走后台线程,经 `after()` 回主线程更新。GUI 为薄表现层,复用全部业务逻辑(`planner.build_flight_plan` 计算) |
 | F14 | 仅地景机场随机规划 | 随机规划时可选「**仅在两端都已安装地景的机场之间生成航线**」,与「Volanta 优先未飞」加权叠加;未检测到地景目录时该选项灰显/跳过(`has_scenery` 软降级) |
+| F15 | 本地航路生成（🚧 v1.4.0） | 无直连 AIP 航路时，用自带 `NavData`(`earth_awy/fix/nav` + `CIFP/`)本地 A* 寻路生成参考航路；含 CIFP SID/STAR 端点选择、双端 AIP 桥接、**沿 airway 加密**(距离精确 + 画图密)。详见 §8.2 |
+| F16 | SimBrief 一键派遣（🚧 v1.4.0） | 结果卡生成 SimBrief custom-options 预填链接(orig/dest/type/airline/fltnum)，用用户**自己浏览器的 SimBrief 登录态**出专业 OFP；零凭据、可公开 |
+| F17 | 机型库可搜索下拉（🚧 v1.4.0） | 机型从 `aircrafts.json`(SimBrief 212 机型，精简剥隐私)选；GUI 可搜索 Combobox，选中给 SimBrief `aircraft_id`，手输兜底 |
+| F18 | 航路交互地图（🚧 v1.4.0） | 每条航路一个「🗺️ 地图」链接，弹独立窗口用 `tkintermapview` 把航路画在 OSM 真实地图上(可拖拽/缩放)，分时段多航路可分别开窗 |
+| F19 | 航路距离 + 偏差（🚧 v1.4.0） | 每条 AIP / 生成航路显示沿 airway 累加的精确长度与「较大圆 +X%」偏差 |
 
 ### 2.2 交互输入项(每轮规划)
 
@@ -330,12 +335,15 @@ class Airport:
 - 地景检测仍需访问 sim 安装目录;MSFS 命名极不规范且无 `ContentHistory.json` 的包可能漏标地景。
 
 ### 8.2 未来规划(摘自 README 更新日志)
-- **本地 A* 航路生成(规划中,v1.4.0):无 AIP 航路时自研寻路**——当 `jp-routes` 查不到某航线的 AIP 航路时,用程序自带 `NavData/` 里的 X-Plane 导航数据(`earth_awy.dat` 航路 / `earth_fix.dat` 航路点 / `earth_nav.dat` 导航台)在本地跑 A* 寻路,自动生成一条参考航路。纯标准库、离线、无第三方依赖。
-  - **背景**:曾评估接入 SimBrief 的 `/v2/routes/generate?orig=&dest=` 端点(逆向可用),但其 Navigraph 登录令牌**只存在浏览器 JS 内存(Local/Session Storage、IndexedDB 全无),磁盘抠不到**,故放弃,改为完全自给。
-  - **方案**:解析三份 `.dat` 建图(节点 = 航路点 / 导航台,按 `(ident, region)` 键;边 = 航路段,权 = 大圆距离,尊重单/双向),A* + 大圆启发,按日本 bbox 过滤、懒加载缓存;新增 `dispatcher/router.py`,`routing.py` 不耦合导航数据。
-  - **范围(v1)**:仅航路段(入航点 → 航路 → 出航点),**不含 SID/STAR**(那需解析 CIFP 程序数据,留作后续);无 AIP 航路时**自动触发**;本地航路网连不通该航线则不显示。
-  - **质量**:生成后做**连贯性检查**——若存在大锐角(接近掉头)转弯,航路照常给出、但标注「可能有问题,请自行检查斟酌」。
-  - **输出**:结果卡单列「🧭 生成航路」并标注「非官方 AIP、仅供参考」。
+- **本地 A* 航路生成(🚧 开发中,v1.4.0,F15):无 AIP 航路时自研寻路**——当 `jp-routes` 查不到直连 AIP 航路时,用程序自带 `NavData/`(`earth_awy/fix/nav` + **`CIFP/` 进离场程序**)在本地 A* 寻路生成参考航路。纯标准库、离线、无第三方。新增 `dispatcher/router.py`,`routing.py` 不耦合。
+  - **背景**:曾评估 SimBrief `/v2/routes/generate`(逆向可用),但其 Navigraph 登录令牌**只在浏览器 JS 内存、磁盘抠不到** → 放弃,改完全自给。
+  - **优先级链**:**Rule 0** 直连官方 AIP(app 层 `find_aip_route`,最高优先,不调 generate)→ **Rule 5** 借「dep→arr附近机场(≤100nm)」的官方 AIP + A* 补接(仅当 ① 干净·无锐角弯 ② ≤1.25×最优 ③ 不冲过头,三闸全过才借)→ **case 1–4** 在端点间 A*。
+  - **端点选择(取自 CIFP，真实管制衔接)**:离场=SID 出口(section E)∪ **本场 VOR**(SID 枢纽);进场=STAR 入口 → 本场 VOR → IAF/IF(APPCH 描述码);全部**连通性过滤**(须在航路网上,剔除孤立进近 VOR);几何最近点作末位兜底。
+  - **质量**:enroute 大锐角(接近掉头)转弯 → 标「请自行检查斟酌」;输出结果卡单列「🧭 生成航路(非官方 AIP、仅供参考)」。
+  - **状态**:核心已实现自测过;**可调旋钮(K=1.25、overshoot=20nm、转弯阈100°、bbox 等)待用户实测后定**;dist 待重编。设计详见 `revisions.md` v1.4.0、规则见 `flight_planning.txt`。
+  - **v1.4.0 续作(同期已实现)**:① Rule 5 升级**双端桥接**(dep 也可用附近机场替身，所借 AIP 头点 ≤50nm DCT 接)；② **航路加密**(Dijkstra 沿 airway 补中间 fix → 距离精确 + 画图密，RJFR→RJEC 11→21 点)；③ **SimBrief 一键派遣(F16)**(生成预填 URL，用用户自己 SimBrief 登录态出 OFP)；④ **机型库(F17)**(`aircrafts.json` 212 机型 + 可搜索下拉)；⑤ **航路交互地图(F18)**(`tkintermapview` 内嵌 OSM 地图，每条航路独立开窗)；⑥ **航路距离/偏差(F19)**。**首次引入第三方库** `tkintermapview`/`Pillow`(仅地图用，缺失自动禁用)。详见 `revisions.md` v1.4.0 续作。
+- **⏸️ 分时段规划 + 向 SimBrief 提交航路(v1.4.0 已尝试 → 整段删除、延后)**:`routes.csv` 的 `Time Restriction`(`EOBT/ETA HHMM-HHMM`，**UTC**) = 分时段载体(全库 366 条)；SimBrief 不看时段会给固定航路。设计:加 GUI 开关「按真实运行时间与规则规划航路」，按起飞时间(**JST−9h=UTC**) + 可选高度/机型从多条 AIP 选适用航路 → 填进 SimBrief `route` 参数(补盲区) + 自己显示也用；夜间提示「因减噪可能更长/复杂」。`build_flight_plan(timed_route=)` / `_build_simbrief_url(route=)` 接口已就绪**并保留**。
+  > **2026-06-27 延后**:计算层一度在 `routing.py` 实现完整(未接 GUI),但「按机型/高度精筛唯一航路」一层不可靠——`Aircraft` 列实为自由文本「适用条件」(混 `JET/DH8D/PROP` 与地理条件 `for AP west of 139E…`、机场条件 `only for RJCW` 等),`JET↔PROP` 靠硬编码白名单**必不完整**;`Altitude` 的 `FLxxx±` 单阈值正则会把 `FL180-FL230` 区间方向解析反——故**整段删除、整体延后**。完整删除代码 + 数据分析见 `revisions.md` v1.4.0「🗑️ 已删除代码留底」。**重做方向**:时间可解析、机型/高度留给用户自选(不程序自动选唯一)。
 - **跨平台兼容(下一大轮次重点)**:提升脚本可用性、扩展到全平台(macOS / Linux 的路径定位与打包),并扩展 Volanta 令牌读取到**非 Chromium 浏览器(Firefox / Safari 等)**的本地存储格式(当前仅支持 Edge/Chrome/Brave 的 LevelDB,见 8.1);
 - 支持非日本地区的航班规划;
 - 基于 FR24 API 的航班查询(Volanta 优先未飞航线已部分满足"避免重复航线"的诉求)。

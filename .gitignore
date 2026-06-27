@@ -22,6 +22,9 @@ airlines.json
 # xp_path_config.txt 旧版 XP 路径记忆（已并入 installed_scenery.json）
 xp_path_config.txt
 
+# ---- aircrafts.json：SimBrief 机型库（精简剥隐私后【入库】分发，故不在此忽略）----
+# 警示：入库版已剥离 airframes/user_id；切勿用含 user_id 的 SimBrief 原始抓取覆盖后提交！
+
 # ---- Volanta 个人数据（隐私：你的真实飞行历史 / 登录态衍生，绝不上传）----
 volanta_data.json
 volanta_flights.json
