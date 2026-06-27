@@ -12,7 +12,114 @@
 - **源码**:列出关键源码段;修改类用 `before →  after`,新增类直接列出新增源码
 - **说明**:改了什么、为什么改(关联 PRD 功能编号或计划)
 
-> 历史版本(v1.1.0 及更早)早于本记录机制建立,且项目非 git 仓库、无逐行 diff,故仅作**概要**记录。
+> 历史版本(v1.1.0 及更早)早于本记录机制建立、无逐行 diff,故仅作**概要**记录。(项目自 v1.2.0 起已纳入私有 Git 仓库 kevin-git-2026/japan-flight-dispatcher。)
+
+---
+
+## v1.3.1(✅ 已实现 · 2026-06-26)— 移除 CLI / 终端 + GUI 配色高亮 + 高分屏适配
+
+- **关联**:用户决策——v1.3.0 GUI 实测稳定,命令行版(CLI/终端)不再需要,移除以精简代码。
+- **目标**:删除 CLI 前端(`dispatcher/app.py` + `--cli` 入口分支)及其【仅服务于 CLI 交互流】的辅助函数;GUI(`dispatcher/gui.py`)成为唯一前端。计算/数据层(`planner`/`routing`/`data`/`scenery`/`volanta` 等)原样保留,GUI 行为零变化。
+
+### 改动总览
+
+| # | 文件 | 位置 | 类型 | 摘要 |
+|---|---|---|---|---|
+| 25 | `dispatcher/app.py` | 整文件 | 删除 | CLI 主循环 + `print_flight_info` 闭包整体删除(GUI 已用 `_render_plan` 渲染同一 `FlightPlan`) |
+| 26 | `flight_dispatcher.py` | 入口 | 修改 | 去掉 `--cli` 分支与 `import sys`,直接 `from dispatcher.gui import run_gui` → `run_gui()` |
+| 27 | `dispatcher/navdata.py` | `find_xp_data_files` + `import sys` | 删除 | 该函数仅 CLI 用(带阻塞 `input()` 粘贴 XP 根的兜底);GUI 启动直接调 `find_navdata_file()`。删后 `import sys` 不再被引用,一并去掉。保留 `find_navdata_file`/`check_airac_currency`/`_is_xp_root`/`locate_xp_root`(`locate_xp_root` 仍供地景扫描用) |
+| 28 | `dispatcher/volanta.py` | `prompt_sync_volanta` + `sync_volanta_via_browser` | 删除 | 二者均仅 CLI 用(Y/N 询问、print+`time.sleep` 轮询);GUI 用「同步 Volanta」按钮 + 自身 180s 可取消轮询替代。保留 `_open_volanta_in_browser`/`try_fetch_volanta_json_via_session`/`set_volanta_auto`/`enable_volanta_auto`(GUI 仍用) |
+| 29 | `dispatcher/__init__.py` | 版本号 + 注释 | 修改 | `__version__` `1.3.0`→`1.3.1`;包注释「转调 dispatcher.app.main」→「转调 dispatcher.gui.run_gui」 |
+| 30 | `dispatcher/planner.py` | 模块头注释 | 修改 | 「CLI(app.py) 与 GUI 各自渲染」→「GUI(gui.py) 据此渲染」(`build_flight_plan` 本身不变) |
+
+### 说明
+- **无 GUI 回归**:被删的 `find_xp_data_files` 的「exe 同级 .dat / 自动扫 XP 安装 / 手动粘贴路径」三个兜底【本就没接到 GUI】(GUI 一直只调 `find_navdata_file()` 读自带 NavData 文件夹)。故移除它不改变 GUI 行为,只是把仅 CLI 才有的兜底一并去掉。分发件本就自带 `NavData/`。
+- **数据/计算层零改动**:`planner.build_flight_plan`、`get_random_route`(含需求 B 地景过滤)、Volanta 数据层、地景扫描全部原样保留。
+
+### 验证(本机)
+- 整包 `py_compile` 通过;`import dispatcher.*`(含 gui)全部 OK,无对已删函数的残留引用(grep 清零);`__version__==1.3.1`。
+- `volanta.py` 删函数后 `import time` 仍被 4 处使用(保留);`navdata.py` `git diff` 确认仅删 `find_xp_data_files`+`import sys`+2 行注释微调。
+- **GUI 无人值守冒烟**:构造 `DispatcherGUI` + 同步跑 `_init_worker` → `_ready=True`、数据就绪(地景62 / AIP1436 / Volanta177),与移除前一致、无崩溃。
+
+### GUI 配色高亮 + 高分屏(DPI)适配(同版追加)
+
+- **背景**:① CLI 移除后,有人觉得 GUI 里 emoji 显得「素」——根因是 **Tk 8.6 在 Text/Label 里不支持彩色 emoji 字体**(只画单色字形),命令行版「彩色」是终端自己渲染、与程序无关;② 2K/4K 屏上窗口发虚像「低分辨率」——根因是进程**未声明 DPI 感知**,被 Windows 位图拉伸(实测本机 150% 缩放 / 144 DPI)。
+- **改动**:
+
+  | # | 文件 | 位置 | 类型 | 摘要 |
+  |---|---|---|---|---|
+  | 31 | `dispatcher/gui.py` | `_render_plan` + 结果卡 Text tag | 修改 | 结果卡**语义配色**:机场代码加粗深蓝、`[地景:…]`绿/`[⚠️无地景]`红、`[🛡️军用]`红、已飞过琥珀、✅完美匹配绿/ℹ️参考橙/❌无排班灰+呼号蓝、绿色加粗标题 + 灰分隔线。逐段 `insert(text, tag)` 替代原「拼大字符串一次插入」 |
+  | 32 | `dispatcher/gui.py` | `run_gui` + 新增 `_enable_hidpi` + `__init__(scale)` | 修改 | **高分屏适配**:`tk.Tk()` 前 ctypes 声明 DPI 感知(Per-Monitor v2 → Per-Monitor → System 逐级兜底)→ Windows 原生像素渲染、锐利;读系统 DPI 算缩放比,`tk scaling=DPI/72` 放大点字号,窗口几何 `980×680` 按比例放大(150% 即 `1470×1020`)。非 Windows/失败回落 `scale=1.0` |
+
+- **配色为何能给 emoji 上色**:Tk 把 emoji 当普通字形画在文字前景色里,所以 tag 的 `foreground` **同时染了字和 emoji**(✅→绿、⚠️/🛡️→橙红)——这是绕开「Tk 无彩色 emoji」限制、不内嵌图片资源就让界面「不素」的关键。
+- **DPI 不会双重缩放**:进程声明感知后 Windows 不再位图拉伸,仅 Tk 的 `tk scaling` 生效;`scaling` 是**设值**(=DPI/72)非累乘,无论 Tk 是否自检到 DPI 都落到正确值。
+- **验证(本机)**:`py_compile` 通过;`_render_plan` headless 渲染 `RENDER_OK`、语义 tag 全部命中、零异常;`_enable_hidpi()` 实测 `scale=1.500`、`tk scaling≈1.998`、窗口 `1470×1020`;用户实机预览确认锐利、配色满意。
+
+---
+
+## v1.3.0(✅ 已实现 · 2026-06-26)— GUI 化(tkinter)+ 地景综合规划
+
+- **关联**:`PRD.md` F1/F5/F13 + GUI;实现计划 `bubbly-wishing-lobster.md`(v1.3.0)。
+- **目标**:① 给程序做图形界面(tkinter,保持纯标准库),GUI 作默认前端、CLI 保留(`--cli`);② 随机规划新增「仅在两端都已装地景的机场间抽线」开关,与 Volanta 优先未飞加权叠加。
+- **核心架构原则**:GUI 是薄表现层,复用现有数据函数;先把 `print_flight_info` 的「计算」与「渲染」解耦成结构化结果(`planner.py`),CLI/GUI 各自渲染、共享同一计算 → 将来换 GUI 框架只动 `gui.py` 一层。
+
+### 改动总览
+
+| # | 文件 | 位置 | 类型 | 摘要 |
+|---|---|---|---|---|
+| 18 | `dispatcher/__init__.py` | 版本号 | 修改 | `__version__` `1.2.0`→`1.3.0` |
+| 19 | `dispatcher/planner.py` | 新增模块 | 新增 | `@dataclass FlightPlan` + `build_flight_plan(...)`(计算:FlightAware 抓取 + 无排班降级模拟呼号)+ 共享 `parse_runway_ft`/`parse_dist` |
+| 20 | `dispatcher/app.py` | `print_flight_info` + 主循环 + import | 修改 | 渲染部分改调 `build_flight_plan`(**输出逐字不变**);加需求 B 问句 + 传参;移除 `random`/`fetch_real_flights_with_filter`/`pick_sim_airline` 直接 import |
+| 21 | `dispatcher/routing.py` | `get_random_route` | 修改 | 末尾加 `require_both_scenery=False` 参 + 距离过滤后一行 `has_scenery` 过滤 |
+| 22 | `dispatcher/volanta.py` | 数据层 | 新增 | `set_volanta_auto(enabled)`(写 `preference` auto/ask,供 GUI 复选框双向控制) |
+| 23 | `dispatcher/gui.py` | 新增模块 | 新增 | `DispatcherGUI` + `run_gui()`:tkinter 窗体、后台线程、`_TkTextWriter` stdout 重定向、Volanta 控件、需求 B 复选框、`_render_plan` |
+| 24 | `flight_dispatcher.py` | 入口 | 修改 | 默认 `run_gui()`;`--cli` → `dispatcher.app.main()`(惰性 import,`--cli` 不加载 tkinter) |
+
+### 关键详细记录
+
+#### 改动 19 — planner.py（计算 / 渲染解耦）
+- `build_flight_plan(dep_obj, arr_obj, route_dist, route_details, user_airline, user_aircraft, user_time_range, flown_count)` → `FlightPlan`:搬入原 `print_flight_info` 的计算部分——`fetch_real_flights_with_filter` 抓取、`url` 拼接、无排班时 `pick_sim_airline` + `random.randint(11,899)`(**呼号在此算一次**,CLI/GUI 一致)。`FlightPlan` 含 dep/arr(Airport)、dist_nm、flown_count、aip_routes、real_flights、is_exact、sim_callsign、url。
+- `parse_runway_ft`/`parse_dist`:GUI 用的输入解析,与 app.py 内联解析口径一致(CLI 仍用其内联解析,保证逐字不变)。
+
+#### 改动 20 — app.py print_flight_info 重构
+- **before**:内联 `is_exact, real_flights = fetch_real_flights_with_filter(...)` + 内联 `sim_airline_code = user_airline or pick_sim_airline(...)` + `{...}{random.randint(11,899)}`。
+- **after**:`plan = build_flight_plan(...)`,渲染改用 `plan.is_exact`/`plan.real_flights`/`plan.sim_callsign`/`plan.url`;**所有 print 格式串原样保留**(实测 RJTT→RJBB 输出与重构前逐字一致)。
+- 需求 B 问句(strict_aip 之后,仅 `scenery_map is not None` 时问):`require_both_scenery = input("🌍 是否仅在【两端都已安装地景】的机场间随机规划？(Y/N): ")...=='Y'`;随机调用处传 `require_both_scenery=...`(固定双端分支不传,不受影响)。
+
+#### 改动 21 — routing.py 地景过滤(需求 B)
+- **after**(`get_random_route` 枚举循环内,距离过滤之后):
+  ```python
+  if not (min_dist <= dist <= max_dist): continue
+  if require_both_scenery and not (ap1.has_scenery and ap2.has_scenery): continue   # 新增
+  if strict_aip and (ap1.code, ap2.code) not in (aip_index or set()): continue
+  ```
+- 边界:`has_scenery` 在 `scenery_sources is None`(未检测)时为 True → 过滤自然失效;零候选抛 `RuntimeError("未能找到...")` 被调用方接住。
+
+#### 改动 23 — gui.py（tkinter 表现层）
+- **线程**:Tk mainloop 在主线程;初始化/规划/Volanta 同步走 `threading.Thread(daemon=True)`,UI 更新一律经 `root.after()`(`self._post`)回主线程。
+- **stdout 重定向**:`_TkTextWriter` 把 `sys.stdout/stderr` 接到「日志框」,在任何复用函数运行前安装 → 解决 `--windowed` 下 `sys.stdout=None` 会让复用函数 `print()` 崩溃的问题,且现有 print 自动成为 GUI 状态日志(业务逻辑零改动)。
+- **NavData 兜底**:启动 worker 直接调 `find_navdata_file()`(纯函数,不走 app.py 那个有阻塞 `input()` 的 `find_xp_data_files`);缺失则 `messagebox` 提示去 Navigraph 下载。
+- **Volanta**:「同步 Volanta」按钮(先试 session token,否则开浏览器后台轮询 180s、`threading.Event` 可取消)+「自动同步」复选框(`set_volanta_auto`)+ 状态标签。
+- **需求 B**:「仅两端有地景」复选框;`scenery_map is None` 时灰显 + 提示「未检测到地景目录,无法按地景筛选」。
+- **结果**:`_render_plan(plan)` 把 `FlightPlan` 渲染进只读 Text(复用 `Airport.scenery_label()`/`is_military`),FlightAware URL 作可点链接(tag + `webbrowser.open`)。
+
+### 打包变更
+- GUI 版打包命令改为 **`pyinstaller --onefile --windowed flight_dispatcher.py`**(`--windowed` 去控制台 → stdout 重定向必做)。运行目录数据文件仍由 `get_real_run_path()` 锚定 `sys.executable` 目录(冻结模式不变)。CLI 走源码 `python flight_dispatcher.py --cli`。
+
+### 验证(本机)
+- 整包 `py_compile` 通过。
+- 需求 B 单测:`require_both_scenery=True` 仅在地景机场间抽线;`=False` 含无地景;`scenery=None` 过滤失效仍能抽线 —— 全过。
+- **CLI 重构等价**:`--cli` 跑 RJTT→RJBB,航线卡(地景标注/距离/Volanta 已飞6次/AIP 航路/FlightAware 完美匹配5条/链接)与重构前逐字一致;新增地景问句正确出现。
+- **GUI 源码**:无人值守冒烟 `_ready=True`、数据就绪(地景62/AIP1436/Volanta177)、stdout 重定向生效、无崩溃;触发 RJTT→RJBB 规划,结果框渲染与 CLI 一致、链接可点。
+- **windowed 冻结**:`--onefile --windowed` 构建成功,启动 exe 9s 不崩(证明 None-stdout 重定向在冻结模式生效)。
+
+### 🐛 Bugfix(2026-06-26)— Volanta 登录落地页 `/flights` → `/map`
+
+- **现象**(用户实测):程序为未登录用户打开 `https://fly.volanta.app/flights` 时,该页**卡在加载**(航班页要求已登录),导致登录流程走不下去、轮询不到令牌。
+- **根因**:`/flights` 对未登录会话不可用;应先让用户在能正常完成登录的页面登录。
+- **修法**(`dispatcher/volanta.py` + `gui.py`):新增常量 `_VOLANTA_LOGIN_URL = "https://fly.volanta.app/map"`,`_open_volanta_in_browser` 默认落地页由 `/flights` 改为 **`/map`**(地图页可正常登录);`sync_volanta_via_browser` 与 GUI Volanta worker 的提示文案同步改为「地图页登录」。CLI 与 GUI 都经 `_open_volanta_in_browser()` 走默认 URL,故一处改全生效。
+- **令牌生命周期(本就正确,文档补明)**:登录后 Orbx 令牌有效约 **14 天**;`try_fetch_volanta_json_via_session` 在 14 天内**直接用令牌调 API、不开浏览器**(`_extract_volanta_api_token` 校验 `exp`,过期令牌跳过 → 触发再次引导到 `/map` 登录拿新令牌)。本次只改落地页,令牌→API 路径不动。
+- **验证**:`py_compile` 通过;grep 确认代码中 `/flights` 落地页引用清零(仅 revisions 历史记录保留);文档(CLAUDE/PRD/README)同步为 `/map`。
 
 ---
 

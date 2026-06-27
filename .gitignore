@@ -34,6 +34,13 @@ NavData/
 earth_aptmeta.dat
 scenery_packs.ini
 
+# ---- 逆向 / 排查草稿（可能含会话令牌等敏感信息，绝不入库）----
+analysis.txt
+console.txt
+
+# ---- 发布打包的 zip（走 GitHub Releases，不进版本库）----
+*.zip
+
 # ---- 编辑器 / 操作系统杂项 ----
 .vscode/
 .idea/

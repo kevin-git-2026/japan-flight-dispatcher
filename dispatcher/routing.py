@@ -21,7 +21,7 @@ def find_aip_route(routes_data, dep_icao, arr_icao):
     return [", ".join(row) for row in routes_data if row[0].strip().upper() == dep_icao.upper() and row[1].strip().upper() == arr_icao.upper()] or None
 
 
-def get_random_route(airport_list, min_dist, max_dist, aip_routes_data=None, strict_aip=False, fixed_dep=None, fixed_dest=None, flown_counts=None, aip_index=None):
+def get_random_route(airport_list, min_dist, max_dist, aip_routes_data=None, strict_aip=False, fixed_dep=None, fixed_dest=None, flown_counts=None, aip_index=None, require_both_scenery=False):
     if len(airport_list) < 2: raise ValueError("可用机场太少，无法生成航线。")
     flown_counts = flown_counts or {}
 
@@ -47,6 +47,8 @@ def get_random_route(airport_list, min_dist, max_dist, aip_routes_data=None, str
             if ap1.code == ap2.code: continue
             dist = calculate_distance_nm(ap1, ap2)
             if not (min_dist <= dist <= max_dist): continue
+            # 需求 B：仅在两端都已安装地景的机场间抽线（has_scenery 在未检测 None 时为 True，过滤自然失效）
+            if require_both_scenery and not (ap1.has_scenery and ap2.has_scenery): continue
             if strict_aip and (ap1.code, ap2.code) not in (aip_index or set()): continue
             count = flown_counts.get((ap1.code, ap2.code), 0)
             w = 1.0 / (count + 1) ** 2

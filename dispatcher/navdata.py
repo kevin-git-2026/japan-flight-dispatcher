@@ -1,9 +1,8 @@
 # ================= 导航数据定位 / AIRAC 自检 / X-Plane 安装根定位 =================
 # 功能 A：导航数据以「程序自带 NavData 文件夹」为主方案，彻底解耦 X-Plane；
-# 并在启动时自检 AIRAC 周期是否过期。X-Plane 根定位既作导航数据兜底，也供地景扫描复用。
+# 并在启动时自检 AIRAC 周期是否过期。X-Plane 安装根定位（locate_xp_root）供地景扫描复用。
 
 import os
-import sys
 import re
 import datetime
 
@@ -72,7 +71,7 @@ def check_airac_currency(navdata_path):
         pass
 
 
-# ---- 通用定位 X-Plane 安装根（导航数据兜底 + 地景扫描共用）----
+# ---- 通用定位 X-Plane 安装根（地景扫描共用）----
 
 def _is_xp_root(root_path):
     """粗判一个目录是否像 X-Plane 安装根（有 Custom Scenery 或 Custom Data 即可）。"""
@@ -107,93 +106,3 @@ def locate_xp_root():
                 _update_sim_config(xp_root=test_root)
                 return test_root
     return None
-
-
-def find_xp_data_files():
-    """定位导航数据 earth_aptmeta.dat（功能 A 后主方案=程序自带 NavData）+ 可选 scenery_packs.ini。
-    优先级：0.程序自带 NavData -> 1.exe 同级目录 -> 2.记忆/全盘扫描 XP -> 3.手动输入。
-    地景检测已改为功能 B 多源扫描，故 ini 一律「可选」（缺失则地景走功能 B / 软降级）。"""
-    real_dir = get_real_run_path()
-    local_dat = os.path.join(real_dir, "earth_aptmeta.dat")
-    local_ini = os.path.join(real_dir, "scenery_packs.ini")
-    opt_ini = local_ini if os.path.exists(local_ini) else None
-
-    # 🌟 优先级 0：程序根目录自带的 NavData 文件夹（彻底解耦 XP，对只飞 MSFS 的用户也适用）
-    nav = find_navdata_file()
-    if nav:
-        print(f"📁 已读取程序自带的 NavData 导航数据：{os.path.relpath(nav, real_dir)}")
-        return nav, opt_ini
-
-    # 🌟 优先级 1：如果用户主动把 earth_aptmeta.dat 放在 exe 同级目录，直接使用（ini 可选）
-    if os.path.exists(local_dat):
-        print("📁 优先检测到本目录内的 earth_aptmeta.dat，将直接读取。")
-        return local_dat, opt_ini
-
-    def check_xp_root(root_path):
-        if not os.path.exists(root_path): return None, None
-        ini = os.path.join(root_path, "Custom Scenery", "scenery_packs.ini")
-        # 兼容两种导航数据常见的存放层级
-        dat1 = os.path.join(root_path, "Custom Data", "earth_aptmeta.dat")
-        dat2 = os.path.join(root_path, "Custom Data", "earth_nav_data", "earth_aptmeta.dat")
-        dat = dat1 if os.path.exists(dat1) else (dat2 if os.path.exists(dat2) else "")
-        if os.path.exists(ini) and os.path.exists(dat):
-            return dat, ini
-        return None, None
-
-    config_path = os.path.join(real_dir, "xp_path_config.txt")
-
-    # 🌟 优先级 2：检查上次成功运行后保存的路径配置
-    if os.path.exists(config_path):
-        with open(config_path, "r", encoding="utf-8") as f:
-            saved_root = f.read().strip()
-            d, i = check_xp_root(saved_root)
-            if d and i:
-                print(f"📁 成功读取已保存的 X-Plane 目录:\n   {saved_root}")
-                return d, i
-
-    # 🌟 优先级 3：暴力美学！遍历所有盘符扫描常见安装路径
-    print("🔍 未检测到本地文件或配置文件，正在全盘智能扫描 X-Plane 11/12 安装目录...")
-    drives = []
-    if sys.platform == 'win32':
-        import string
-        drives = [f"{d}:\\" for d in string.ascii_uppercase if os.path.exists(f"{d}:\\")]
-    else:
-        drives = ['/']
-
-    common_paths = [
-        r"Program Files (x86)\Steam\steamapps\common\X-Plane 12",
-        r"Program Files (x86)\Steam\steamapps\common\X-Plane 11",
-        r"SteamLibrary\steamapps\common\X-Plane 12",
-        r"SteamLibrary\steamapps\common\X-Plane 11",
-        r"Steam\steamapps\common\X-Plane 12",
-        r"Steam\steamapps\common\X-Plane 11",
-        r"X-Plane 12",
-        r"X-Plane 11"
-    ]
-
-    for drive in drives:
-        for cp in common_paths:
-            test_root = os.path.join(drive, cp)
-            d, i = check_xp_root(test_root)
-            if d and i:
-                print(f"✅ 自动扫描大成功！找到 X-Plane 目录:\n   {test_root}")
-                with open(config_path, "w", encoding="utf-8") as f:
-                    f.write(test_root)
-                return d, i
-
-    # 🌟 优先级 4：所有方法失效，请求用户自己喂饭，并永远记住！
-    print("\n⚠️ 无法自动定位 X-Plane 根目录 (可能安装在了非常规路径)。")
-    while True:
-        user_root = input("📂 请直接粘贴您的 X-Plane 11/12 根目录路径 (右键粘贴，回车确认): ").strip().strip('"').strip("'")
-        if not user_root:
-            print("❌ 未提供路径，程序将继续使用缺失状态运行。")
-            return local_dat, local_ini
-
-        d, i = check_xp_root(user_root)
-        if d and i:
-            print("✅ 验证成功！已记住该路径，下次打开无需再次输入。")
-            with open(config_path, "w", encoding="utf-8") as f:
-                f.write(user_root)
-            return d, i
-        else:
-            print("❌ 错误: 在该目录下找不到 Custom Scenery 或 Custom Data 数据，请检查路径是否正确！")

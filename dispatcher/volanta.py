@@ -187,19 +187,23 @@ def enable_volanta_auto():
     _save_data(data)
 
 
-def prompt_sync_volanta():
-    """未开启自动同步时询问用户是否同步 Volanta 数据。返回 True 表示同意。
-    选 Y 后由调用方把偏好持久化为「自动」，以后启动不再询问；选 N/回车则下次启动再问（不锁死）。"""
-    print("\n🛩️ 是否同步 Volanta 已飞数据？同步后随机规划会优先你还没飞过的航线。")
-    print("   • 选 Y：用浏览器里的 Volanta 登录会话自动获取（必要时打开浏览器登录），")
-    print("          且【以后启动自动同步、不再询问】。")
-    print("   • 回车/N：本次跳过，下次启动再问。")
-    return input("   👉 同步请输入 Y，跳过请直接回车: ").strip().upper() == "Y"
+def set_volanta_auto(enabled):
+    """设置同步偏好：enabled=True → 'auto'(以后静默自动同步)；False → 'ask'(每次启动询问)。
+    供 GUI「自动同步」复选框双向控制(enable_volanta_auto 只能开、不能关)。"""
+    data = _load_data()
+    data["preference"] = "auto" if enabled else "ask"
+    _save_data(data)
 
 
-def _open_volanta_in_browser(url="https://fly.volanta.app/flights"):
-    """优先用 Edge 打开 Volanta；找不到 Edge 则回退默认浏览器/非 Windows。
-    打开页面是为了让用户(在需要时)登录，从而在 localStorage 里刷新出有效的登录令牌。"""
+# 引导登录用的落地页：用「地图页 /map」而非「航班页 /flights」——/flights 对【未登录】用户会卡在加载，
+# 而 /map 能正常完成登录。登录后 Orbx 令牌(有效约 14 天)写进 localStorage，程序据此直接调 API；
+# 14 天内直接用令牌请求(无需再开浏览器)，令牌过期后再次引导到 /map 登录拿新令牌。
+_VOLANTA_LOGIN_URL = "https://fly.volanta.app/map"
+
+
+def _open_volanta_in_browser(url=_VOLANTA_LOGIN_URL):
+    """优先用 Edge 打开 Volanta 地图页(/map)让用户登录；找不到 Edge 则回退默认浏览器/非 Windows。
+    用 /map 而非 /flights：后者对未登录用户会卡加载。登录后 localStorage 会刷新出有效的 Orbx 令牌。"""
     edge = None
     try:
         import shutil
@@ -227,34 +231,6 @@ def _open_volanta_in_browser(url="https://fly.volanta.app/flights"):
         return True
     except Exception:
         return False
-
-
-def sync_volanta_via_browser(timeout=180):
-    """打开浏览器让用户登录 Volanta，轮询直到能用其登录会话拉到完整航班数据为止。
-    返回 (synced, flown_counts, meta)：synced=True 表示拿到了可用数据、今天可标记已同步。
-    用户登录后，localStorage 里会出现有效的 Orbx 登录令牌，try_fetch_volanta_json_via_session()
-    即可用它在本机调 /api/v1/Flights 拿到完整 JSON——无需滚动、无需开发者工具。"""
-    print("🌐 即将打开 Edge 浏览器并跳转 Volanta(/flights)。")
-    print("   👉 请【登录】即可——登录后程序会用你的登录会话【自动获取全部航班】(无需任何操作)。最多等 3 分钟。")
-    if not _open_volanta_in_browser():
-        print("⚠️ 无法自动打开浏览器，请手动打开 https://fly.volanta.app/flights 。")
-    waited, interval = 0, 3
-    while waited < timeout:
-        time.sleep(interval)
-        waited += interval
-        # 用户登录后，用其登录会话(localStorage 里的 Orbx token)直接拉完整 API 数据
-        if try_fetch_volanta_json_via_session():
-            counts, meta = load_volanta_flown_routes()
-            print(f"✅ 已通过登录会话获取完整航班数据(约 {waited}s，共 {len(counts)} 条有向航线)。")
-            return True, counts, meta
-        print(f"   ⏳ 等待登录/获取中…({waited}/{timeout}s)")
-    # 超时兜底：尽力读现有数据(已存的 json/CSV/累积库)——有就照常启用，没有才放弃
-    counts, meta = load_volanta_flown_routes()
-    if counts:
-        print(f"⚠️ 等待超时，使用现有已飞数据(共 {len(counts)} 条有向航线)。")
-        return True, counts, meta
-    print("⚠️ 等待超时，未获取到 Volanta 数据，本次不启用「优先未飞」。")
-    return False, counts, meta
 
 
 def _load_volanta_csv(path):
