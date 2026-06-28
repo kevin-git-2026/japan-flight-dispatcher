@@ -80,6 +80,21 @@ SimBrief 抓的 909KB → 精简 34KB(212 机型，每行一条，字段 id/icao
 
 **验证**：`compileall` 全过；**GUI headless 构造冒烟成例**(教训：曾把机型 `Entry`(`e_ac`)换 `Combobox`(`self.cb_aircraft`) 漏改 `_form_widgets` 旧引用，编译过但启动 `NameError`「打不开主程序」——`py_compile` 只查语法、抓不到运行时未定义名。此后 GUI 改动一律先 headless 构造 + `_render_plan` + `_open_map` 冒烟，见记忆 `gui-headless-smoke`)。RJFR→RJEC 双端=西线 840.9；加密 21 点；RJSF→RJBB 2 条分时段 AIP 各自开图 OK；机型 737→B738/Q400→DH8D。
 
+### 🐛 Bugfix(2026-06-28)— Volanta 同步在 /map 登录后超时：根因是 localStorage 落盘延迟
+
+- **现象**(alpha1 用户)：点「同步 Volanta」→ Edge 开 `/map` → 登录后卡在「正在同步」直到 180s 超时；重开再试仍失败；只有手动进 `/flights` 刷新+滚动飞行列表才「勉强同步上」。
+- **排查**（只读探针 `scratchpad/volanta_token_probe.py`：按 `iss` 归类 + proximity 检查；用全新空 Edge profile 隔离、零残留）：**登录后一直待在 `/map`，Orbx 令牌照样在 +63s 出现**（JWT 0→1、未过期、proximity OK）。结论：
+  - 令牌在 **`/map` 登录后就生成**（浏览器内存里），**不需要** `/flights`；
+  - 真正瓶颈是 **Chromium 把 localStorage 从内存写到磁盘有 ~30s~1min 延迟（空闲更久、偶尔 >180s）**，而程序读的是磁盘 leveldb，故要等落盘才看得见；
+  - 用户「滚 `/flights`」之所以「勉强成功」，是滚动/导航产生 localStorage 写入**触发了提前落盘**，并非 `/flights` 才生成令牌。
+  - 这**推翻**了一度以为的「`/map` 不生成令牌、只有 `/flights` 才生成」的假设。proximity 就近校验实测一直 OK，**未改**。
+- **修法**：
+  - **`gui.py` `_volanta_worker`**：轮询窗口 **180→300s**（`_VOLANTA_POLL_CAP`，给落盘留足余量）；新增**两段醒目弹窗**（状态栏易被忽略）——①开始即弹「正在等待令牌写入磁盘（约 30s~1min），登录后请稍候，可滚动加速」；②约 60s 仍无令牌再弹「请去航班(Flights)页刷新+滚动飞行列表催落盘」；**成功**也弹「✅ 已读取 N 条」。**不自动开 `/flights`**（改弹窗引导用户去做，规避未登录时 `/flights` 卡加载）。
+  - **`volanta.py`**：新增 `diagnose_volanta_session()`（只读，返回 `token_ok/no_dirs/empty/orbx_expired/no_orbx` 类别，**绝不返回/打印令牌**）+ `try_fetch_volanta_json_via_session(..., diag=False)`：失败时按类别打一行**固定**中文提示。`diag=True` 仅用于「快路径」与「启动自动同步」（**不在 3s 轮询里开**，避免刷屏）。
+- **隐私**：诊断只输出固定类别串（`_DIAG_MSGS`）；grep 确认所有 `print` 无任何 token/payload 插值。
+- **验证**：`py_compile` 过；headless 构造 + worker 快路径 + 两弹窗 + 诊断（no_dirs/token_ok）全过；端到端实拉到 178 条航线。**✅ 用户真机已走通完整流程（2026-06-28 确认功能无误）**：清空令牌后开程序→开浏览器到 `/map`→弹窗①→状态计数→登录→令牌落盘→成功弹窗，时序与落盘等待体验符合预期。
+- **版本**：本次提交把 `dispatcher/__init__.py` 的 `__version__` 升到 `1.4.0_alpha2`（v1.4.0 第二个 alpha，含本 Volanta 修复）。
+
 ### ⏸️ 分时段规划 + 向 SimBrief 提交航路（**设计保留、功能延后** · 2026-06-27）
 
 > **状态**：计算层一度在 `routing.py` 完整实现，但**从未接进 GUI**（dead code），且「按机型/高度精筛唯一航路」一层不可靠 → 按用户决定**整段删除、整体延后**。完整被删代码 + 删除原因见本节末「🗑️ 已删除代码留底」。以下设计意图**保留**，供日后重做参考；`planner` 的休眠接口 `build_flight_plan(timed_route=)` / `_build_simbrief_url(route=)` 也保留。用户将另写业务文档系统梳理可分析逻辑。

@@ -99,7 +99,7 @@ GUI 用「**同步 Volanta**」按钮 + 「**自动同步**」复选框管理 Vo
 
 | 操作 | 行为 |
 | --- | --- |
-| 点「同步 Volanta」 | 先用浏览器里已有的 Volanta 登录会话直接拉取(无需开窗);取不到有效令牌才打开 Edge(回退默认浏览器)跳转 **`fly.volanta.app/map`**(地图页,`/flights` 对未登录用户会卡加载)让用户**登录**,后台每 3 秒轮询直到拉到 `/api/v1/Flights` 数据(可随时点「取消同步」,最长 3 分钟) |
+| 点「同步 Volanta」 | 先用浏览器里已有的登录会话直接拉取(无需开窗);取不到有效令牌才打开 Edge(回退默认浏览器)跳转 **`fly.volanta.app/map`** 让用户**登录**。令牌在 `/map` 登录后即生成,但 Chromium 把它写到磁盘有 ~30s~1min 延迟,故后台每 3s 轮询、**最长 5 分钟**,并用**弹窗**引导:①开始即弹「正在等待令牌写入,登录后请稍候,可滚动加速」;②约 1 分钟仍无则弹「请去航班(Flights)页刷新+滚动催落盘」;成功也弹提示(可随时点「取消同步」) |
 | 勾选「自动同步」 | `set_volanta_auto(True)` 写 `auto`,以后启动自动同步;取消勾选写 `ask` |
 
 > 行为约定:
@@ -233,7 +233,7 @@ class Airport:
 - **数据来源(主)**:Volanta 的 **`/api/v1/Flights` 接口**(一次返回全部航班的干净 JSON)。程序用**用户自己浏览器里 Volanta 的登录会话令牌**(localStorage 里的 Orbx JWT)自动调用它并保存为 `volanta_flights.json`——零操作,逆向定位与安全边界详见下方「最佳数据源」条。
 - **解析方式**:`_load_volanta_json` 逐条解析 `volanta_flights.json`(每条为 `{flight:{...}, summarisedPositions:[...]}`,取 `flight.originIcao`/`destinationIcao`),**统计每条有向航线的已飞次数**得到 `dict{(dep, arr): count}`(供加权抽取用)。纯标准库,契合「仅标准库 + PyInstaller」硬约束。
 - **统计口径**:`sum(count)` = 总飞行次数(与 Volanta「已完成航班数」对齐,实测两者一致),`len(dict)` = 去重后的不同有向航线数;**自环航班**(`dep==arr`,本场/复飞)对 A→B 规划无意义,跳过。启动提示同时显示二者(如「230 次飞行、覆盖 177 条不同有向航线」)。
-- **浏览器同步(登录兜底)**:在「未开启自动、用户本次选 Y」且本机已有登录会话取不到有效令牌时触发;打开 **`fly.volanta.app/map`**(地图页;**不用 `/flights`——它对未登录用户会卡在加载**)让用户**登录**,随后**轮询 `try_fetch_volanta_json_via_session` 直到新令牌出现、API 拉取成功**(无需滚动,最长 3 分钟兜底)。Orbx 令牌有效约 14 天,期间直接用令牌调 API、不再开浏览器;过期后再次引导到 `/map` 登录拿新令牌。同步偏好持久化在 `volanta_data.json` 的 `preference`(`auto`)(详见 2.4)。
+- **浏览器同步(登录兜底)**:在「未开启自动、用户本次选 Y」且本机已有登录会话取不到有效令牌时触发;打开 **`fly.volanta.app/map`** 让用户**登录**,随后**轮询 `try_fetch_volanta_json_via_session` 直到令牌落盘、API 拉取成功**。**令牌在 `/map` 登录后即生成**(不需 `/flights`),但 **Chromium 把 localStorage 从内存写到磁盘有 ~30s~1min 延迟(空闲更久、偶尔 >180s)**,程序读磁盘 leveldb 故需等落盘——这是旧 180s 偶尔超时的根因(2026-06-28 修)。现轮询放宽到 **300s** 并用两段弹窗引导(开始「等待写入」/ 约 1 分钟后「去航班页刷新+滚动催落盘」),成功也弹提示;滚动/导航会产生 localStorage 写入触发提前落盘(这就是用户手动滚 `/flights` 能成功的原因)。Orbx 令牌有效约 14 天,期间直接用令牌调 API、不再开浏览器;过期后再次引导到 `/map` 登录。同步偏好持久化在 `volanta_data.json` 的 `preference`(详见 2.4)。
 - **方向语义**:有向(`RJTT→RJBB` ≠ `RJBB→RJTT`)。
 - **CSV 兜底(可选)**:工作目录放入 Volanta 官方导出的 `volanta_flights.csv` 时,用标准库 `csv` 解析其起降列,每条飞行对已飞次数 `+1`,累加进同一 `dict`。仅作离线兜底——官方导出需排队约 15 天,日常完整数据已由上面的会话自动拉取覆盖。
 - **最佳数据源 `/api/v1/Flights`(程序用登录会话自动拉取)**:浏览器懒加载导致缓存常不完整;最干净完整的来源是 **`/api/v1/Flights` 接口**(一次返回全部航班)。程序用**用户自己浏览器里自己的 Volanta 登录令牌**直接调它(类比 yt-dlp 的 `--cookies-from-browser`):

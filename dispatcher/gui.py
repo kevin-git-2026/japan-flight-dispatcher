@@ -310,10 +310,10 @@ class DispatcherGUI:
             auto = volanta_auto_enabled()
             if auto:
                 print("🔑 正在用 Volanta 登录会话自动同步已飞数据...")
-                if try_fetch_volanta_json_via_session(skip_if_fresh=3600):
+                if try_fetch_volanta_json_via_session(skip_if_fresh=3600, diag=True):
                     print("✅ Volanta 已飞数据已是最新。")
                 else:
-                    print("ℹ️ 未能自动刷新（登录可能已过期，可点「同步 Volanta」重新登录），沿用已保存的数据。")
+                    print("ℹ️ 未能自动刷新，沿用已保存的数据。（如需更新，可点「同步 Volanta」）")
             flown, vmeta = load_volanta_flown_routes()
 
             self._post(self._on_init_done, dat, scenery_map, aip, aip_index, flown, vmeta, auto)
@@ -655,25 +655,35 @@ class DispatcherGUI:
         self._set_vstatus("Volanta：正在同步…")
         self._run_bg(self._volanta_worker)
 
+    # Volanta 同步轮询窗口：令牌在 /map 登录后即生成，但 Chromium 把它从内存写到磁盘（我们读的 leveldb）
+    # 有 ~30 秒~1 分钟延迟、空闲时甚至更久——这正是旧的 180s 偶尔超时的根因。放宽到 300s，并用弹窗引导。
+    _VOLANTA_POLL_CAP = 300
+
     def _volanta_worker(self):
         try:
-            # 1) 先试本机已有登录会话（无需开浏览器）
-            if try_fetch_volanta_json_via_session():
+            # 1) 快路径：本机已有有效令牌（14 天内同步过）→ 无需浏览器
+            if try_fetch_volanta_json_via_session(diag=True):
                 self._post(self._volanta_synced)
                 return
-            # 2) 打开浏览器登录，后台每 3s 轮询，最长 180s，可取消
-            self._post(self._set_vstatus, "Volanta：已打开浏览器，请在 Volanta 地图页登录…")
+            # 2) 打开 /map 让用户登录。令牌登录后即生成，但要等它从内存写到磁盘才读得到。
+            self._post(self._set_vstatus, "Volanta：已打开浏览器，请在地图页登录…")
             _open_volanta_in_browser()
+            self._post(self._volanta_popup_wait)              # 醒目弹窗①：正在等待令牌写入
             waited = 0
-            while waited < 180 and not self._cancel_evt.is_set():
+            popup2_done = False
+            while waited < self._VOLANTA_POLL_CAP and not self._cancel_evt.is_set():
                 self._cancel_evt.wait(3)
                 waited += 3
                 if self._cancel_evt.is_set():
                     break
-                if try_fetch_volanta_json_via_session():
+                if try_fetch_volanta_json_via_session():      # 轮询不开 diag，避免每 3s 刷屏（状态栏+弹窗已反馈）
                     self._post(self._volanta_synced)
                     return
-                self._post(self._set_vstatus, f"Volanta：等待登录/获取中…（{waited}/180s）")
+                self._post(self._set_vstatus,
+                           f"Volanta：登录后请稍候，正在等待令牌写入磁盘…（{waited}/{self._VOLANTA_POLL_CAP}s）")
+                if (not popup2_done) and waited >= 60:        # 约 1 分钟仍无 → 弹窗②升级引导
+                    popup2_done = True
+                    self._post(self._volanta_popup_flights)
             if self._cancel_evt.is_set():
                 self._post(self._set_vstatus, "Volanta：已取消同步。")
             else:
@@ -683,11 +693,37 @@ class DispatcherGUI:
         finally:
             self._post(self._finish_volanta)
 
+    def _volanta_popup_wait(self):
+        """醒目弹窗①：告知令牌登录后约 30s~1min 才写盘、程序会自动获取（状态栏易被忽略，故用弹窗）。"""
+        try:
+            messagebox.showinfo(
+                "Volanta 同步",
+                "已打开 Volanta 登录页。请点「确定」后在浏览器中登录。\n\n"
+                "登录后，令牌需要约 30 秒~1 分钟才会写入磁盘，程序会自动获取，请耐心等待。\n"
+                "想更快：在 Volanta 页面上滚动或点几下即可。")
+        except Exception:
+            pass
+
+    def _volanta_popup_flights(self):
+        """醒目弹窗②：约 1 分钟仍未获取到时升级引导——去航班页刷新 + 滚动，催令牌尽快写盘。"""
+        try:
+            messagebox.showinfo(
+                "Volanta 同步 · 仍在等待",
+                "还没获取到登录令牌。请在浏览器打开 Volanta 的「航班 / Flights」页，\n"
+                "刷新该页并向下滚动飞行记录列表——这会促使令牌尽快写入磁盘。\n\n"
+                "程序仍在后台自动获取，关闭本提示不影响。")
+        except Exception:
+            pass
+
     def _volanta_synced(self):
         flown, vmeta = load_volanta_flown_routes()
         self.flown_counts = flown
         self._apply_volanta(flown, vmeta)
         print(f"✅ Volanta 同步完成：{len(flown)} 条有向航线。")
+        try:                                                  # 成功也给个醒目反馈（同步多在用户切到浏览器时完成）
+            messagebox.showinfo("Volanta 同步", f"✅ 同步完成：已读取 {len(flown)} 条有向航线。")
+        except Exception:
+            pass
 
     def _apply_volanta(self, flown, vmeta):
         self.flown_counts = flown or {}

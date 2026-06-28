@@ -397,11 +397,50 @@ def _fetch_volanta_flights_json(token, timeout=15):
         return None
 
 
-def try_fetch_volanta_json_via_session(timeout=15, skip_if_fresh=0):
+def diagnose_volanta_session():
+    """只读、隐私安全地判断「此刻为什么读不到 Orbx 令牌」，返回一个【类别字符串】（绝不含任何令牌/payload）：
+      "token_ok"     可用 Orbx 令牌已在磁盘上（此刻应能同步）
+      "no_dirs"      没找到 Chromium(Edge/Chrome/Brave) 的本地存储目录
+      "empty"        读到的本地存储为空（浏览器没运行过 Volanta）
+      "orbx_expired" 有 Orbx 令牌但已过期（需重新登录）
+      "no_orbx"      有数据但无可用 Orbx 令牌（多为：刚登录、令牌还没从内存写到磁盘；或未登录）
+    用于在日志里给出可操作提示。只产出类别，绝不打印/返回令牌本身。"""
+    dirs = _localstorage_leveldb_dirs()
+    if not dirs:
+        return "no_dirs"
+    saw_text = False
+    saw_orbx_expired = False
+    now = time.time()
+    for d in dirs:
+        text = _read_leveldb_text(d)
+        if text:
+            saw_text = True
+        if _extract_volanta_api_token(text):
+            return "token_ok"
+        for m in _JWT_PAT.finditer(text or ""):          # 找有没有「已过期的 Orbx 令牌」
+            pl = _jwt_payload(m.group(1))
+            if pl and str(pl.get("iss")) == "Orbx" and (pl.get("exp", 0) or 0) <= now:
+                saw_orbx_expired = True
+    if saw_orbx_expired:
+        return "orbx_expired"
+    return "no_orbx" if saw_text else "empty"
+
+
+# 诊断类别 → 面向用户的固定中文提示（GUI 把 stdout 接到日志区）。只用固定串，不插值任何浏览器数据。
+_DIAG_MSGS = {
+    "no_dirs": "ℹ️ Volanta：未找到 Chromium 浏览器(Edge/Chrome/Brave)的本地存储，无法读取登录令牌。",
+    "empty": "ℹ️ Volanta：浏览器本地存储为空，请先在浏览器中登录 Volanta。",
+    "no_orbx": "⏳ Volanta：尚未读到登录令牌。若刚登录，令牌约需 30 秒~1 分钟才写入磁盘——请稍候，或在 Volanta 页面上滚动/点几下以加速。",
+    "orbx_expired": "ℹ️ Volanta：登录令牌已过期，请在浏览器重新登录 Volanta。",
+}
+
+
+def try_fetch_volanta_json_via_session(timeout=15, skip_if_fresh=0, diag=False):
     """用浏览器里 Volanta 的登录会话直接拉取完整航班，把解析出的已飞次数并入 volanta_data.json。成功返回 True，否则 None。
     全程本机：读自己浏览器里自己的 Volanta(Orbx)token → 调 Volanta 自家 API → 存自己的飞行数据；token 不落盘、不外传。
     只在解析出 ≥1 条航线时才提交(原子写)，避免拿坏响应污染累积库。
-    skip_if_fresh>0 时：若上次成功拉取距今不到该秒数，则跳过联网、直接返回 True(省流量/减少 API 调用)。"""
+    skip_if_fresh>0 时：若上次成功拉取距今不到该秒数，则跳过联网、直接返回 True(省流量/减少 API 调用)。
+    diag=True：失败时按 diagnose_volanta_session() 的类别打一行【固定】中文提示（只在调用方需要解释时开，避免轮询刷屏）。"""
     data = _load_data()
     if skip_if_fresh and data.get("fetched_at"):
         try:
@@ -416,16 +455,26 @@ def try_fetch_volanta_json_via_session(timeout=15, skip_if_fresh=0):
             if token:
                 break
         if not token:
+            if diag:
+                _m = _DIAG_MSGS.get(diagnose_volanta_session())
+                if _m:
+                    print(_m)
             return None
         js_text = _fetch_volanta_flights_json(token, timeout=timeout)
         if not js_text:
+            if diag:
+                print("⚠️ Volanta：已读到登录令牌，但拉取 API 失败（可能是网络问题或接口变动）。")
             return None
         try:
             obj = json.loads(js_text)          # 必须是合法 JSON
         except Exception:
+            if diag:
+                print("⚠️ Volanta：API 返回内容无法解析（接口可能变动）。")
             return None
         counts = _counts_from_flights_obj(obj)
         if not counts:                         # 解析不出任何航线 → 视为坏响应，不提交
+            if diag:
+                print("⚠️ Volanta：令牌有效但未解析到任何航线（响应异常）。")
             return None
         data["flown"] = _merge_authoritative(data.get("flown") or {}, counts)
         data["fetched_at"] = time.time()
