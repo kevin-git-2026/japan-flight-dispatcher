@@ -2,7 +2,7 @@
 name: route_planning
 description: >-
   日本(RJ/RO)真实世界航路规划的领域知识与技巧——起降机场选择、SID/STAR/IAP 端点选择、
-  无直连 AIP 时的本地 A* enroute 寻路、邻近机场 AIP 桥接(Rule 5)、CIFP/ARINC 424.20
+  无直连 AIP 时的本地 A* enroute 寻路、从官方航路学习各机场真实进/离场过渡点(端点真值)、CIFP/ARINC 424.20
   数据格式(字段与码表)、本场 VOR 辨识、航路真实长度/质量判据、分时段(Time Restriction)规则、8 方向常见 AIP 航路模板与单向航路方向。
   当开发或调试本项目的航路生成(dispatcher/router.py、planner)、判断「两个日本机场之间该如何规划
   enroute 航路」、或解析 NavData/CIFP 的 SID/STAR/APPCH 记录时，使用本 skill。
@@ -29,10 +29,10 @@ description: >-
 | 落地机场选择 | [reference/arr_apt.md](reference/arr_apt.md) |
 | **CIFP/ARINC 424 数据格式**（字段表 + 码表 + 本场 VOR 辨识） | [reference/cifp_format.md](reference/cifp_format.md) |
 | SID 选择 | [reference/sid.md](reference/sid.md) |
-| **enroute 规划**（数据/决策树/桥接/质量/分时段） | [reference/enroute.md](reference/enroute.md) |
+| **enroute 规划**（数据/决策树/端点真值/质量/分时段） | [reference/enroute.md](reference/enroute.md) |
 | STAR 选择 | [reference/star.md](reference/star.md) |
 | IAP（其 IAF/IF 供 enroute 用） | [reference/iap.md](reference/iap.md) |
-| **方向航路模板**（8 方向常见 AIP 走廊；桥接/选路/方向参考） | [reference/route_templates.md](reference/route_templates.md) |
+| **方向航路模板**（8 方向常见 AIP 走廊；选路/干线/方向参考） | [reference/route_templates.md](reference/route_templates.md) |
 | **进场/离场移交点**（各机场进场门/离场头，VATJPN SOP；进场端点权威源） | [reference/transfer_points.md](reference/transfer_points.md) |
 
 ## 二、enroute 决策树（核心，详见 enroute.md）
@@ -42,12 +42,12 @@ description: >-
 - **case 0（最优先）**：两机场间有**直连 AIP 航路** → 直接用，结束。
 - 无直连 AIP → 按「dep 有无 SID」「arr 有无 STAR」分四类，套路统一：
   1. 规划大圆航线、明确方向；
-  2. **离场点**：**优先查 [transfer_points.md](reference/transfer_points.md) 的官方离场头**；否则 有 SID → SID 尾(=enroute 头)，无 SID → 挑「最快切入航路的航点」作虚拟离场点；
-  3. **进场点**：**优先查 [transfer_points.md](reference/transfer_points.md) 的官方进场门**（按到达方向择门，权威源）；否则 有 STAR → STAR 头(=enroute 尾)，无 STAR → IAP 的 IAF/IF 若直接接在航路上则用它、再否则用**本场 VOR**；
+  2. **离场点**：**优先用【从官方航路学到的真实离场过渡点】∪ [transfer_points.md](reference/transfer_points.md) 官方离场头**（并集 + 按航向过滤，A\* 自选）；否则 有 SID → SID 尾(=enroute 头)，无 SID → 挑「最快切入航路的航点」作虚拟离场点；
+  3. **进场点**：**优先用【从官方航路学到的真实进场过渡点】∪ [transfer_points.md](reference/transfer_points.md) 官方进场门**（按到达方向择门，权威源）；否则 有 STAR → STAR 头(=enroute 尾)，无 STAR → IAP 的 IAF/IF 若直接接在航路上则用它、再否则用**本场 VOR**；
   4. **A\*** 在离场点 ↔ 进场点间找尽量贴大圆的航线（守航路方向 N/F/B 与高度带）。
   - case 1=SID+STAR · case 2=SID 无 STAR · case 3=无 SID 有 STAR · case 4=两端都无。
-- **case 5（桥接 Rule 5）**：dep/arr 各自附近机场间存在官方 AIP → 借中段 + 补接两端，**过三道闸**（①干净 ②≤1.25×最优 A\* ③不冲过头）才用，否则回退最优 A\*。
-- **方向航路模板**（[route_templates.md](reference/route_templates.md)）：8 方向常见 AIP 走廊（真实高频连续子链，逐条核验）。case 5 桥接优先套用**同航向**模板；A\* 选路时也用它校验「该航向应走哪条干线」。
+- **端点真值（取代旧「借邻场 AIP 桥接 / Rule 5」）**：`routes.csv` 每条官方航路的首/末航点 = 该机场该航向的真实离/进场过渡点，按 dep/arr 聚合即得各机场**按方向**的真实端点（如 RJGG 北向 KCC、RJFM 东向 MADOG），比 CIFP 猜更权威。**借邻场整条 AIP（旧 Rule 5 桥接）已弃用**——它带着邻场自己的离场点、方向常不符 → 倒飞/绕远（如 RJFM→RJBE 误用鹿児島 MIDAI）。详见 [enroute.md](reference/enroute.md)「端点真值」。
+- **方向航路模板**（[route_templates.md](reference/route_templates.md)）：8 方向常见 AIP 走廊（真实高频连续子链，逐条核验）。A\* 在端点间选路时优先走**同航向**的高频干线（`seg_pop` 加权），并据此校验「该航向应走哪条干线」。
 - **质量判据（通用）**：距离按**真实航路长**（沿 airway 累加，非大圆直线）；enroute 大锐角转弯(>~100°)标记可疑。
 
 ## 三、必读避坑（细节在各 reference）

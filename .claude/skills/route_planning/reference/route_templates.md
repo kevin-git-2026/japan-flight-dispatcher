@@ -1,6 +1,6 @@
 # 日本 AIP 航路方向模板（route_templates）
 
-> 8 方向常见 AIP 航路模板：从 `routes_cache.csv` 的 715 条去重官方航路、按 dep→arr 方位角归类、挖「真实高频连续子链」而来。上游：[../SKILL.md](../SKILL.md)；配合 [enroute.md](enroute.md) （case 5 桥接 / 走廊与方向选择）使用；字段格式见 [cifp_format.md](cifp_format.md)。
+> 8 方向常见 AIP 航路模板：从 `routes_cache.csv` 的 715 条去重官方航路、按 dep→arr 方位角归类、挖「真实高频连续子链」而来。上游：[../SKILL.md](../SKILL.md)；配合 [enroute.md](enroute.md) （端点真值 / 走廊与方向选择）使用；字段格式见 [cifp_format.md](cifp_format.md)。
 
 > ⚠️ 每条走廊模板均为**真实 AIP 航路的逐字连续片段**（非拼接，已逐条核验）；「×N」= 有 N 个**该方向**机场对的官方航路完整包含此片段。无直连 AIP 时按航向套用对应方向的主干走廊，两端 SID/STAR/本场 VOR 按目标机场补全。
 
