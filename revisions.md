@@ -95,6 +95,63 @@ SimBrief 抓的 909KB → 精简 34KB(212 机型，每行一条，字段 id/icao
 - **验证**：`py_compile` 过；headless 构造 + worker 快路径 + 两弹窗 + 诊断（no_dirs/token_ok）全过；端到端实拉到 178 条航线。**✅ 用户真机已走通完整流程（2026-06-28 确认功能无误）**：清空令牌后开程序→开浏览器到 `/map`→弹窗①→状态计数→登录→令牌落盘→成功弹窗，时序与落盘等待体验符合预期。
 - **版本**：本次提交把 `dispatcher/__init__.py` 的 `__version__` 升到 `1.4.0_alpha2`（v1.4.0 第二个 alpha，含本 Volanta 修复）。
 
+### 续作(2)（2026-06-29/30 · v1.4.0 开发周期）— 航路质量：RNAV 优先 / 航路方向学习 / 高频走廊加权 / 移管表进离场端点；route_planning skill
+
+> 借新建的 `route_planning` skill（航路规划领域知识库）系统核查并迭代本地航路生成质量，让生成航路贴近真实运行：优先 RNAV、守单向航路方向、走高频干线、用官方进离场端点。改动集中在 `dispatcher/router.py` + 新数据文件 `transfer_points.json`；`routing.py`/`gui.py` 行为不变。
+
+**1. 问题1 — 优先 RNAV 航路（git 已提交 `0328126`）**
+ICAO Annex 11：RNAV 首字母 ∈ Q/T/Y/Z(国内)∪L/M/N/P(区域)。新增 `_RNAV_PREFIXES`/`_is_rnav`。两层：
+- **选路**：A* 边权对「整段无 RNAV 名」的纯传统边 ×`_TRAD_AIRWAY_PENALTY`(1.15)——只抬搜索权重、不进显示距离(后者 haversine 重算)，启发仍可采纳；太绕(>15%)仍回退传统。
+- **标名**：`_format_route` 多名段(如 `V28-Y28`)经新 `_pick_airway` 优先 RNAV 名。
+- 效果：50 条无 AIP 样本 RNAV token 占比 **74%→92%**，距离基本不变(最大 +0.4nm)。
+
+**2. P0 — 航路方向学习（修单向 RNAV 逆飞，git 已提交 `0328126`）**
+- **根因**：earth_awy 把「单向 RNAV 与双向航路共挂同一物理航段」统一标 `N`(因双向 V 航路在)，**丢了 RNAV 的单向性**。问题1 优先 RNAV 后会把这类段标成单向 RNAV 名 → 航路串逆飞(Y284/Y43/Y312 等)。earth_awy 本地无法判别。
+- **修法**：`_learn_airway_directions(graph, aip_data)` 扫 `routes.csv` 全部官方航路(官方航路永不逆向用航路)，逐 `prev--W-->next` 用 `_trace_airway` 展开成航段 → `legal_seg{(u,v):{airway}}`(W 在 u→v 被实飞证实合法)；懒加载 `_ensure_directions`(线程安全、缓存于 graph)。`oneway` 集 = 含 F/B 段的航路名。`_pick_airway` 的「安全集」= 完全双向(不在 oneway) ∪ 本段已学合法正向(在 legal)——单向 RNAV 仅在被实飞证实的方向才用于标名，否则退回双向共名。**纯标名层、不改图拓扑(零连通性风险)、距离不变**；4 条实测逆向全修，RNAV 反升 92%。
+- 排坑：自检一度误报 10 处「残留逆向」，经 earth_awy 核验全是 `dir=N` 双向段(routes.csv 只是未采样到正向)，非真逆向——故**不在图层加方向罚分**(会误伤合法双向边)。
+
+**3. P3 — 高频走廊加权（未提交）**
+- 复用 P0 的 routes.csv 学习管线，顺带统计每条有向航段被多少不同机场对实飞 = **走廊热度** `seg_pop`(1817 段，其中 942 段 ≥4 对=干线)。
+- A* 边权乘子(恒 ≥1，保启发可采纳)：干线(≥`_TRUNK_POP`=4)不罚 / 轻度(1–3)×`_MINOR_CORRIDOR_PENALTY`(1.08) / 从未实飞 ×`_OFFTRUNK_PENALTY`(1.25)——软偏好真实常用走廊(直接 A* 与桥接补接段共用)；有向段故方向天然区分。
+- 效果：干线段占比 **73%→80%**，总距离仅 +0.4%；桥接补接段也改走干线(如 RJFF→RJSK 走 BUTUR Y453 西线)。
+- 新增调试开关 `DEBUG_CORRIDOR`(默认 False，GUI 日志可见) + `_corridor_dbg`：每条结果打印走廊段构成(干线/轻度/未飞)。
+
+**4. 移管表进离场端点（problem 1/P1，未提交）**
+- **来源**：VATJPN 交通管制部「移管点与高度」SOP(公开页 `https://vatjpn.org/document/public/om/sop/transfer-point-and-alt`；**原 Google 表页脚要求勿分享其 URL，故只引用此公开页、数据文件不含表 URL**)——逐机场的**进场门(到着航路尾)/离场头(出発航路头)** + 移交高度/席位 + 方向/跑道/机型条件。解析为 `transfer_points.json`(56 机场，进场门级 144/145 在网)。**这是进/离场端点的权威源，优先级高于从 CIFP 猜 STAR/本场 VOR/IAF，顺带解决 problem 3(IAF/VOR 顺序)**。
+- **集成**：`_transfer_points()` 懒加载缓存(run-dir 锚定，同 airlines.json)。`_arrival_candidates`/`_departure_candidates` **优先官方门**(解析为图节点、在网) → 回退 CIFP → 几何兜底。
+- **方向过滤** `_dir_filter`(`_GATE_DIR_MARGIN_NM`=30)：丢掉位于机场另一侧/反向、会逼绕道的门(移管表里多是其它运行方向的门)；全被滤掉则回退 CIFP。修 RJSS→RJOR 因北向门 SAMBO 被强制的 +196nm。
+- **离场门质量门控弃门**(用户要求「出现大锐角或超大圆太多就放弃离场门」)：`_direct_route` 重构(抽 `_run(use_dep_gate)`)——用官方离场头算出的航路若**含大锐角(suspect) 或 >`_GATE_GIVEUP_RATIO`(1.4)×大圆 → 弃门重算**(`_departure_candidates(use_transfer=False)` 退回 SID/本场 VOR/几何 = 「本场台离场 + VOR 程序」)，取更优者；`suspect` 触发不受比例限制。
+- 效果：50 条进场命中官方门 38/50、0 断路、总距离 **−1.0%**；最糟几条修复——RJFT→RJOC(#25 +93% 173°掉头)`…RAKDA`→`…XZE` −160nm、RJOH→RJTO `…SUNOD`→`…XAC`。综合实例 **RJSA→RJSS(#26)：279nm(+79%·Y312 逆飞·收东门 LANCE) → 163nm(+5%·无逆飞·本场 VOR MRE 离场·收北门 SDE)**——P0+走廊+移管门+方向过滤+离场弃门五机制协同(官方门 UWE 致 153° 锐角 suspect → 弃门改用本场台 MRE)。
+
+**5. route_planning skill（领域知识沉淀，`.claude/skills/route_planning/`）**
+- `reference/route_templates.md`：从 routes.csv 715 条去重官方航路、按 dep→arr 方位角归 8 方向、挖**真实高频连续子链**作走廊模板(37 条，逐条核验逐字真实、×N 复用数按方向精确)；揭示**方向不对称=单向航路**、**开头 `…DCT…DCT…` 多是 SID/transition**(#17)。
+- `reference/transfer_points.md`：移管表运行规则(4 类) + 逐机场进场门/离场头 + 用法。
+- `SKILL.md`(索引/决策树步骤2-3「优先查官方门」/避坑「有些 RNAV 单向」)、`enroute.md`(`dir` 字段「共挂 N 不可尽信」+ case5 模板) 接线。
+- 工作产物(未跟踪)：`route_template.md` / `route_compare*.md`(SimBrief 对照集，用户已批注) / `corridor_test.py`(走廊测试工具 dump/md/inspect 三模式)。
+
+**可调旋钮(本批)**：`_TRAD_AIRWAY_PENALTY`(1.15)、`_TRUNK_POP`(4)/`_MINOR_CORRIDOR_PENALTY`(1.08)/`_OFFTRUNK_PENALTY`(1.25)、`_GATE_DIR_MARGIN_NM`(30)、`_GATE_GIVEUP_RATIO`(1.4)。
+**git/状态**：问题1+P0 已提交(`0328126`)；走廊加权+移管表端点+DEBUG 开关 + `transfer_points.json` 随 **1.4.1_alpha2** 一并提交(见续作3)。
+
+### 续作(3)（2026-06-30 · `1.4.1_alpha2`）— AIP 桥接 × 走廊融合：端点学习 + 删桥 + 本场VOR 修复
+
+> 用户洞察：基于 VATJPN 移管表 + AIP + 走廊学习得到的**直接航路本就是「理论最优」**，Rule 5 桥接只是当初逼近它的近似手段。端点学习落地后把桥接的真正价值(找对真实走廊)吸收进直接 A*，桥接整体删除。改动集中在 `dispatcher/router.py`；`routing.py`/`gui.py`/`planner.py` 行为不变。触发：用户报 RJFM→RJBE 误用鹿児島 MIDAI 离场、RJSY→RJCH 误用 YTE 离场。
+
+**1. 进/离场端点学习（融合核心）** —— `_learn_routes`(原 `_learn_airway_directions`) 同一遍多学两样：
+- `dep_heads{icao:{head:n}}` / `arr_tails{icao:{tail:n}}` = 各机场官方航路串两端的真实接入点(如 RJGG 北向 KCC、东向 BOGON；RJFM 东向 MADOG)，缓存到 `graph.dep_heads/arr_tails`(86 机场)。`_learned_heads`/`_learned_tails` 读取。
+- **只取首/末 token 本身是航点**的行——以航路名开头的行(`Y14 HWE …` 这类占位/通用航路)其首个解析航点常在远端，当离场点会让 A* 退化成「DCT 直飞 200nm 到中途点」(修 RJCN→RJSM 退化成单点 `HWE`)。
+
+**2. 端点选择改为「学到端点 ∪ 移管门 ∪ CIFP」并集** —— `_departure_candidates`/`_arrival_candidates` 并集 + 方向过滤后交 A* 自选最优(而非优先级)：学到端点是核心(RJGG 的 KCC 因最短自然胜出)，并集保证不因它不全/反向而漏掉更优 CIFP 出口。对直接航路严格不劣(50 条：5 改善 / 0 回归 / −18nm)。修 RJFM→RJBE(走 MADOG)、RJGG→RJCN(走 KCC)。`_direct_route._run` 形参 `use_transfer`→`use_gates`。
+
+**3. 删除 Rule 5 桥接** —— `_try_aip_bridge` 整函数 + 常量 `_BRIDGE_TOLERANCE`/`_OVERSHOOT_NM`/`_BRIDGE_HEAD_NM` 删除；`generate_route` 简化为纯直接 A*(`airports` 形参保留向后兼容、现未用)。实测 50 条依据：桥接借【邻场】离场过渡点 → 倒飞/绕远，**弊大于利**(8 条更长·最多 +119nm、3 条倒飞 vs 仅 6 条更短·多为 ≤17nm 或头点之差)；根因是 `≤1.25×` 容差让它在更长时也赢。删桥后总距 22832→22682nm(**反而更短**)、干线 78%、退化短串 0；回退的少数次优(如 RJNO→RJCJ 隠岐离岛)标 `suspect`，比桥接靠倒飞外场点蒙混更诚实。
+
+**4. 本场VOR 算法修复（用户发现 RJSY→RJCH 的 YTE bug）** —— `_onfield_vor(airport, graph, vors)`：本场VOR = CIFP `section==D` 里**距机场最近且 ≤`_ONFIELD_VOR_NM`(15nm)** 的那一个。原算法把 section-D 的**所有** VOR(含 SID/STAR 中途航点——如 ZUNDA2 里夹在 TADAT–ZUNDA 之间的 YTE 距场 37nm、feeder VOR)都当本场台，违反 skill `cifp_format.md` 自己写的「本场 VOR ≠ section-D 任意 VOR，按坐标取距机场最近的」。修 RJSY→RJCH：`YTE Y113 TAXIR`(241nm·方向反·YTE 在东南) → `YAYOI Y312 UWE Y32 MRE Y113 TAXIR`(185nm·+0.5%·正北沿 Y312)。`_departure_candidates`/`_arrival_candidates` 都改用 `_onfield_vor`。
+
+**可调旋钮(本批新增)**：`_ONFIELD_VOR_NM`(15)。
+**验证**：标杆全对(RJFM→MADOG、RJGG→KCC、RJSA→RJSS、RJCN→RJSM、RJSY→YAYOI)；50 条样本总距 22682nm、干线 78%、退化 0、可疑 3(均为隠岐离岛/RJEB 固有难航线，非新增)。
+**git/版本**：本提交 = `1.4.1_alpha2`，把上一批(续作2：走廊加权 + 移管表端点 + DEBUG)与本批(续作3：端点学习 + 删桥 + 本场VOR)连同 `transfer_points.json` + `route_planning` skill 一并入库。⚠️ skill 的 `SKILL.md`/`enroute.md` 仍含 case 5 桥接描述(领域概念仍成立，但本项目实现已不用)，待后续清理。
+
+---
+
 ### ⏸️ 分时段规划 + 向 SimBrief 提交航路（**设计保留、功能延后** · 2026-06-27）
 
 > **状态**：计算层一度在 `routing.py` 完整实现，但**从未接进 GUI**（dead code），且「按机型/高度精筛唯一航路」一层不可靠 → 按用户决定**整段删除、整体延后**。完整被删代码 + 删除原因见本节末「🗑️ 已删除代码留底」。以下设计意图**保留**，供日后重做参考；`planner` 的休眠接口 `build_flight_plan(timed_route=)` / `_build_simbrief_url(route=)` 也保留。用户将另写业务文档系统梳理可分析逻辑。

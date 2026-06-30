@@ -32,6 +32,7 @@ class FlightPlan:
     aip_route_dists: list = None                         # 各 AIP 航路长(NM)，与 aip_routes 顺序对应
     aip_maps: list = None                                # 每条 AIP 航路的 (coords, 标题)，与 aip_routes 一一对应（供分别开图）
     gen_map: object = None                               # 生成航路的 (coords, 标题)
+    active_sims: object = None                            # 渲染地景标注/警告所用的模拟器集合(None=两者)；问题1
 
 
 # ---- SimBrief 一键派遣链接（F16）----

@@ -1,0 +1,656 @@
+{
+ "RJCM": {
+  "region": "日高進入管制区",
+  "arr": [
+   "OZORA"
+  ],
+  "dep": [
+   "MENIB",
+   "OLDUS"
+  ]
+ },
+ "RJEC": {
+  "region": "日高進入管制区",
+  "arr": [
+   "AWE"
+  ],
+  "dep": [
+   "KAGRA"
+  ]
+ },
+ "RJCN": {
+  "region": "日高進入管制区",
+  "arr": [
+   "MASHU"
+  ],
+  "dep": []
+ },
+ "RJCK": {
+  "region": "日高進入管制区",
+  "arr": [
+   "CRANE"
+  ],
+  "dep": []
+ },
+ "RJCB": {
+  "region": "日高進入管制区",
+  "arr": [
+   "OBE"
+  ],
+  "dep": [
+   "RACKO"
+  ]
+ },
+ "RJCO": {
+  "region": "札幌進入管制区",
+  "arr": [
+   "RUMOI",
+   "KURIS",
+   "MOIWA"
+  ],
+  "dep": [
+   "RUMOI",
+   "KURIS",
+   "MOIWA",
+   "SPE"
+  ]
+ },
+ "RJCJ": {
+  "region": "千歳進入管制区",
+  "arr": [
+   "NAVER"
+  ],
+  "dep": []
+ },
+ "RJCC": {
+  "region": "千歳進入管制区",
+  "arr": [
+   "CHE",
+   "NAVER"
+  ],
+  "dep": []
+ },
+ "RJCH": {
+  "region": "白神進入管制区",
+  "arr": [
+   "UPLOK",
+   "TAXIR",
+   "HWE"
+  ],
+  "dep": [
+   "HWE"
+  ]
+ },
+ "RJSA": {
+  "region": "白神進入管制区",
+  "arr": [
+   "BYOBU",
+   "MRE"
+  ],
+  "dep": [
+   "OHMAR",
+   "UWE",
+   "GONOU"
+  ]
+ },
+ "RJSR": {
+  "region": "白神進入管制区",
+  "arr": [
+   "ODE",
+   "UWE"
+  ],
+  "dep": []
+ },
+ "RJSK": {
+  "region": "白神進入管制区",
+  "arr": [
+   "MAGGY",
+   "CHOKA",
+   "YAYOI"
+  ],
+  "dep": []
+ },
+ "RJSI": {
+  "region": "白神進入管制区",
+  "arr": [
+   "ENBIM",
+   "SIOMO"
+  ],
+  "dep": [
+   "HANKA"
+  ]
+ },
+ "RJSM": {
+  "region": "三沢進入管制区",
+  "arr": [
+   "HWE",
+   "MIS"
+  ],
+  "dep": [
+   "JYONA",
+   "HPE"
+  ]
+ },
+ "RJSS": {
+  "region": "仙台進入管制区",
+  "arr": [
+   "SDE",
+   "OWLET",
+   "LANCE"
+  ],
+  "dep": [
+   "SAMBO"
+  ]
+ },
+ "RJSN": {
+  "region": "新潟進入管制区",
+  "arr": [
+   "INAHO",
+   "GTC",
+   "MAGNA",
+   "TERAD"
+  ],
+  "dep": [
+   "KENSI",
+   "GTC",
+   "MOKBA",
+   "NAEBA",
+   "HAKBA"
+  ]
+ },
+ "RJAH": {
+  "region": "百里進入管制区",
+  "arr": [
+   "TATSU"
+  ],
+  "dep": [
+   "OGITU"
+  ]
+ },
+ "RJTT": {
+  "region": "東京進入管制区",
+  "arr": [
+   "GODIN",
+   "POLIX",
+   "AROSA",
+   "AKSEL",
+   "XAC",
+   "MESSE"
+  ],
+  "dep": [
+   "SPOON",
+   "BRUCE",
+   "INUBO",
+   "VAMOS",
+   "LAXAS",
+   "NINOX",
+   "GUSRO",
+   "LAYER",
+   "TIARA",
+   "BEKLA",
+   "OPPAR"
+  ]
+ },
+ "RJTL": {
+  "region": "東京進入管制区",
+  "arr": [
+   "HAGAR",
+   "MERED",
+   "TOSKO"
+  ],
+  "dep": []
+ },
+ "RJTO": {
+  "region": "東京進入管制区",
+  "arr": [
+   "XAC"
+  ],
+  "dep": []
+ },
+ "RJAA": {
+  "region": "東京進入管制区",
+  "arr": [
+   "SWAMP",
+   "SUPOK",
+   "LUBLA",
+   "RUTAS"
+  ],
+  "dep": [
+   "AGRIS",
+   "KIMIN",
+   "GULBO",
+   "BORLO",
+   "OLVAN",
+   "SAMUS",
+   "PIGOK",
+   "REDEK",
+   "ENPAR"
+  ]
+ },
+ "RJTY": {
+  "region": "横田進入管制空域",
+  "arr": [
+   "HAILY",
+   "KOSKA",
+   "SWING"
+  ],
+  "dep": [
+   "KOGAR",
+   "KOSKA",
+   "BUSYU"
+  ]
+ },
+ "RJNK": {
+  "region": "小松進入管制区",
+  "arr": [
+   "HIMMY",
+   "IMIZU",
+   "KMC",
+   "SONBU"
+  ],
+  "dep": [
+   "SUMVU",
+   "OHNNO",
+   "SONBU"
+  ]
+ },
+ "RJNA": {
+  "region": "中部進入管制区",
+  "arr": [
+   "SWING",
+   "KCC",
+   "SHIMA"
+  ],
+  "dep": []
+ },
+ "RJGG": {
+  "region": "中部進入管制区",
+  "arr": [
+   "SWING",
+   "SLIDE",
+   "OLTOM",
+   "CARDS",
+   "BIWWA",
+   "CHESS"
+  ],
+  "dep": [
+   "BOGON",
+   "MODEL",
+   "ESPAN",
+   "FTAMI"
+  ]
+ },
+ "RJBB": {
+  "region": "関西進入管制区",
+  "arr": [
+   "DUBKA",
+   "EVERT",
+   "CANDY",
+   "NIXOV",
+   "IGLEV",
+   "ATMUG"
+  ],
+  "dep": [
+   "NANKO",
+   "SOVRI",
+   "TOMOH",
+   "UPMIN",
+   "OMGOR",
+   "OBLUR",
+   "LINDA",
+   "MAIKO"
+  ]
+ },
+ "RJBE": {
+  "region": "関西進入管制区",
+  "arr": [
+   "AVKUL",
+   "OMBIP",
+   "TRACY"
+  ],
+  "dep": [
+   "MUKRI",
+   "MAIKO"
+  ]
+ },
+ "RJOO": {
+  "region": "関西進入管制区",
+  "arr": [
+   "AGPUK",
+   "IZUMI",
+   "ROKKO"
+  ],
+  "dep": [
+   "PANAS",
+   "MINAC",
+   "ASUKA",
+   "TIGER"
+  ]
+ },
+ "RJOT": {
+  "region": "関西進入管制区",
+  "arr": [
+   "WIMPY",
+   "TAKMA",
+   "OYE"
+  ],
+  "dep": [
+   "OLIVE",
+   "WASYU",
+   "TAROH"
+  ]
+ },
+ "RJOB": {
+  "region": "関西進入管制区",
+  "arr": [
+   "OYE",
+   "INOOK"
+  ],
+  "dep": [
+   "OYE",
+   "OLIVE",
+   "CHIZU",
+   "WASYU"
+  ]
+ },
+ "RJOK": {
+  "region": "関西進入管制区",
+  "arr": [
+   "PANCH",
+   "JAKAL",
+   "KRE",
+   "MYE"
+  ],
+  "dep": [
+   "MUROT",
+   "SUC",
+   "OMOGO",
+   "KRE"
+  ]
+ },
+ "RJOS": {
+  "region": "徳島進入管制区",
+  "arr": [
+   "DATIS",
+   "TOSAR",
+   "TSC"
+  ],
+  "dep": [
+   "HONMA",
+   "TOSAR",
+   "KTE"
+  ]
+ },
+ "RJOH": {
+  "region": "美保進入管制区",
+  "arr": [
+   "RAKDA",
+   "KYOKA",
+   "XZE",
+   "PEPOS"
+  ],
+  "dep": [
+   "YAPPA",
+   "STAGE",
+   "MIHOU"
+  ]
+ },
+ "RJOC": {
+  "region": "美保進入管制区",
+  "arr": [
+   "RAKDA",
+   "XZE"
+  ],
+  "dep": [
+   "TSUNO",
+   "MIHOU",
+   "CARPS"
+  ]
+ },
+ "RJOA": {
+  "region": "広島進入管制区",
+  "arr": [
+   "AMURO",
+   "SUNFL",
+   "OPERA",
+   "HGE"
+  ],
+  "dep": [
+   "BOLIG",
+   "KIJYY",
+   "MARCO",
+   "SINFO"
+  ]
+ },
+ "RJOI": {
+  "region": "岩国進入管制空域",
+  "arr": [
+   "MARCO",
+   "MYE"
+  ],
+  "dep": [
+   "MALTA",
+   "MYE"
+  ]
+ },
+ "RJOM": {
+  "region": "岩国進入管制空域",
+  "arr": [
+   "ITUKI",
+   "BAMBO",
+   "MYE",
+   "MARCO"
+  ],
+  "dep": []
+ },
+ "RJDC": {
+  "region": "築城進入管制区",
+  "arr": [
+   "UBE"
+  ],
+  "dep": [
+   "KOHEI",
+   "FIATO",
+   "UBE"
+  ]
+ },
+ "RJFR": {
+  "region": "築城進入管制区",
+  "arr": [
+   "ASARI",
+   "SWE"
+  ],
+  "dep": [
+   "ONGHA",
+   "FIATO",
+   "KOHEI"
+  ]
+ },
+ "RJFF": {
+  "region": "福岡進入管制区",
+  "arr": [
+   "KIRIN",
+   "DGC",
+   "HABOH",
+   "ISKUP",
+   "ATSAG",
+   "IKE",
+   "SARUP"
+  ],
+  "dep": [
+   "DGC",
+   "ENGID",
+   "BUTUR",
+   "IPRIR",
+   "CARSE",
+   "YAMGA",
+   "SGE"
+  ]
+ },
+ "RJFS": {
+  "region": "福岡進入管制区",
+  "arr": [
+   "MILEP",
+   "OLE"
+  ],
+  "dep": [
+   "SGE",
+   "OOITA"
+  ]
+ },
+ "RJFT": {
+  "region": "福岡進入管制区",
+  "arr": [
+   "KAZMA",
+   "HINAG",
+   "KUE"
+  ],
+  "dep": [
+   "MYE",
+   "SALTY",
+   "SPIDE",
+   "DONAR",
+   "TFE",
+   "HKC",
+   "KUE"
+  ]
+ },
+ "RJFU": {
+  "region": "福岡進入管制区",
+  "arr": [
+   "OHGIE",
+   "OLE",
+   "HONDO"
+  ],
+  "dep": [
+   "AKNAG",
+   "DGC",
+   "OOITA",
+   "CARCO"
+  ]
+ },
+ "RJFO": {
+  "region": "大分進入管制区",
+  "arr": [
+   "YANAI",
+   "OOITA"
+  ],
+  "dep": []
+ },
+ "RJFK": {
+  "region": "鹿児島進入管制区",
+  "arr": [
+   "KUE",
+   "HKC",
+   "SPICA",
+   "KINKO"
+  ],
+  "dep": [
+   "MIDAI",
+   "HKC",
+   "SASIK"
+  ]
+ },
+ "RJFM": {
+  "region": "鹿児島進入管制区",
+  "arr": [
+   "TFE",
+   "RYUGU",
+   "JACKY",
+   "SASIK",
+   "KUE"
+  ],
+  "dep": [
+   "MADOG",
+   "JACKY",
+   "LALAG"
+  ]
+ },
+ "ROAH": {
+  "region": "那覇進入管制区",
+  "arr": [
+   "IHEYA",
+   "NHC",
+   "VELNO",
+   "OLVAL"
+  ],
+  "dep": [
+   "ONC",
+   "AMAMI",
+   "GANJU",
+   "OLVAL"
+  ]
+ },
+ "ROKJ": {
+  "region": "那覇進入管制区",
+  "arr": [
+   "NHC"
+  ],
+  "dep": []
+ },
+ "RJKA": {
+  "region": "那覇進入管制区",
+  "arr": [
+   "KANAH",
+   "TUMGI"
+  ],
+  "dep": []
+ },
+ "RJKI": {
+  "region": "那覇進入管制区",
+  "arr": [
+   "POMAS"
+  ],
+  "dep": []
+ },
+ "RJKN": {
+  "region": "那覇進入管制区",
+  "arr": [
+   "ANOXA"
+  ],
+  "dep": []
+ },
+ "RJKB": {
+  "region": "那覇進入管制区",
+  "arr": [
+   "ANOXA"
+  ],
+  "dep": []
+ },
+ "RORY": {
+  "region": "那覇進入管制区",
+  "arr": [
+   "ONC"
+  ],
+  "dep": []
+ },
+ "RORS": {
+  "region": "先島進入管制区",
+  "arr": [
+   "DIANA"
+  ],
+  "dep": [
+   "FREED"
+  ]
+ },
+ "ROMY": {
+  "region": "先島進入管制区",
+  "arr": [
+   "YUTAH"
+  ],
+  "dep": [
+   "FREED",
+   "PAYAO"
+  ]
+ },
+ "ROIG": {
+  "region": "先島進入管制区",
+  "arr": [
+   "DIANA"
+  ],
+  "dep": [
+   "MJC",
+   "GUSUK"
+  ]
+ }
+}

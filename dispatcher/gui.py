@@ -201,6 +201,14 @@ class DispatcherGUI:
         chk_strict = ttk.Checkbutton(form, text="严格要求 AIP 规定航路", variable=self.var_strict)
         chk_strict.grid(row=r, column=0, columnspan=2, sticky="w", pady=2); r += 1
 
+        # 问题1：用户所用模拟器——地景判定/标注/「仅地景」筛选都按此（单次飞行只用一款，故 XP/MSFS 二选一）
+        ttk.Label(form, text="我用的模拟器").grid(row=r, column=0, sticky="w")
+        sf = ttk.Frame(form); sf.grid(row=r, column=1, sticky="w", pady=2)
+        self.var_sim = tk.StringVar(value="XP")
+        for _txt, _val in (("X-Plane", "XP"), ("MSFS", "MSFS")):
+            ttk.Radiobutton(sf, text=_txt, value=_val, variable=self.var_sim).pack(side="left", padx=(0, 6))
+        r += 1
+
         self.var_scenery_only = tk.BooleanVar(value=False)
         self.chk_scenery = ttk.Checkbutton(form, text="仅在两端都有地景的机场间随机规划",
                                            variable=self.var_scenery_only)
@@ -365,6 +373,7 @@ class DispatcherGUI:
             "dmax": self.var_dmax.get(),
             "strict": bool(self.var_strict.get()),
             "scenery_only": bool(self.var_scenery_only.get()) and self.scenery_map is not None,
+            "sim": self.var_sim.get(),
         }
         self._busy = True
         self._refresh()
@@ -383,6 +392,7 @@ class DispatcherGUI:
             if strict and not self.aip_data:
                 print("⚠️ 航路数据下载失败，已为您转为自由规划模式。")
                 strict = False
+            active = {f["sim"]} if f.get("sim") in ("XP", "MSFS") else None    # 问题1：所用模拟器(单选)
 
             if f["dep"] and f["dest"]:
                 dep_obj = next((a for a in all_airports if a.code == f["dep"]), None)
@@ -395,9 +405,37 @@ class DispatcherGUI:
                     raise RuntimeError("未查到该航线的 AIP 规定航路。")
                 flown_count = self.flown_counts.get((f["dep"], f["dest"]), 0)
             else:
+                def _route_len(d_obj, a_obj):
+                    """候选航线的真实航路长(NM)：优先官方 AIP(取最短变体)，否则本地生成航路；都没有→None。"""
+                    rows = ([r for r in self.aip_data
+                             if len(r) > 5 and r[0].strip().upper() == d_obj.code
+                             and r[1].strip().upper() == a_obj.code] if self.aip_data else [])
+                    best_len = None
+                    for r in rows:
+                        rs = r[5].strip()
+                        if not rs:
+                            continue
+                        try:
+                            pts = route_geometry(d_obj, a_obj, rs, self.dat_path)
+                            L = route_length_nm(pts) if pts else None
+                        except Exception:
+                            L = None
+                        if L and (best_len is None or L < best_len):
+                            best_len = L
+                    if best_len is not None:
+                        return best_len
+                    if strict:                                  # 严格模式只认 AIP，不走生成
+                        return None
+                    try:
+                        g = generate_route(d_obj, a_obj, dat_path=self.dat_path,
+                                           aip_data=self.aip_data, airports=all_airports)
+                        return g["dist_nm"] if g else None
+                    except Exception:
+                        return None
                 dep_obj, arr_obj, dist, route, flown_count = get_random_route(
                     all_airports, dmin, dmax, self.aip_data, strict, f["dep"], f["dest"],
-                    self.flown_counts, self.aip_index, require_both_scenery=f["scenery_only"])
+                    self.flown_counts, self.aip_index, require_both_scenery=f["scenery_only"],
+                    active_sims=active, route_len_fn=_route_len)
 
             # F15：无 AIP 航路且非严格模式 → 用本地导航数据 A* 生成一条参考航路（两分支统一在此处理）
             generated = generated_warn = generated_dist = gr = None
@@ -439,6 +477,7 @@ class DispatcherGUI:
                                      generated_route=generated, generated_route_warn=generated_warn,
                                      generated_route_dist=generated_dist, aip_route_dists=aip_dists,
                                      aip_maps=aip_maps, gen_map=gen_map)
+            plan.active_sims = active                       # 问题1：渲染按所用模拟器标注地景
             self._post(self._render_plan, plan)
         except Exception as e:
             print(f"❌ 发生错误: {e}")
@@ -466,6 +505,7 @@ class DispatcherGUI:
 
     def _render_plan(self, plan):
         dep, arr = plan.dep, plan.arr
+        active = getattr(plan, "active_sims", None)         # 问题1：按所用模拟器标注地景
         R = self.result
         R.configure(state="normal")
         R.delete("1.0", "end")
@@ -492,9 +532,9 @@ class DispatcherGUI:
         def ins_airport(role, ap):
             ins(f"  {role} : ", "label")
             ins(ap.code, "code")
-            lbl = ap.scenery_label()                       # " [地景:XP+MSFS]" / " [⚠️无地景]" / ""
+            lbl = ap.scenery_label(active)                 # 按所用模拟器: " [地景:XP]" / " [⚠️无XP地景]" / ""
             if lbl:
-                ins(lbl, "scn_yes" if ap.has_scenery else "scn_no")
+                ins(lbl, "scn_yes" if ap.has_scenery_for(active) else "scn_no")
             if ap.is_military:
                 ins(" [🛡️军用机场]", "mil")
             ins("\n")
@@ -536,8 +576,8 @@ class DispatcherGUI:
             if plan.generated_route_warn:
                 ins("  ⚠️ " + plan.generated_route_warn + "——存在大角度转弯，可能非最优/有问题，请自行检查斟酌。\n", "warn")
 
-        if (not dep.has_scenery) or (not arr.has_scenery):
-            ins("  ⚠️ 地景提醒: [⚠️无地景] = 未在 XP/MSFS 地景文件夹中检测到该机场插件地景\n", "warn")
+        if (not dep.has_scenery_for(active)) or (not arr.has_scenery_for(active)):
+            ins("  ⚠️ 地景提醒: [⚠️无…地景] = 未在所选模拟器的地景文件夹中检测到该机场插件地景\n", "warn")
         if dep.is_military or arr.is_military:
             ins("  🛡️ 军用提醒: 军用机场可能无民航设施与 SID/STAR，请酌情考虑！\n", "warn")
 
