@@ -25,6 +25,9 @@ _K_ENTRY = 5                    # 取最近的 K 个航路点作入/出航候选
 _BRIDGE_TOLERANCE = 1.25        # Rule5：借的 AIP 桥接航路总程 ≤ 最优 A* 的此倍数才采用（官方航路可略长，不该长太多；待测后再调）
 _OVERSHOOT_NM = 20.0           # Rule5：桥接航路若中途比末端更近目的地(过此值)→「冲过头」，不借
 _BRIDGE_HEAD_NM = 50.0         # Rule5 双端：dep 到所借 AIP 航路头点的最大 DCT 直连距离（离场点离 AIP 起点够近才连，待测后再调）
+_TRAD_AIRWAY_PENALTY = 1.15     # 「优先 RNAV」：A* 搜索时纯传统航路(整段无 RNAV 名)的边权乘此系数，软优先 RNAV(Y/Z 等)；
+                                #   仅作用于选路、不进显示距离(后者由 haversine 重算)；RNAV 太绕(>15%)时仍回退传统。待测后再调。
+_RNAV_PREFIXES = frozenset("QTYZLMNP")   # ICAO Annex 11 航路命名：国内 RNAV=Q/T/Y/Z、区域 RNAV=L/M/N/P（其余 H/J/V/W,A/B/G/R=传统）
 
 _ARR = ("__ARR__", "")          # A* 的虚拟终点（坐标 = 到达机场）
 
@@ -51,6 +54,11 @@ def _bearing(lat1, lon1, lat2, lon2):
 
 def _in_bbox(lat, lon):
     return JP_BBOX[0] <= lat <= JP_BBOX[1] and JP_BBOX[2] <= lon <= JP_BBOX[3]
+
+
+def _is_rnav(name):
+    """ICAO Annex 11 航路命名：RNAV 航路首字母 ∈ Q/T/Y/Z(国内) ∪ L/M/N/P(区域)；其余为传统(H/J/V/W,A/B/G/R)。"""
+    return bool(name) and name[0] in _RNAV_PREFIXES
 
 
 # ---- NavData 同级文件定位（镜像 navdata.find_navdata_file 的 NavData/ 锚定）----
@@ -124,21 +132,25 @@ def _parse_navaids(path, nodes):
             nodes[key] = (lat, lon, "NDB" if p[0] == "2" else "VOR")
 
 
-def _parse_airways(path, nodes, adj):
+def _parse_airways(path, nodes, adj, oneway):
     """earth_awy.dat：`id1 reg1 t1 id2 reg2 t2 dir lowhigh base top name`。
-    两端点都在 nodes 才建边；权=大圆距离；dir N=双向 / F=正向(1→2) / B=反向(2→1)；多名用 '-' 连。"""
+    两端点都在 nodes 才建边；权=大圆距离；dir N=双向 / F=正向(1→2) / B=反向(2→1)；多名用 '-' 连。
+    `oneway`：收集任一航段标了方向(F/B)的航路名 —— 这类航路是单向的；earth_awy 在它与双向航路
+    共挂的段上会统一标 N(丢了单向信息)，故下游标名时不能把它当双向用(见 _pick_airway)。整文件扫(不限 bbox)。"""
     for_count = 0
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             p = line.split()
             if len(p) < 11:
                 continue
+            direction = p[6]
+            names = p[10].split("-")
+            if direction in ("F", "B"):          # 单向航路：有方向限制即记（全文件，不受 bbox 限制）
+                oneway.update(names)
             k1, k2 = (p[0], p[1]), (p[3], p[4])
             n1, n2 = nodes.get(k1), nodes.get(k2)
             if not n1 or not n2:
                 continue
-            direction = p[6]
-            names = p[10].split("-")
             cost = haversine_nm(n1[0], n1[1], n2[0], n2[1])
             if direction in ("N", "F"):
                 adj.setdefault(k1, []).append((k2, cost, names))
@@ -151,9 +163,11 @@ def _parse_airways(path, nodes, adj):
 # ---- 图容器 + 懒加载缓存 ----
 
 class AirwayGraph:
-    def __init__(self, nodes, adj):
+    def __init__(self, nodes, adj, oneway=None):
         self.nodes = nodes                 # {(ident,region): (lat,lon,kind)}
         self.adj = adj                     # {(ident,region): [(邻点key, 距离NM, [airway名]), ...]}
+        self.oneway = oneway or set()      # 单向航路名集合（含 F/B 段）；标名时不当双向用
+        self.legal_seg = None              # {(u_key,v_key): {airway名}} —— 从 AIP 实飞航路学到的「合法正向」航段（懒加载）
         self.node_items = list(nodes.items())   # 供最近点线性扫
         self.outset = set(adj)             # 有出边的点（可作入航起点）
         self.inset = {nb for nbrs in adj.values() for (nb, _c, _n) in nbrs}  # 有进边的点（可作出航终点/可达）
@@ -176,7 +190,7 @@ def get_graph(dat_path=None):
     with _LOCK:
         if _GRAPH is not None:
             return _GRAPH
-        nodes, adj = {}, {}
+        nodes, adj, oneway = {}, {}, set()
         try:
             fixp = _find_sibling("earth_fix.dat", dat_path)
             navp = _find_sibling("earth_nav.dat", dat_path)
@@ -188,12 +202,12 @@ def get_graph(dat_path=None):
                 _parse_fixes(fixp, nodes)
                 if navp:
                     _parse_navaids(navp, nodes)
-                edges = _parse_airways(awyp, nodes, adj)
+                edges = _parse_airways(awyp, nodes, adj, oneway)
                 print(f"🧭 航路图就绪：{len(nodes)} 个航路点 / {edges} 条航段（日本范围）。")
         except Exception as e:
             print(f"⚠️ 航路图构建失败（已忽略，本地航路生成将不可用）: {e}")
-            nodes, adj = {}, {}
-        _GRAPH = AirwayGraph(nodes, adj)
+            nodes, adj, oneway = {}, {}, set()
+        _GRAPH = AirwayGraph(nodes, adj, oneway)
         return _GRAPH
 
 
@@ -252,9 +266,10 @@ def _astar(graph, starts, exit_dct, glat, glon):
             names_seq.reverse()
             return path, names_seq
         cur_g = g[key]
-        # 沿航路扩展
+        # 沿航路扩展（「优先 RNAV」：整段无 RNAV 名的纯传统边按 _TRAD_AIRWAY_PENALTY 加罚——
+        #   只抬高搜索权重以软优先 RNAV，真实航程仍由 _finish 按 haversine 重算，启发 h≤真权、可采纳。）
         for (nb, cost, names) in graph.adj.get(key, ()):
-            ng = cur_g + cost
+            ng = cur_g + (cost if any(_is_rnav(n) for n in names) else cost * _TRAD_AIRWAY_PENALTY)
             if nb not in g or ng < g[nb]:
                 g[nb] = ng
                 came[nb] = (key, names)
@@ -274,15 +289,35 @@ def _astar(graph, starts, exit_dct, glat, glon):
 
 # ---- 航路串格式化 + 连贯性检查 ----
 
-def _format_route(path, names_seq):
+def _pick_airway(names, prev, oneway, legal=()):
+    """本段(u→v)多名里选一个 airway 名。
+    安全集 = 完全双向(不在 oneway) ∪ 本段已学合法正向(在 legal=该 (u,v) 由 AIP 实飞学到的航路集)——
+    这些在 u→v 方向确定合法；单向且(本段无 AIP 证据 / 学到的是反向)的航路不安全、不用于改名（避免逆向串）。
+    安全集只增不减，故只会恢复合法的单向 RNAV 标名、绝不重新引入反向。
+    优先级：①延续上一段(若仍安全，或安全集无 RNAV) → ②安全集首个 RNAV → ③安全集首名 → ④names[0] 兜底。"""
+    safe = [n for n in names if n not in oneway or n in legal]
+    rnav = [n for n in safe if _is_rnav(n)]
+    if prev and prev in safe and (_is_rnav(prev) or not rnav):
+        return prev
+    if rnav:
+        return rnav[0]
+    if safe:
+        return safe[0]
+    return names[0]
+
+
+def _format_route(path, names_seq, oneway=frozenset(), legal_seg=None):
     """把 path + 每段 airway 名格式化为 AIP 风格串：仅在 airway 变化处保留换路点。
-    每段选一个名，优先延续上一段已选名（把 V30-Y45 多名长串收敛成一条）。"""
+    每段选一个名——优先【方向合法的】RNAV 航路、其次延续上一段已选名（见 _pick_airway）。
+    `oneway`=单向航路名集合；`legal_seg`={(u,v):{航路}}=AIP 实飞学到的合法正向，用来在该方向安全地保留单向 RNAV。"""
     if not path:
         return ""
+    legal_seg = legal_seg or {}
     chosen = []
     prev = None
-    for names in names_seq:
-        c = prev if (prev and prev in names) else names[0]
+    for i, names in enumerate(names_seq):
+        legal = legal_seg.get((path[i], path[i + 1]), ())          # 本段 (u→v) 已学合法正向航路集
+        c = _pick_airway(names, prev, oneway, legal)
         chosen.append(c)
         prev = c
     tokens = [path[0][0]]
@@ -404,7 +439,7 @@ def _finish(graph, dep, arr, path, names_seq, source):
     geo = ([(dep.code, dep.lat_dd, dep.lon_dd)]
            + [(k[0], graph.nodes[k][0], graph.nodes[k][1]) for k in path]
            + [(arr.code, arr.lat_dd, arr.lon_dd)])                 # 含起降机场首尾，供画图/测长
-    return {"route_str": _format_route(path, names_seq), "fixes": path, "dist_nm": total,
+    return {"route_str": _format_route(path, names_seq, graph.oneway, graph.legal_seg), "fixes": path, "dist_nm": total,
             "source": source, "suspect": suspect, "warn": warn, "coords": geo}
 
 
@@ -467,6 +502,65 @@ def _parse_aip_route(route_str, graph, densify=True):
             fix_path.append(b)
             names.append([awy] if awy else ["DCT"])
     return fix_path, names
+
+
+# ---- 从 AIP 实飞航路学习航路「合法正向」（修正 earth_awy 在共挂 N 段上丢失的单向信息）----
+
+_LEGAL_LOCK = threading.Lock()
+
+
+def _learn_airway_directions(graph, aip_data):
+    """扫 routes.csv 全部官方航路，按【航段】学习每条航路被实飞证实的合法正向。
+    解析 `FIX 航路 FIX …`（斜杠并联 `Y14/Y122/V30` = 该段可走其一）→ 对每个 `prev --W--> next`
+    用 _trace_airway 展开出实际经过的中间航段 → 记 legal[(u,v)] ∋ W。官方发布航路永不逆向用航路，
+    故这是单向方向的可靠真值来源；earth_awy 把「单向 RNAV + 双向航路共挂」段统一标 N 丢掉的信息，由此补回。
+    返回 {(u_key,v_key): {airway名}}。"""
+    legal = {}
+    traced = {}                                   # (prev,next,W) -> seg 缓存，避免重复 Dijkstra
+    for row in aip_data:
+        if len(row) < 6:
+            continue
+        rs = row[5].strip()
+        if not rs:
+            continue
+        prev, pend = None, None                   # prev=上一航点 key；pend=其后到下一航点之间的并联 airway 名
+        for tok in rs.split():
+            key = graph.by_ident.get(tok)
+            if key:                               # 航点
+                if prev and pend:
+                    for W in pend:
+                        tk = (prev, key, W)
+                        if tk not in traced:
+                            traced[tk] = _trace_airway(graph, prev, key, W)
+                        seg = traced[tk]
+                        if seg:
+                            for u, v in zip(seg, seg[1:]):
+                                legal.setdefault((u, v), set()).add(W)
+                prev, pend = key, None
+            else:                                 # airway 名（斜杠并联拆开，仅留含数字的航路名，跳过噪声）
+                grp = [a for a in tok.split("/") if any(c.isdigit() for c in a)]
+                if grp:
+                    pend = grp
+    return legal
+
+
+def _ensure_directions(graph, aip_data):
+    """懒加载并缓存 graph.legal_seg。无 aip_data / 学习失败 → 空 dict（退回保守标名，不抛）。线程安全。"""
+    if graph.legal_seg is not None:
+        return graph.legal_seg
+    with _LEGAL_LOCK:
+        if graph.legal_seg is not None:
+            return graph.legal_seg
+        seg = {}
+        try:
+            if aip_data:
+                seg = _learn_airway_directions(graph, aip_data)
+                print(f"🧭 已从 AIP 航路学习航路方向：{len(seg)} 个合法正向航段。")
+        except Exception as e:
+            print(f"⚠️ 航路方向学习失败（已忽略，退回保守标名）: {e}")
+            seg = {}
+        graph.legal_seg = seg
+        return seg
 
 
 # ---- 公开 API ----
@@ -547,6 +641,7 @@ def generate_route(dep_airport, arr_airport, dat_path=None, aip_data=None, airpo
     graph = get_graph(dat_path)
     if not graph.adj:
         return None
+    _ensure_directions(graph, aip_data)          # 懒加载：首次从 AIP 航路学习合法正向（供标名层避免逆向单向航路）
     optimal = _direct_route(dep_airport, arr_airport, graph, dat_path)
     if aip_data and airports:
         bridged = _try_aip_bridge(dep_airport, arr_airport, graph, aip_data, airports, dat_path)
