@@ -167,7 +167,7 @@ class DispatcherGUI:
         ttk.Label(form, text="目的 ICAO（空=随机）").grid(row=r, column=0, sticky="w")
         self.var_dest = tk.StringVar()
         e_dest = ttk.Entry(form, textvariable=self.var_dest, width=12); e_dest.grid(row=r, column=1, sticky="w", pady=2); r += 1
-        ttk.Label(form, text="执飞航司（空=不限）").grid(row=r, column=0, sticky="w")
+        ttk.Label(form, text="执飞航司 ICAO（空=不限）").grid(row=r, column=0, sticky="w")
         self.var_airline = tk.StringVar()
         e_air = ttk.Entry(form, textvariable=self.var_airline, width=12); e_air.grid(row=r, column=1, sticky="w", pady=2); r += 1
 
@@ -186,7 +186,7 @@ class DispatcherGUI:
         ttk.Label(form, text="时间区间（08:00-15:30）").grid(row=r, column=0, sticky="w")
         self.var_time = tk.StringVar()
         e_tm = ttk.Entry(form, textvariable=self.var_time, width=12); e_tm.grid(row=r, column=1, sticky="w", pady=2); r += 1
-        ttk.Label(form, text="最短跑道（1800m/5900ft）").grid(row=r, column=0, sticky="w")
+        ttk.Label(form, text="最短跑道长度（1800m/5900ft）").grid(row=r, column=0, sticky="w")
         self.var_runway = tk.StringVar()
         e_rw = ttk.Entry(form, textvariable=self.var_runway, width=12); e_rw.grid(row=r, column=1, sticky="w", pady=2); r += 1
 
@@ -202,7 +202,7 @@ class DispatcherGUI:
         chk_strict.grid(row=r, column=0, columnspan=2, sticky="w", pady=2); r += 1
 
         # 问题1：用户所用模拟器——地景判定/标注/「仅地景」筛选都按此（单次飞行只用一款，故 XP/MSFS 二选一）
-        ttk.Label(form, text="我用的模拟器").grid(row=r, column=0, sticky="w")
+        ttk.Label(form, text="本次飞行使用的模拟器").grid(row=r, column=0, sticky="w")
         sf = ttk.Frame(form); sf.grid(row=r, column=1, sticky="w", pady=2)
         self.var_sim = tk.StringVar(value="XP")
         for _txt, _val in (("X-Plane", "XP"), ("MSFS", "MSFS")):
@@ -210,7 +210,7 @@ class DispatcherGUI:
         r += 1
 
         self.var_scenery_only = tk.BooleanVar(value=False)
-        self.chk_scenery = ttk.Checkbutton(form, text="仅在两端都有地景的机场间随机规划",
+        self.chk_scenery = ttk.Checkbutton(form, text="仅在两端都有地景的机场间规划",
                                            variable=self.var_scenery_only)
         self.chk_scenery.grid(row=r, column=0, columnspan=2, sticky="w", pady=2); r += 1
         self.lbl_scenery_hint = ttk.Label(form, text="", foreground="#b06000", wraplength=240)
@@ -297,7 +297,7 @@ class DispatcherGUI:
             if not dat:
                 self._post(self._on_navdata_missing)
                 return
-            print(f"📁 已读取程序自带的 NavData 导航数据：{os.path.relpath(dat, get_real_run_path())}")
+            print(f"📁 已读取程序自带的导航数据：{os.path.relpath(dat, get_real_run_path())}")
             check_airac_currency(dat)
 
             valid = load_japan_icao_set(dat)
@@ -339,7 +339,7 @@ class DispatcherGUI:
         self.var_auto.set(bool(auto))
 
         scen_txt = "未检测到地景" if scenery_map is None else f"地景 {len(scenery_map)}"
-        self._set_status(f"✅ 初始化完成 · NavData 已读取 · {scen_txt} · AIP {len(aip)}")
+        self._set_status(f"✅ 初始化完成 · 导航数据已读取 · {scen_txt} · AIP {len(aip)}")
         if scenery_map is None:
             self.var_scenery_only.set(False)
             self.lbl_scenery_hint.configure(text="未检测到地景目录，无法按地景筛选")
@@ -349,14 +349,14 @@ class DispatcherGUI:
         self._refresh()
 
     def _on_navdata_missing(self):
-        self._set_status("❌ 未找到 NavData 导航数据")
+        self._set_status("❌ 未找到导航数据")
         print("❌ 未找到导航数据。请前往 https://navigraph.com/downloads 下载「X-Plane 12」导航数据，"
-              "放入程序目录的 NavData 文件夹（确保 NavData\\earth_aptmeta.dat 存在）后重启。")
+              "放入程序目录的 NavData 文件夹后重启。")
         messagebox.showwarning(
             "缺少导航数据",
-            "未找到 NavData 导航数据。\n\n请前往 https://navigraph.com/downloads 下载\n"
+            "未找到导航数据。\n\n请前往 https://navigraph.com/downloads 下载\n"
             "「X-Plane 12」导航数据，解压放入程序目录的 NavData 文件夹\n"
-            "（确保 NavData\\earth_aptmeta.dat 存在）后重启本程序。")
+            "后重启本程序。")
 
     # ---------- 规划 ----------
     def _on_plan_click(self):
@@ -402,7 +402,7 @@ class DispatcherGUI:
                 dist = calculate_distance_nm(dep_obj, arr_obj)
                 route = find_aip_route(self.aip_data, f["dep"], f["dest"]) if self.aip_data else None
                 if strict and not route:
-                    raise RuntimeError("未查到该航线的 AIP 规定航路。")
+                    raise RuntimeError("未查到该航线的 AIP 航路。")
                 flown_count = self.flown_counts.get((f["dep"], f["dest"]), 0)
             else:
                 def _route_len(d_obj, a_obj):
@@ -598,8 +598,8 @@ class DispatcherGUI:
         ins("  ", "label"); ins(plan.url + "\n", "link")
 
         if plan.simbrief_url:
-            ins("\n  🛩️ SimBrief 一键派遣 : ", "label")
-            ins("点击生成专业航路计划（需登录 SimBrief）\n", "sblink")
+            ins("\n  🛩️ SimBrief 一键签派 : ", "label")
+            ins("点击生成并查看simbrief计划（需登录）\n", "sblink")
 
         R.configure(state="disabled")
         self._last_url = plan.url

@@ -207,14 +207,14 @@ def get_graph(dat_path=None):
             if not (fixp and awyp):
                 print("ℹ️ 未找到 earth_fix.dat / earth_awy.dat，本地航路生成不可用。")
             else:
-                print("🧭 首次生成航路：正在构建本地航路图（解析导航数据，稍候）…")
+                print("🧭 首次生成航路：正在解析导航数据，请稍等…")
                 _parse_fixes(fixp, nodes)
                 if navp:
                     _parse_navaids(navp, nodes)
                 edges = _parse_airways(awyp, nodes, adj, oneway)
-                print(f"🧭 航路图就绪：{len(nodes)} 个航路点 / {edges} 条航段（日本范围）。")
+                print(f"🧭 导航数据就绪：{len(nodes)} 个航路点 / {edges} 条航段（日本范围）。")
         except Exception as e:
-            print(f"⚠️ 航路图构建失败（已忽略，本地航路生成将不可用）: {e}")
+            print(f"⚠️ 导航数据读取失败（本地航路生成将不可用）: {e}")
             nodes, adj, oneway = {}, {}, set()
         _GRAPH = AirwayGraph(nodes, adj, oneway)
         return _GRAPH
@@ -726,7 +726,7 @@ def _ensure_directions(graph, aip_data):
         try:
             if aip_data:
                 seg, graph.seg_pop, graph.dep_heads, graph.arr_tails = _learn_routes(graph, aip_data)
-                print(f"🧭 已从 AIP 航路学习：{len(seg)} 合法正向航段 / {len(graph.seg_pop or {})} 段走廊热度 / "
+                print(f"🧭 已从 AIP 航路学习：{len(seg)} 航段 / {len(graph.seg_pop or {})} 段走廊 / "
                       f"{len(graph.dep_heads or {})} 机场离场过渡点 / {len(graph.arr_tails or {})} 机场进场过渡点。")
         except Exception as e:
             print(f"⚠️ 航路方向学习失败（已忽略，退回保守标名）: {e}")
