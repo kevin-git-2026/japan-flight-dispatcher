@@ -206,6 +206,16 @@ ICAO Annex 11：RNAV 首字母 ∈ Q/T/Y/Z(国内)∪L/M/N/P(区域)。新增 `_
   - **走廊奖励** `_prefer_corridor_arrival`（`_direct_route` 末尾调）：把 A* 纯最短落点换成**方向合规、最常飞的学到进场门**，前提 ①改落它的航路 ≤ `_ARR_CORRIDOR_TOL`=1.15×最短且不含大锐角；②该门频次 > `_CORRIDOR_FREQ_RATIO`=1.5×当前落点(含到着尾段的实际末点)频次——挡「两门频次相近时按全局频次误换方向」。`_run` 参数化 `exits` 以强制 A* 落某门。
 - **验证**：RJKN/ROAH/RJKA→RJFF（南向）→ `…Y25 ISKUP`；**RJTT→RJOO 保持官方 `…AGPUK MIRAI ABENO IKOMA`**（IKOMA 24 vs 别向 IZUMI 26，频次守卫不换）；RJGG/RJCC/RJSC→RJFF→KIRIN；RJFM 到着尾段(MZE)/RJOM(MYE) 等不变；10 条多样 sanity 比率 1.01–1.12×GC、无可疑；`route_geometry` 一致、`suspect=False`。**可调旋钮**：`_ARR_CORRIDOR_TOL`(1.15)、`_CORRIDOR_FREQ_RATIO`(1.5)。
 
+### 无 STAR 机场仍可选跑道：别因「无进场程序」就弃掉跑道选择（2026-07-02 · v1.4.1-alpha4）
+
+> RJTT→RJER 生成航路 `AGRIS Y11 CHE Y10 YOROI A204 LEDAX` 正确，但底部「跑道/SID·STAR」面板因 RJER **无 STAR** 而把到达跑道也一并置「（无可选程序）」不可选。事实上很多机场没有 STAR，跑道却有**仪表进近程序(IAP)/雷达引导**——不能因无 STAR 就不让用户选进场跑道。
+
+- **根因** `dispatcher/procedures.py` `matching_choices`：机场无任何 SID/STAR 时 `rw_labels` 恒空 → 返回空 `rows` → GUI 显示占位、跑道下拉不可用。
+- **修法**：
+  - `procedures.py`：`rows` 算完若为空 → 回退列出全部**物理跑道**（`_parse_runways` 的 `RWY:` 记录），label 置空 `[]`（表示该跑道无 SID/STAR、进近走 IAP）。**出/到对称生效**——无 SID 的机场同理仍可选跑道（雷达引导离场）。
+  - `gui.py` `_on_aip_route_selected` 提示改**三态**（`has_proc=any(r[2] …)` 判行内是否挂程序）：无跑道数据 / **无可用 SID·STAR（可选跑道，IAP·雷达引导）** / 端点未直接匹配（已列全部）——避免旧逻辑把「无程序」误报成「未直接匹配（已列全部）」。
+- **验证**（headless）：`matching_choices('RJER',…,'arr')` → `[('RW07',1797m,[]),('RW25',1797m,[])]`、`matched=False`；GUI 到达跑道下拉列 `07·1797m/25·1797m` 可选、STAR 空、提示「到达无 STAR（可选跑道，仪表进近 IAP）」、SimBrief `route=ROVE3A+AGRIS+…+LEDAX`(SID+enroute 无 STAR)；RJTT 出发 SID 不受影响；F21 多条 AIP（程序齐全）面板无回归。
+
 ### FlightAware 排班：中转联程误判为直飞（2026-07-01 · v1.4.1 开发中，未提交）
 
 > `findflight` 每条结果其实是一个**航段(leg)**（带 `origin`/`destination` IATA）。中转联程 SYO→HND→ITM 被拆成两段：首段 `SYO→HND`（带 `connectionCity`）、续段 `HND→ITM`（带 `layoverDuration`）。旧 `fetch_real_flights_with_filter` 不看起止，把每段航班号都当直飞抓——SYO→ITM 误列 `ANA398`(SYO→HND 首段) / `ANA21`(HND→ITM 续段) 等联程分段。

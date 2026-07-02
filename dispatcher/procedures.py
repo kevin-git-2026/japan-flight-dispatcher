@@ -177,8 +177,10 @@ def matching_choices(icao, dat_path, route_fixes, kind):
                  进场(kind='arr')传【逆序】(末点在前)；route_fixes[0]=该端的航路端点。
     衔接口径：**接航路的是过渡的端点**——离场(SID)接过渡【末点】(=TRANS)，其【首点】是本场离场交付点(裸 SID)；
              进场(STAR)接过渡【首点】(=TRANS)，其【末点】是进场交付点(裸 STAR)。无过渡则用 body 端点。
-    返回 (rows, matched)：rows=[(rwy_id, length_ft|None, sorted([label…]))]（仅含有匹配程序的跑道）；
-      matched=True 表示按端点筛中；False=端点未命中任何程序端点（端点来自学习/移管/本场VOR），回退列该机场全部程序。"""
+    返回 (rows, matched)：rows=[(rwy_id, length_ft|None, sorted([label…]))]；
+      matched=True 表示按端点筛中；False=端点未命中任何程序端点（端点来自学习/移管/本场VOR），回退列该机场全部程序。
+      **无任何 SID/STAR 时**（很多机场无 STAR，只有 IAP/雷达引导）仍返回全部物理跑道、label 为空 []——
+      让用户能选跑道，不因无程序就弃选（labels 为空即表示该跑道无 SID/STAR，进近走 IAP）。"""
     procs = enumerate_procedures(icao, dat_path)["SID" if kind == "dep" else "STAR"]
     runways = _parse_runways(icao, dat_path)
     all_rw = set(runways)                                  # 物理跑道（RWY 记录）——服务全跑道(ALL/common)的程序挂到这些上
@@ -217,6 +219,9 @@ def matching_choices(icao, dat_path, route_fixes, kind):
 
     rows = [(rw, runway_length_ft(rw, runways), sorted(rw_labels[rw]))
             for rw in sorted(rw_labels, key=_rw_sort_key)]
+    if not rows:                                            # 无任何 SID/STAR（很多机场无 STAR，靠 IAP/雷达引导进近）→
+        rows = [(rw, runway_length_ft(rw, runways), [])     # 仍列物理跑道（标签空），让用户能选跑道，别因无程序就弃选
+                for rw in sorted(runways, key=_rw_sort_key)]
     return rows, matched
 
 

@@ -946,14 +946,20 @@ class DispatcherGUI:
         self._fill_rwy("dep", c.get("dep_rows", []), getattr(self, "_dep_wind", None))
         self._fill_rwy("arr", c.get("arr_rows", []), getattr(self, "_arr_wind", None))
         notes = []
-        if c.get("dep_rows") and not c.get("dep_matched"):
+        dep_rows, arr_rows = c.get("dep_rows"), c.get("arr_rows")
+        has_proc = lambda rows: any(r[2] for r in (rows or []))   # 行内 label 非空 = 该跑道挂有 SID/STAR
+        if not dep_rows:
+            notes.append("出发无跑道数据")
+        elif not has_proc(dep_rows):
+            notes.append("出发无可用 SID（可选跑道，雷达引导离场）")
+        elif not c.get("dep_matched"):
             notes.append("出发端点未直接匹配 SID（已列全部）")
-        if c.get("arr_rows") and not c.get("arr_matched"):
+        if not arr_rows:
+            notes.append("到达无跑道数据")
+        elif not has_proc(arr_rows):
+            notes.append("到达无 STAR（可选跑道，仪表进近 IAP）")
+        elif not c.get("arr_matched"):
             notes.append("到达端点未直接匹配 STAR（已列全部）")
-        if not c.get("dep_rows"):
-            notes.append("出发无可选 SID（可雷达引导离场）")
-        if not c.get("arr_rows"):
-            notes.append("到达无可选 STAR（可盘旋/引导进近）")
         self.var_proc_hint.set("ℹ️ " + "；".join(notes) if notes else "")
         self._on_proc_changed()
 
