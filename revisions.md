@@ -197,6 +197,15 @@ ICAO Annex 11：RNAV 首字母 ∈ Q/T/Y/Z(国内)∪L/M/N/P(区域)。新增 `_
 
 **可调旋钮**：`_ARR_TAIL_BACKTRACK_NM`(8)。**未提交、未升版本。**
 
+### 进场走廊奖励：常用 AIP 走廊优先（修 RJKN→RJFF 该走 Y25 ISKUP 却走近场/备选）（2026-07-02 · v1.4.1-alpha4）
+
+> RJKN→RJFF（南向）本应走真实 AIP 常用的 `…Y25 ISKUP` 走廊，程序却落到近场 DGC（或到着尾段 FUGEN OMUTA OSTEP HONOK）。因 A* 只按**最短**选进场落点：ISKUP(~400nm) 比近场 DGC(374)/FUGEN(367) 略长而被跳过；但 ISKUP 是 RJFF 高频学到进场门（`routes.csv` 14 次，仅次 KIRIN 58）。用户定调：**保留 FUGEN 那条合法到着作备选，同时给 Y25 ISKUP 施奖励权重**。
+
+- **修法** `dispatcher/router.py`：
+  - **可达锚点** `_arr_dct_anchors`：把 arr_dct 每条 `[门]+尾段` 重锚到第一个图上可达 fix——门在网上(RJFM KUE)则锚=门、尾段不变；门是**网外终端 fix**(RJFF HABOH，region RJDA、无图节点)则顺尾段找首个可达点(FUGEN)作锚、其后作 DCT 尾段。让 FUGEN 这条 VATJPN 合法到着**可达、保留为备选**。`_arrival_candidates` 并入锚点、`_arrival_tail_keys` 按锚查表。
+  - **走廊奖励** `_prefer_corridor_arrival`（`_direct_route` 末尾调）：把 A* 纯最短落点换成**方向合规、最常飞的学到进场门**，前提 ①改落它的航路 ≤ `_ARR_CORRIDOR_TOL`=1.15×最短且不含大锐角；②该门频次 > `_CORRIDOR_FREQ_RATIO`=1.5×当前落点(含到着尾段的实际末点)频次——挡「两门频次相近时按全局频次误换方向」。`_run` 参数化 `exits` 以强制 A* 落某门。
+- **验证**：RJKN/ROAH/RJKA→RJFF（南向）→ `…Y25 ISKUP`；**RJTT→RJOO 保持官方 `…AGPUK MIRAI ABENO IKOMA`**（IKOMA 24 vs 别向 IZUMI 26，频次守卫不换）；RJGG/RJCC/RJSC→RJFF→KIRIN；RJFM 到着尾段(MZE)/RJOM(MYE) 等不变；10 条多样 sanity 比率 1.01–1.12×GC、无可疑；`route_geometry` 一致、`suspect=False`。**可调旋钮**：`_ARR_CORRIDOR_TOL`(1.15)、`_CORRIDOR_FREQ_RATIO`(1.5)。
+
 ### FlightAware 排班：中转联程误判为直飞（2026-07-01 · v1.4.1 开发中，未提交）
 
 > `findflight` 每条结果其实是一个**航段(leg)**（带 `origin`/`destination` IATA）。中转联程 SYO→HND→ITM 被拆成两段：首段 `SYO→HND`（带 `connectionCity`）、续段 `HND→ITM`（带 `layoverDuration`）。旧 `fetch_real_flights_with_filter` 不看起止，把每段航班号都当直飞抓——SYO→ITM 误列 `ANA398`(SYO→HND 首段) / `ANA21`(HND→ITM 续段) 等联程分段。
