@@ -61,6 +61,20 @@ def fetch_real_flights_with_filter(dep_icao, arr_icao, target_airline, filter_ai
         flights_data = json.loads(json_match.group(1))
         matched_flights, other_flights, seen = [], [], set()
 
+        # 只认「直飞」：findflight 每条结果是一个航段(leg)，带 origin/destination(IATA)。中转联程被拆成多段——
+        # 首段 dep→中转城市(带 connectionCity)、后续段→到达(带 layoverDuration)。旧代码不看起止，把某一段误当直飞。
+        # 两端 IATA 直接从数据自身推：dep=首条结果的 origin；arr=第一条【行程】最后一段的 destination
+        # （行程按段依次排列，下一条行程又从 dep 起，故 origin 再次==dep 即换了行程）。缺该字段(FA 改版)则不过滤、保持旧行为。
+        has_od = bool(flights_data) and "origin" in flights_data[0] and "destination" in flights_data[0]
+        dep_iata = arr_iata = None
+        if has_od:
+            dep_iata = flights_data[0].get("origin")
+            arr_iata = flights_data[0].get("destination")
+            for fl in flights_data[1:]:
+                if fl.get("origin") == dep_iata:            # 下一条行程开始 → 第一条行程结束
+                    break
+                arr_iata = fl.get("destination")            # 续段：全程到达随之推进到本段目的地
+
         def clean_html(raw_html):
             if not raw_html: return ""
             return re.sub(r'<[^>]+>', '', raw_html.replace("&nbsp;", " ")).strip()
@@ -68,6 +82,9 @@ def fetch_real_flights_with_filter(dep_icao, arr_icao, target_airline, filter_ai
         time_limits = parse_user_time_range(filter_time_range)
 
         for flight in flights_data:
+            if has_od and not (flight.get("origin") == dep_iata
+                               and flight.get("destination") == arr_iata):
+                continue                                    # 跳过中转联程的分段（本段起止≠全程起止），只留真·直飞
             ident_raw = flight.get("flightIdent", "")
             ident_match = re.search(r'>([A-Za-z0-9]+)</a>', ident_raw)
             flt = ident_match.group(1).upper() if ident_match else clean_html(ident_raw).upper()

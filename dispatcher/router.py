@@ -535,6 +535,49 @@ def _finish(graph, dep, arr, path, names_seq, source):
             "source": source, "suspect": suspect, "warn": warn, "coords": geo}
 
 
+_ARR_TAIL_BACKTRACK_NM = 8.0    # 进场尾段裁剪：某尾点比已达最近点还远出此值→视作背离本场，从此截断（丢 ROAH NHC→LAVON、RJTL …SHT→TOHNE 这类）
+
+
+def _arrival_tail_keys(graph, arr, endpoint_key):
+    """据 VATJPN「到着」尾段（transfer_points.json 的 arr_dct[进场门]）给出该进场门之后应【直飞(DCT)补全】的尾段 keys。
+    仅当【本次 A* 落点正是某进场门】时有（如 RJFM 北向落 KUE → ESKAP KROMA ENBEN MZE）；逐点解析坐标，
+    遇解析不到 / 明显背离本场(超回退阈) 即截断。返回 [key,…]（可空）。"""
+    tail = _transfer_points().get(arr.code, {}).get("arr_dct", {}).get(endpoint_key[0])
+    if not tail:
+        return []
+    out, best = [], haversine_nm(graph.nodes[endpoint_key][0], graph.nodes[endpoint_key][1], arr.lat_dd, arr.lon_dd)
+    for ident in tail:
+        k = graph.by_ident.get(ident)
+        if not k or k in out or k == endpoint_key:
+            break
+        d = haversine_nm(graph.nodes[k][0], graph.nodes[k][1], arr.lat_dd, arr.lon_dd)
+        if d > best + _ARR_TAIL_BACKTRACK_NM:                # 背离本场 → 截断（后续尾点丢弃）
+            break
+        out.append(k)
+        best = min(best, d)
+    return out
+
+
+def _append_arrival_tail(graph, dep, arr, res):
+    """把 VATJPN「到着」尾段（进场门之后的 DCT 直飞点，如 RJFM 北向 KUE ESKAP KROMA ENBEN MZE）补到生成航路末尾——
+    这些点管制会据以引导下降，属真实进场衔接。enroute 连贯性已在 _finish 按航路段算过，尾段（进场消化段）不再计入。"""
+    if not res or not res.get("fixes"):
+        return res
+    tail = _arrival_tail_keys(graph, arr, res["fixes"][-1])
+    if not tail:
+        return res
+    path = res["fixes"] + tail
+    res["fixes"] = path
+    res["dist_nm"] = (haversine_nm(dep.lat_dd, dep.lon_dd, graph.nodes[path[0]][0], graph.nodes[path[0]][1])
+                      + _path_length_nm(graph, path)
+                      + haversine_nm(graph.nodes[path[-1]][0], graph.nodes[path[-1]][1], arr.lat_dd, arr.lon_dd))
+    res["route_str"] = (res["route_str"] + " " + " ".join(k[0] for k in tail)).strip()
+    res["coords"] = ([(dep.code, dep.lat_dd, dep.lon_dd)]
+                     + [(k[0], graph.nodes[k][0], graph.nodes[k][1]) for k in path]
+                     + [(arr.code, arr.lat_dd, arr.lon_dd)])
+    return res
+
+
 def _trace_airway(graph, a, b, awy):
     """从 a 出发、只走名为 awy 的航路边，在图中走到 b，返回完整 fix 序列 [a,…,b]（含中间过渡点）；
     走不通（airway 名对不上 / 不连通）返回 None。Dijkstra 限定边的 airway 名。"""
@@ -767,7 +810,7 @@ def _direct_route(dep, arr, graph, dat_path):
             alt = _run(False)
             if alt and ((best["suspect"] and not alt["suspect"]) or alt["dist_nm"] < best["dist_nm"]):
                 best = alt
-    return best
+    return _append_arrival_tail(graph, dep, arr, best)      # 补 VATJPN 到着尾段（进场门后 DCT 直飞点），方便管制引导
 
 
 def _corridor_dbg(graph, res):

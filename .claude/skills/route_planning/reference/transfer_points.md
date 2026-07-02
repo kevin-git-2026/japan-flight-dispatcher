@@ -9,7 +9,8 @@
 
 每机场分**到着(arrival)/出発(departure)**，给「移管点等(航路尾/头) → 高度 → 移管元→移管先(管制席位)」，按 **進入管制区**(approach control area) 分区。编码 4 类规则：
 
-1. **进场门 / 离场门**：enroute 接入终端区的固定航路尾(到着)/头(出発)。**进场门 = 到着串中最后一个由航路连上的 fix**（其后多为 DCT 的 STAR 点 / 本场 VOR）。例 RJTT 进场门 `GODIN·POLIX·AROSA·AKSEL·XAC·MESSE`（各方向）。
+1. **进场门 / 离场门**：enroute 接入终端区的固定航路尾(到着)/头(出発)。**进场门 = 到着串里由 enroute 航路接上的入口 fix**；其后常接**门后 DCT 直飞点**（STAR 点 / 本场 VOR，如 RJFM 北向 `KUE ESKAP KROMA ENBEN MZE` 里 KUE 之后的段）。例 RJTT 进场门 `GODIN·POLIX·AROSA·AKSEL·XAC·MESSE`（各方向）。
+   - **门后 DCT 尾段**（v1.4.1）：这些门后直飞点管制会据以引导下降，**不再丢弃**——已抽进机器可读的 `transfer_points.json` 的 `arr_dct`(`{进场门: [门后 DCT fix…]}`)，由 `router._append_arrival_tail` 在生成航路落到该门后补进 enroute（带「背离本场即截断」裁剪）。这些点多不在航路网上(0 airway 边)，A* 只能到门、尾段靠此数据补全。
 2. **管制移交 + 高度**：`移管元→移管先` 给出 ACC 扇区(TG/BG/DG/SK…)↔APP/TWR 的交接点与高度，即真实下降移交剖面。
 3. **条件化**（进场门随条件变，规划时须据此选门）：
    - **方向** `(South/North/East/West Bound)`：如 RJSN 南行 `Y122 INAHO`、北行 `KENSI Y312`。

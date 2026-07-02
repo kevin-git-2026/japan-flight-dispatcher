@@ -28,9 +28,10 @@ from .volanta import (
     try_fetch_volanta_json_via_session, _open_volanta_in_browser,
 )
 from .routing import calculate_distance_nm, find_aip_route, get_random_route
-from .planner import build_flight_plan, parse_runway_ft, parse_dist
+from .planner import build_flight_plan, parse_runway_ft, parse_dist, simbrief_url
 from .aircraft import aircraft_choices
 from .router import generate_route, route_geometry, route_length_nm
+from . import procedures, weather, timed
 
 try:                                                 # 地图可视化（第三方库；缺失则地图按钮不显示，不影响其它功能）
     import tkintermapview
@@ -78,6 +79,9 @@ class DispatcherGUI:
         self.flown_counts = {}
         self._last_url = None
         self._last_simbrief_url = None
+        self._proc_sb_url = None      # F20：按所选 SID/STAR 重建的 SimBrief 链接
+        self._proc_sb_base = None
+        self._proc_base_route = ""
 
         self._build_widgets()
 
@@ -150,6 +154,9 @@ class DispatcherGUI:
         self.result.tag_bind("sblink", "<Enter>", lambda e: self.result.config(cursor="hand2"))
         self.result.tag_bind("sblink", "<Leave>", lambda e: self.result.config(cursor=""))
 
+        # 结果区下方：跑道 + SID/STAR 选择面板（F20，规划后按航路端点预筛 + 天气辅助）
+        self._build_proc_panel(rightf)
+
         # 底部：日志
         logf = ttk.LabelFrame(root, text="日志 / 状态", padding=4)
         logf.grid(row=2, column=0, sticky="ew", padx=10, pady=(4, 8))
@@ -201,6 +208,12 @@ class DispatcherGUI:
         chk_strict = ttk.Checkbutton(form, text="严格要求 AIP 规定航路", variable=self.var_strict)
         chk_strict.grid(row=r, column=0, columnspan=2, sticky="w", pady=2); r += 1
 
+        # F21：第二重严格度——多条 AIP 航路时按 EOBT/机型/高度自动定唯一（勾选）；否则弹窗列出供手动选
+        self.var_strict_ops = tk.BooleanVar(value=False)
+        chk_ops = ttk.Checkbutton(form, text="严格遵循现实运行规则（按 EOBT/机型/高度定航路）",
+                                  variable=self.var_strict_ops)
+        chk_ops.grid(row=r, column=0, columnspan=2, sticky="w", pady=2); r += 1
+
         # 问题1：用户所用模拟器——地景判定/标注/「仅地景」筛选都按此（单次飞行只用一款，故 XP/MSFS 二选一）
         ttk.Label(form, text="本次飞行使用的模拟器").grid(row=r, column=0, sticky="w")
         sf = ttk.Frame(form); sf.grid(row=r, column=1, sticky="w", pady=2)
@@ -233,7 +246,7 @@ class DispatcherGUI:
         self.btn_plan.grid(row=r, column=0, columnspan=2, sticky="ew", ipady=4); r += 1
 
         # 受 _refresh_controls 统一启停的表单控件
-        self._form_widgets = [e_dep, e_dest, e_air, self.cb_aircraft, e_tm, e_rw, e_dmin, e_dmax, chk_strict, self.chk_auto]
+        self._form_widgets = [e_dep, e_dest, e_air, self.cb_aircraft, e_tm, e_rw, e_dmin, e_dmax, chk_strict, chk_ops, self.chk_auto]
         self._set_controls_state(False)  # 初始化完成前禁用
 
     # ---------- 线程 / 状态辅助 ----------
@@ -372,6 +385,7 @@ class DispatcherGUI:
             "dmin": self.var_dmin.get(),
             "dmax": self.var_dmax.get(),
             "strict": bool(self.var_strict.get()),
+            "strict_ops": bool(self.var_strict_ops.get()),
             "scenery_only": bool(self.var_scenery_only.get()) and self.scenery_map is not None,
             "sim": self.var_sim.get(),
         }
@@ -453,19 +467,20 @@ class DispatcherGUI:
                 except Exception as e:
                     print(f"⚠️ 航路生成失败（已忽略）: {e}")   # 绝不让生成中断规划
 
-            # 各 AIP 航路：长度（与 find_aip_route 同序）+ 地图航点（每条一份，可分别打开窗口）
-            aip_dists = aip_maps = None
+            # 各 AIP 航路：长度（与 find_aip_route 同序）+ 地图航点（每条一份，可分别打开窗口）+ 航点(供 F21 端点预筛复用)
+            matched = aip_dists = aip_maps = aip_pts = None
             gen_map = None
             if route:
                 matched = [r for r in self.aip_data
                            if len(r) > 5 and r[0].strip().upper() == dep_obj.code and r[1].strip().upper() == arr_obj.code]
-                aip_dists, aip_maps = [], []
+                aip_dists, aip_maps, aip_pts = [], [], []
                 for r in matched:
                     rs = r[5].strip()
                     try:
                         pts = route_geometry(dep_obj, arr_obj, rs, self.dat_path) if rs else None
                     except Exception:
                         pts = None
+                    aip_pts.append(pts)
                     aip_dists.append(route_length_nm(pts) if pts else None)
                     aip_maps.append((pts, "%s→%s  %s" % (dep_obj.code, arr_obj.code, rs)) if pts else None)
             elif generated and gr and gr.get("coords"):
@@ -478,12 +493,64 @@ class DispatcherGUI:
                                      generated_route_dist=generated_dist, aip_route_dists=aip_dists,
                                      aip_maps=aip_maps, gen_map=gen_map)
             plan.active_sims = active                       # 问题1：渲染按所用模拟器标注地景
-            self._post(self._render_plan, plan)
+            proc = self._compute_proc(dep_obj, arr_obj, generated,   # F20/F21：逐 AIP 候选预筛跑道/SID/STAR + 抓天气
+                                      matched=matched, aip_dists=aip_dists, aip_pts=aip_pts,
+                                      strict_ops=f.get("strict_ops"))
+            self._post(self._render_plan, plan, proc)
         except Exception as e:
             print(f"❌ 发生错误: {e}")
             self._post(self._show_error, str(e))
         finally:
             self._post(self._finish_plan)
+
+    def _compute_proc(self, dep_obj, arr_obj, generated, matched=None,
+                      aip_dists=None, aip_pts=None, strict_ops=False):
+        """F20/F21（后台线程）：为每条 AIP 航路（或生成航路）预算端点预筛的跑道/SID·STAR，并抓 dep/arr 的 METAR+TAF。
+        matched=该航线全部 AIP 原始行（>1 条→用户在弹窗按 EOBT/机型/高度选或定唯一）；aip_pts/aip_dists 与之同序
+        （复用 _plan_worker 已算几何、免重算）。任一步失败都不影响主规划（返回空/None，UI 优雅降级）。"""
+        def _prefilter(base_route, pts):
+            """一条航路串 → (dep_rows, dep_matched, arr_rows, arr_matched)。pts 有则复用其航点、否则现算。"""
+            route_fixes = []
+            try:
+                if pts is None and base_route:
+                    pts = route_geometry(dep_obj, arr_obj, base_route, self.dat_path)
+                if pts:
+                    route_fixes = [p[0] for p in pts[1:-1]]  # 去首尾机场，留 enroute（首=离场点、末=进场点）
+            except Exception:
+                route_fixes = []
+            try:
+                dr, dm = procedures.matching_choices(dep_obj.code, self.dat_path, route_fixes, "dep")
+            except Exception:
+                dr, dm = [], False
+            try:
+                ar, am = procedures.matching_choices(arr_obj.code, self.dat_path, list(reversed(route_fixes)), "arr")
+            except Exception:
+                ar, am = [], False
+            return dr, dm, ar, am
+
+        candidates = []
+        if matched:                                          # AIP 分支：逐条候选（含时段/高度/机型 + 端点预筛）
+            for i, anno in enumerate(timed.annotate_routes(matched)):
+                pts = aip_pts[i] if (aip_pts and i < len(aip_pts)) else None
+                dist = aip_dists[i] if (aip_dists and i < len(aip_dists)) else None
+                dr, dm, ar, am = _prefilter(anno["route"], pts)
+                candidates.append({**anno, "dist": dist, "pts": pts,   # pts 供全段航路预览(F21 续)复用 enroute 几何
+                                   "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am})
+        elif generated:                                      # 生成航路：单候选（无时段/机型/高度）
+            try:
+                gpts = route_geometry(dep_obj, arr_obj, generated, self.dat_path)
+            except Exception:
+                gpts = None
+            dr, dm, ar, am = _prefilter(generated, gpts)
+            candidates.append({"route": generated, "restr": "", "alt": "", "aircraft": "", "dist": None, "pts": gpts,
+                               "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am})
+
+        print("🌦️ 正在获取机场天气（METAR/TAF）…")
+        return {
+            "aip_candidates": candidates, "selected": 0, "strict_ops": bool(strict_ops),
+            "dep_metar": weather.fetch_metar(dep_obj.code), "dep_taf": weather.fetch_taf(dep_obj.code),
+            "arr_metar": weather.fetch_metar(arr_obj.code), "arr_taf": weather.fetch_taf(arr_obj.code),
+        }
 
     def _finish_plan(self):
         self._busy = False
@@ -496,6 +563,7 @@ class DispatcherGUI:
         self.result.configure(state="disabled")
         self._last_url = None
         self._last_simbrief_url = None
+        self._reset_proc()                              # F20：隐藏上一轮的程序面板
 
     def _show_error(self, msg):
         self.result.configure(state="normal")
@@ -503,7 +571,7 @@ class DispatcherGUI:
         self.result.insert("end", f"❌ 发生错误：{msg}\n")
         self.result.configure(state="disabled")
 
-    def _render_plan(self, plan):
+    def _render_plan(self, plan, proc=None):
         dep, arr = plan.dep, plan.arr
         active = getattr(plan, "active_sims", None)         # 问题1：按所用模拟器标注地景
         R = self.result
@@ -559,7 +627,17 @@ class DispatcherGUI:
             _dists = plan.aip_route_dists or []
             _maps = plan.aip_maps or []
             for i, rr in enumerate(plan.aip_routes, 1):
-                ins(f"  [{i}] ", "muted"); ins(f"{rr}\n", "aip")
+                cols = [x.strip() for x in rr.split(",")]         # rr=逗号拼接行 → [DEP,DEST,时段,高度,机型,航路,备注]
+                route_s = cols[5] if len(cols) > 5 else rr
+                restr = cols[2] if len(cols) > 2 else ""
+                alt = cols[3] if len(cols) > 3 else ""
+                ac = cols[4] if len(cols) > 4 else ""
+                ins(f"  [{i}] ", "muted"); ins(f"{route_s}\n", "aip")
+                cond = " · ".join(x for x in [("时段 " + restr) if restr else "",
+                                              ("高度 " + alt) if alt else "",
+                                              ("机型 " + ac) if ac else ""] if x)
+                if cond:
+                    ins("       条件：" + cond + "\n", "muted")
                 _dd = _dev(_dists[i - 1] if i - 1 < len(_dists) else None)
                 if _dd:
                     ins("       └ " + _dd + "\n", "muted")
@@ -604,6 +682,7 @@ class DispatcherGUI:
         R.configure(state="disabled")
         self._last_url = plan.url
         self._last_simbrief_url = plan.simbrief_url
+        self._populate_proc(plan, proc)                 # F20：填充跑道 / SID·STAR 面板（含天气）
 
     def _open_link(self, _event=None):
         if self._last_url:
@@ -618,6 +697,355 @@ class DispatcherGUI:
                 webbrowser.open(self._last_simbrief_url)
             except Exception:
                 pass
+
+    # ---------- 跑道 / SID·STAR 选择面板（F20）----------
+    def _build_proc_panel(self, parent):
+        """结果区下方的「跑道 + SID/STAR」面板：规划后按航路端点预筛、天气辅助选跑道。初始隐藏。"""
+        fr = ttk.LabelFrame(parent, text="跑道 / SID·STAR（按航路端点预筛 · 天气辅助选跑道）", padding=6)
+        fr.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        for c in (1, 3):
+            fr.columnconfigure(c, weight=1)
+        self._proc_frame = fr
+        self.var_dep_wx = tk.StringVar(); self.var_arr_wx = tk.StringVar()
+        self.var_proc_sel = tk.StringVar(); self.var_proc_hint = tk.StringVar()
+        self.var_dep_rwy = tk.StringVar(); self.var_dep_sid = tk.StringVar()
+        self.var_arr_rwy = tk.StringVar(); self.var_arr_star = tk.StringVar()
+        self.var_aip = tk.StringVar()
+
+        # F21：AIP 航路选择行（仅该航线有多条 AIP 时显示）——下拉即时切换 +「确认航路」开弹窗按 EOBT/机型/高度选/定
+        self._aip_row = ttk.Frame(fr)
+        self._aip_row.grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 4))
+        self._aip_row.columnconfigure(1, weight=1)
+        ttk.Label(self._aip_row, text="AIP 航路").grid(row=0, column=0, sticky="w")
+        self.cb_aip = ttk.Combobox(self._aip_row, textvariable=self.var_aip, state="readonly")
+        self.cb_aip.grid(row=0, column=1, sticky="ew", padx=(2, 8))
+        self.cb_aip.bind("<<ComboboxSelected>>", self._on_aip_combo)
+        self.btn_aip = ttk.Button(self._aip_row, text="确认航路 (EOBT/机型/高度)…", command=self._open_aip_popup)
+        self.btn_aip.grid(row=0, column=2, sticky="e")
+        self._aip_row.grid_remove()
+
+        ttk.Label(fr, textvariable=self.var_dep_wx, foreground="#5f6368", wraplength=560, justify="left"
+                  ).grid(row=1, column=0, columnspan=4, sticky="w")
+        ttk.Label(fr, text="出发跑道").grid(row=2, column=0, sticky="w")
+        self.cb_dep_rwy = ttk.Combobox(fr, textvariable=self.var_dep_rwy, width=24, state="readonly")
+        self.cb_dep_rwy.grid(row=2, column=1, sticky="ew", padx=(2, 8))
+        ttk.Label(fr, text="SID").grid(row=2, column=2, sticky="w")
+        self.cb_dep_sid = ttk.Combobox(fr, textvariable=self.var_dep_sid, width=18)
+        self.cb_dep_sid.grid(row=2, column=3, sticky="ew", padx=2)
+
+        ttk.Label(fr, textvariable=self.var_arr_wx, foreground="#5f6368", wraplength=560, justify="left"
+                  ).grid(row=3, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        ttk.Label(fr, text="到达跑道").grid(row=4, column=0, sticky="w")
+        self.cb_arr_rwy = ttk.Combobox(fr, textvariable=self.var_arr_rwy, width=24, state="readonly")
+        self.cb_arr_rwy.grid(row=4, column=1, sticky="ew", padx=(2, 8))
+        ttk.Label(fr, text="STAR").grid(row=4, column=2, sticky="w")
+        self.cb_arr_star = ttk.Combobox(fr, textvariable=self.var_arr_star, width=18)
+        self.cb_arr_star.grid(row=4, column=3, sticky="ew", padx=2)
+
+        ttk.Label(fr, textvariable=self.var_proc_hint, foreground="#9aa0a6", wraplength=560, justify="left"
+                  ).grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        ttk.Label(fr, textvariable=self.var_proc_sel, foreground="#202124", wraplength=560, justify="left"
+                  ).grid(row=6, column=0, columnspan=4, sticky="w")
+        if _HAS_MAP:                                          # F21 续：预览全段航路(SID+enroute+STAR) → 复用 _open_map
+            self.lbl_proc_preview = ttk.Label(fr, text="🗺️ 预览完整航路（SID + enroute + STAR）",
+                                              foreground="#137333", cursor="hand2")
+            self.lbl_proc_preview.grid(row=7, column=0, columnspan=4, sticky="w", pady=(2, 0))
+            self.lbl_proc_preview.bind("<Button-1>", self._preview_full_route)
+        self.lbl_proc_sb = ttk.Label(fr, text="🛩️ 按所选程序派遣 SimBrief（需登录）",
+                                     foreground="#1a6fdb", cursor="hand2")
+        self.lbl_proc_sb.grid(row=8, column=0, columnspan=4, sticky="w", pady=(2, 0))
+        self.lbl_proc_sb.bind("<Button-1>", self._open_proc_simbrief)
+
+        self.cb_dep_rwy.bind("<<ComboboxSelected>>", lambda e: self._on_rwy_selected("dep"))
+        self.cb_arr_rwy.bind("<<ComboboxSelected>>", lambda e: self._on_rwy_selected("arr"))
+        self.cb_dep_sid.bind("<<ComboboxSelected>>", lambda e: self._on_proc_changed())
+        self.cb_arr_star.bind("<<ComboboxSelected>>", lambda e: self._on_proc_changed())
+        self.cb_dep_sid.bind("<KeyRelease>", lambda e: self._on_proc_filter("dep", e))
+        self.cb_arr_star.bind("<KeyRelease>", lambda e: self._on_proc_filter("arr", e))
+        fr.grid_remove()                                # 规划后才显示
+
+    def _reset_proc(self):
+        """清空并隐藏程序面板（新规划/出错时）。"""
+        if hasattr(self, "_proc_frame"):
+            self._proc_frame.grid_remove()
+        if hasattr(self, "_aip_row"):
+            self._aip_row.grid_remove()
+        self._proc_sb_url = None
+        self._aip_candidates = []
+        self._proc_sel_idx = 0
+
+    def _wind_desc(self, wind, rwy_id):
+        """(逆/顺风文本+侧风+适航, ok, headwind)；wind=(dir,spd,gust) 或 None / 静风 / VRB → ('', True, 0)。"""
+        if not wind or not isinstance(wind[0], (int, float)) or not wind[1]:
+            return "", True, 0.0
+        hw, cw = weather.runway_wind(procedures.runway_heading_deg(rwy_id), wind[0], wind[1])
+        ok = weather.runway_ok(hw, cw)
+        wd = ("逆风%.0f节" % hw) if hw >= 0 else ("顺风%.0f节" % abs(hw))   # 顺/逆已表方向，分量取绝对值 + 单位「节」
+        return "%s 侧风%.0f节 %s" % (wd, cw, "✓" if ok else "⚠️超限"), ok, hw
+
+    def _wx_text(self, prefix, icao, metar, taf):
+        """该机场的天气块：标题+风 / METAR 原文 / TAF 原文（各占一行，缩进对齐；TAF 原文本身含 TAF<ICAO> 前缀）。"""
+        if not metar:
+            head = "%s %s  ·  天气获取失败（断网或暂无观测）" % (prefix, icao)
+        else:
+            raw = metar[0]
+            wd, ws, gust = weather.parse_wind(raw)
+            if not ws:
+                wind_s = "静风"
+            elif isinstance(wd, int):
+                wind_s = "风 %03d°/%d节%s" % (wd, ws, ("阵%d" % gust if gust else ""))
+            else:
+                wind_s = "风 不定/%d节" % ws
+            head = "%s %s  %s\n    %s" % (prefix, icao, wind_s, raw)
+        if taf:
+            head += "\n    %s" % taf[0]
+        return head
+
+    def _fill_rwy(self, side, rows, wind):
+        """填某侧跑道下拉（显示长度 + 风分量 + 适航；合规优先、再逆风、再跑道号排序），并预选首个跑道、级联其程序。"""
+        items = []
+        for rwy_id, length_ft, labels in rows:
+            short = rwy_id.replace("RW", "")
+            parts = [short] + (["%.0fm" % (length_ft * 0.3048)] if length_ft else [])   # 东亚习惯：显示层用米（数据底层为英尺）
+            wdesc, ok, hw = self._wind_desc(wind, rwy_id)
+            if wdesc:
+                parts.append(wdesc)
+            items.append({"disp": " · ".join(parts), "rwy": rwy_id, "labels": labels, "ok": ok, "hw": hw})
+        items.sort(key=lambda it: (not it["ok"], -it["hw"], procedures._rw_sort_key(it["rwy"])))
+        combo = self.cb_dep_rwy if side == "dep" else self.cb_arr_rwy
+        combo["values"] = [it["disp"] for it in items]
+        setattr(self, "_%s_rwy_map" % side, {it["disp"]: it for it in items})
+        if items:
+            combo.set(items[0]["disp"])
+            self._fill_proc(side, items[0])
+        else:
+            combo.set("（无可选程序）")
+            self._fill_proc(side, None)
+
+    def _fill_proc(self, side, item):
+        """按所选跑道填 SID/STAR 下拉（预选首个）。item=None → 清空。"""
+        combo = self.cb_dep_sid if side == "dep" else self.cb_arr_star
+        labels = (item or {}).get("labels", []) if item else []
+        setattr(self, "_%s_proc_all" % side, labels)
+        combo["values"] = labels
+        combo.set(labels[0] if labels else "")
+
+    def _on_rwy_selected(self, side):
+        combo = self.cb_dep_rwy if side == "dep" else self.cb_arr_rwy
+        item = getattr(self, "_%s_rwy_map" % side, {}).get(combo.get())
+        self._fill_proc(side, item)
+        self._on_proc_changed()
+
+    def _on_proc_filter(self, side, event):
+        """SID/STAR 下拉可搜索：输入即过滤候选（回车确认更新）。"""
+        if event is not None and event.keysym in ("Up", "Down", "Return", "Escape", "Left", "Right"):
+            if event.keysym == "Return":
+                self._on_proc_changed()
+            return
+        combo = self.cb_dep_sid if side == "dep" else self.cb_arr_star
+        typed = combo.get().strip().lower()
+        allv = getattr(self, "_%s_proc_all" % side, [])
+        combo["values"] = [v for v in allv if typed in v.lower()] or allv
+
+    def _on_proc_changed(self, *_a):
+        """SID/STAR/跑道变化 → 更新摘要 + 用所选程序重建 SimBrief 链接（route = SID + enroute + STAR）。"""
+        dmap = getattr(self, "_dep_rwy_map", {}); amap = getattr(self, "_arr_rwy_map", {})
+        ditem = dmap.get(self.cb_dep_rwy.get()); aitem = amap.get(self.cb_arr_rwy.get())
+        dep_rwy = ditem["rwy"].replace("RW", "") if ditem else "—"
+        arr_rwy = aitem["rwy"].replace("RW", "") if aitem else "—"
+        sid = self.var_dep_sid.get().strip(); star = self.var_arr_star.get().strip()
+        self.var_proc_sel.set("已选：%s 跑道 %s / %s    →    %s 跑道 %s / %s"
+                              % (self._proc_dep_icao, dep_rwy, sid or "—",
+                                 self._proc_arr_icao, arr_rwy, star or "—"))
+        route = " ".join(x for x in [sid.split(".")[0], self._proc_base_route, star.split(".")[0]] if x)
+        self._proc_sb_url = simbrief_url(self._proc_sb_base, route) if self._proc_sb_base else None
+
+    def _open_proc_simbrief(self, _event=None):
+        url = self._proc_sb_url or self._last_simbrief_url
+        if url:
+            try:
+                webbrowser.open(url)
+            except Exception:
+                pass
+
+    def _preview_full_route(self, _event=None):
+        """把当前选定的 SID + enroute + STAR 全段画到地图（复用 F18 的 _open_map）。"""
+        cands = getattr(self, "_aip_candidates", [])
+        if not (_HAS_MAP and cands):
+            return
+        c = cands[getattr(self, "_proc_sel_idx", 0)]
+        ditem = getattr(self, "_dep_rwy_map", {}).get(self.cb_dep_rwy.get())
+        aitem = getattr(self, "_arr_rwy_map", {}).get(self.cb_arr_rwy.get())
+        dep_rwy = ditem["rwy"] if ditem else None
+        arr_rwy = aitem["rwy"] if aitem else None
+        sid, star = self.var_dep_sid.get().strip(), self.var_arr_star.get().strip()
+        try:
+            coords = procedures.full_route_coords(
+                self._proc_dep_icao, sid, dep_rwy, self._proc_arr_icao, star, arr_rwy,
+                c.get("pts"), self.dat_path)
+        except Exception as e:
+            print(f"⚠️ 生成全段航路失败: {e}")
+            return
+        if len(coords) < 2:
+            print("ℹ️ 全段航路坐标不足，无法预览（SID/STAR 航点未能解析）。")
+            return
+        title = "%s→%s  %s" % (self._proc_dep_icao, self._proc_arr_icao, c.get("route", ""))
+        self._open_map(coords, title)
+
+    def _populate_proc(self, plan, proc):
+        """规划后填充程序面板（Tk 线程，_render_plan 调）。proc=各 AIP/生成候选的端点预筛 + 天气（F21）。"""
+        if not proc or not proc.get("aip_candidates"):
+            self._reset_proc()
+            return
+        self._proc_dep_icao, self._proc_arr_icao = plan.dep.code, plan.arr.code
+        self._proc_sb_base = getattr(plan, "sb_base", None)
+        self._aip_candidates = proc["aip_candidates"]
+        self._proc_strict_ops = bool(proc.get("strict_ops"))
+        self._dep_wind = weather.parse_wind(proc["dep_metar"][0]) if proc.get("dep_metar") else None
+        self._arr_wind = weather.parse_wind(proc["arr_metar"][0]) if proc.get("arr_metar") else None
+        self.var_dep_wx.set(self._wx_text("🛫 出发", plan.dep.code, proc.get("dep_metar"), proc.get("dep_taf")))
+        self.var_arr_wx.set(self._wx_text("🛬 到达", plan.arr.code, proc.get("arr_metar"), proc.get("arr_taf")))
+
+        cands = self._aip_candidates
+        if len(cands) > 1:                                  # 多条 AIP → 显示下拉 + 确认按钮，规划后自动弹窗
+            self.cb_aip["values"] = [self._aip_label(i, c) for i, c in enumerate(cands)]
+            self._aip_row.grid()
+        else:
+            self.cb_aip["values"] = []
+            self._aip_row.grid_remove()
+
+        self._proc_frame.grid()
+        self._on_aip_route_selected(proc.get("selected", 0))
+        if len(cands) > 1:
+            self.root.after(0, self._open_aip_popup)        # 规划检索到多条 AIP → 自动弹窗（严格自动定唯一 / 非严格备注选）
+
+    def _aip_label(self, i, c):
+        """AIP 航路下拉紧凑标签：[序号] 时段 · 距离 · 航路首…尾。"""
+        restr = c.get("restr") or "全时段"
+        dist = ("%.0fNM · " % c["dist"]) if c.get("dist") else ""
+        toks = (c.get("route") or "").split()
+        short = " ".join(toks) if len(toks) <= 4 else "%s…%s" % (" ".join(toks[:2]), toks[-1])
+        return "[%d] %s · %s%s" % (i + 1, restr, dist, short)
+
+    def _on_aip_combo(self, _e=None):
+        idx = self.cb_aip.current()
+        if idx is not None and idx >= 0:
+            self._on_aip_route_selected(idx)
+
+    def _on_aip_route_selected(self, idx):
+        """选定第 idx 条 AIP/生成候选 → 换 base_route、按其预筛填跑道/SID·STAR、更新提示与 SimBrief。"""
+        cands = getattr(self, "_aip_candidates", [])
+        if not cands:
+            return
+        idx = max(0, min(int(idx), len(cands) - 1))
+        self._proc_sel_idx = idx
+        c = cands[idx]
+        self._proc_base_route = c.get("route", "")
+        if self.cb_aip["values"]:
+            self.cb_aip.current(idx)
+        self._fill_rwy("dep", c.get("dep_rows", []), getattr(self, "_dep_wind", None))
+        self._fill_rwy("arr", c.get("arr_rows", []), getattr(self, "_arr_wind", None))
+        notes = []
+        if c.get("dep_rows") and not c.get("dep_matched"):
+            notes.append("出发端点未直接匹配 SID（已列全部）")
+        if c.get("arr_rows") and not c.get("arr_matched"):
+            notes.append("到达端点未直接匹配 STAR（已列全部）")
+        if not c.get("dep_rows"):
+            notes.append("出发无可选 SID（可雷达引导离场）")
+        if not c.get("arr_rows"):
+            notes.append("到达无可选 STAR（可盘旋/引导进近）")
+        self.var_proc_hint.set("ℹ️ " + "；".join(notes) if notes else "")
+        self._on_proc_changed()
+
+    def _open_aip_popup(self, _e=None):
+        """F21 确认航路弹窗：仿真实 AIP 航路表 + 行首选择框（单选，点行即选中并实时更新面板）。
+        非严格：纯罗列 时段/用途/机型/高度/距离/航路，手动勾选一条。
+        严格：上方收 EOBT/机型/高度 → 实时判定(✓可用/✗不符/？待定)，唯一可用即自动选定。"""
+        cands = getattr(self, "_aip_candidates", [])
+        if len(cands) <= 1:
+            return
+        strict = getattr(self, "_proc_strict_ops", False)
+        win = tk.Toplevel(self.root)
+        win.title("确认 AIP 航路   %s → %s" % (self._proc_dep_icao, self._proc_arr_icao))
+        win.transient(self.root)
+        win.columnconfigure(0, weight=1); win.rowconfigure(1, weight=1)
+        status = tk.StringVar()
+        eobt_v = tk.StringVar(); cat_v = tk.StringVar(value="JET"); fl_v = tk.StringVar()
+
+        cols = [("sel", "选择", 44), ("route", "航路 (Route)", 330), ("hours", "时段 (Hours)", 145),
+                ("alt", "高度", 64), ("ac", "机型", 56), ("use", "用途", 150), ("dist", "距离", 66)]
+        if strict:
+            cols.append(("verdict", "判定", 64))
+        tv = ttk.Treeview(win, columns=[c[0] for c in cols], show="headings",
+                          height=min(len(cands), 12), selectmode="browse")
+        for key, txt, w in cols:
+            tv.heading(key, text=txt)
+            tv.column(key, width=w, anchor="w", stretch=(key == "route"))
+        tv.tag_configure("match", background="#e6f4ea")
+        tv.tag_configure("no", foreground="#9aa0a6")
+
+        def _draw(verdicts=None):
+            tv.delete(*tv.get_children())
+            sel = getattr(self, "_proc_sel_idx", 0)
+            for i, c in enumerate(cands):
+                v = verdicts[i] if verdicts else None
+                dist = ("%.0f NM" % c["dist"]) if c.get("dist") else "-"
+                row = ["●" if i == sel else "○", c.get("route", ""), c.get("restr") or "-",
+                       c.get("alt") or "-", c.get("aircraft") or "-",
+                       timed.describe_restriction(c.get("restr", "")), dist]
+                if strict:
+                    row.append({"match": "✓可用", "no": "✗不符", "unknown": "？待定"}.get(v, "-"))
+                tv.insert("", "end", iid=str(i), values=row, tags=((v,) if v in ("match", "no") else ()))
+
+        def _recompute(*_a):
+            if not strict:
+                _draw(); return
+            eobt = timed.parse_hhmm(eobt_v.get())
+            fl = timed.parse_fl(fl_v.get())
+            eobt_utc = eta_utc = None
+            if eobt is not None:
+                eobt_utc, eta_utc = timed.plan_times_utc(eobt, cands[getattr(self, "_proc_sel_idx", 0)].get("dist"))
+            verds = timed.filter_candidates(cands, eobt_utc, eta_utc, cat_v.get(), fl)
+            uniq = timed.resolve_unique(verds)
+            if uniq is not None and eobt is not None and fl is not None:
+                self._on_aip_route_selected(uniq)           # 唯一可用 → 自动选定（面板同步更新）
+                status.set("✓ 唯一匹配：第 %d 条已自动选定，可「确认并关闭」" % (uniq + 1))
+            elif eobt is not None or fl is not None:
+                status.set("当前无法唯一确定，请补齐 EOBT/机型/高度或手动勾选")
+            else:
+                status.set("填入 EOBT/机型/高度自动定唯一航路，或直接手动勾选")
+            _draw(verds)
+
+        def _pick(_e=None):
+            f = tv.focus()
+            if f:
+                self._on_aip_route_selected(int(f))
+                _recompute() if strict else _draw()
+
+        if strict:
+            inp = ttk.Frame(win); inp.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 0))
+            ttk.Label(inp, text="EOBT(JST)").pack(side="left")
+            e1 = ttk.Entry(inp, textvariable=eobt_v, width=7); e1.pack(side="left", padx=(2, 10))
+            ttk.Label(inp, text="机型").pack(side="left")
+            for cat in ("JET", "PROP"):
+                ttk.Radiobutton(inp, text=cat, value=cat, variable=cat_v, command=_recompute).pack(side="left")
+            ttk.Label(inp, text="巡航高度").pack(side="left", padx=(10, 0))
+            e2 = ttk.Entry(inp, textvariable=fl_v, width=9); e2.pack(side="left", padx=2)
+            e1.bind("<KeyRelease>", _recompute); e2.bind("<KeyRelease>", _recompute)
+
+        tv.grid(row=1, column=0, sticky="nsew", padx=8, pady=8)
+        tv.bind("<<TreeviewSelect>>", _pick)
+        bar = ttk.Frame(win); bar.grid(row=2, column=0, sticky="ew", padx=8, pady=(0, 8))
+        ttk.Label(bar, textvariable=status, foreground="#5f6368", wraplength=560).pack(side="left")
+        ttk.Button(bar, text="确认并关闭", command=win.destroy).pack(side="right")
+
+        win._f21 = {"eobt": eobt_v, "cat": cat_v, "fl": fl_v, "recompute": _recompute}   # 测试钩子
+        _recompute()
+        try:                                                # 预选当前生效的那条
+            cur = str(getattr(self, "_proc_sel_idx", 0))
+            tv.selection_set(cur); tv.focus(cur); tv.see(cur)
+        except Exception:
+            pass
 
     def _open_map(self, coords, title=""):
         """弹出独立地图窗口，把指定航路画在真实地图上（tkintermapview，可拖拽 / 缩放）。"""

@@ -33,6 +33,7 @@ class FlightPlan:
     aip_maps: list = None                                # 每条 AIP 航路的 (coords, 标题)，与 aip_routes 一一对应（供分别开图）
     gen_map: object = None                               # 生成航路的 (coords, 标题)
     active_sims: object = None                            # 渲染地景标注/警告所用的模拟器集合(None=两者)；问题1
+    sb_base: dict = None                                  # SimBrief 基础参数 {orig,dest,airline,fltnum,actype}（F20：选定 SID/STAR 后据此重建带 route 的链接）
 
 
 # ---- SimBrief 一键派遣链接（F16）----
@@ -66,6 +67,23 @@ def _build_simbrief_url(orig, dest, airline, fltnum, actype, route=None):
     return "https://dispatch.simbrief.com/options/custom?" + urlencode(params)
 
 
+def _first_aip_route_str(route_details):
+    """从 route_details（find_aip_route 的逗号拼接串列表）取首条 AIP 航路的 Route 列串（第 6 列）。空/无→None。"""
+    if not route_details:
+        return None
+    parts = (route_details[0] or "").split(",")
+    return parts[5].strip() if len(parts) > 5 and parts[5].strip() else None
+
+
+def simbrief_url(sb_base, route=None):
+    """据 FlightPlan.sb_base + 一条 route 重建 SimBrief 派遣链接（F20：用户选定 SID/STAR 后调用）。sb_base 缺失 → ''。"""
+    if not sb_base:
+        return ""
+    return _build_simbrief_url(sb_base.get("orig", ""), sb_base.get("dest", ""),
+                               sb_base.get("airline", ""), sb_base.get("fltnum", ""),
+                               sb_base.get("actype", ""), route)
+
+
 def build_flight_plan(dep_obj, arr_obj, route_dist, route_details,
                       user_airline="", user_aircraft="", user_time_range="", flown_count=0,
                       generated_route=None, generated_route_warn=None, timed_route=None,
@@ -87,16 +105,21 @@ def build_flight_plan(dep_obj, arr_obj, route_dist, route_details,
     sb_airline, sb_fltnum = _split_callsign(cs)
     if not sb_airline and user_airline:
         sb_airline = user_airline.upper()
-    simbrief_url = _build_simbrief_url(dep_obj.code, arr_obj.code, sb_airline, sb_fltnum,
-                                       _normalize_actype(user_aircraft), timed_route)
+    sb_actype = _normalize_actype(user_aircraft)
+    # F16：SimBrief route 默认用【本工具展示的航路】——生成航路(含 VATJPN 到着尾段)优先，否则首条 AIP 航路串——
+    # 保证「一键签派」与生成/预览一致（route 留空会让 SimBrief 自算出完全不同的航路）。timed_route 显式给出时优先。
+    sb_route = timed_route or generated_route or _first_aip_route_str(route_details)
+    sb_url = _build_simbrief_url(dep_obj.code, arr_obj.code, sb_airline, sb_fltnum, sb_actype, sb_route)
     return FlightPlan(
         dep=dep_obj, arr=arr_obj, dist_nm=route_dist, flown_count=flown_count or 0,
         aip_routes=route_details, real_flights=real_flights, is_exact=is_exact,
         sim_callsign=sim_callsign, url=url,
         generated_route=generated_route, generated_route_warn=generated_route_warn,
-        simbrief_url=simbrief_url,
+        simbrief_url=sb_url,
         generated_route_dist=generated_route_dist, aip_route_dists=aip_route_dists,
         aip_maps=aip_maps, gen_map=gen_map,
+        sb_base={"orig": dep_obj.code, "dest": arr_obj.code,
+                 "airline": sb_airline, "fltnum": sb_fltnum, "actype": sb_actype},
     )
 
 

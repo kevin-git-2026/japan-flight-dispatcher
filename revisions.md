@@ -150,6 +150,85 @@ ICAO Annex 11：RNAV 首字母 ∈ Q/T/Y/Z(国内)∪L/M/N/P(区域)。新增 `_
 **验证**：标杆全对(RJFM→MADOG、RJGG→KCC、RJSA→RJSS、RJCN→RJSM、RJSY→YAYOI)；50 条样本总距 22682nm、干线 78%、退化 0、可疑 3(均为隠岐离岛/RJEB 固有难航线，非新增)。
 **git/版本**：本提交 = `1.4.1_alpha2`，把上一批(续作2：走廊加权 + 移管表端点 + DEBUG)与本批(续作3：端点学习 + 删桥 + 本场VOR)连同 `transfer_points.json` + `route_planning` skill 一并入库。⚠️ skill 的 `SKILL.md`/`enroute.md` 仍含 case 5 桥接描述(领域概念仍成立，但本项目实现已不用)，待后续清理。
 
+### F21（2026-07-01 · v1.4.1 开发中，未提交）— 多条 AIP 航路按 EOBT/机型/高度选（分时段规划·重做）+ SID/STAR 端点匹配修复 + 全段航路预览
+
+> 一次航线常有**多条官方 AIP 航路**，按【运行时段(EOBT/ETA)、机型、巡航高度】区分。默认给一条可用的；多条时**弹窗**让用户按 **EOBT(撤轮挡)+机型(JET/PROP)+巡航高度**确认一条，并可随时切换。选定即重驱动 F20 的 SID/STAR 预筛 + 重建 SimBrief `route`。这是 v1.4.0 曾删除的分时段规划的**重做**（时间可靠→用来筛；机型/高度是脏自由文本→按用户给的参考值判属、不硬选）。设计详见计划文件 `~/.claude/plans/giggly-weaving-zephyr.md`。
+
+**用户已定**：① 时间＝**EOBT**（非起飞，起飞≈EOBT+15min 仅估 ETA）；② **不设常驻输入框**，多条 AIP 时才弹窗收 EOBT；③ 面板加「AIP 航路」下拉（默认首条、可切换）+「确认航路…」按钮；④ **两重严格度**：新增「严格遵循现实运行规则」勾选——勾＝填齐 EOBT/机型/高度后**自动定唯一**，不勾＝弹窗**罗列全部**（时段/用途/机型/高度/距离/航路 + 行首选择框）供手动选；⑤ 两模式规划后检索到多条 AIP 都**自动弹窗**（单条不弹）。
+
+**新增 `dispatcher/timed.py`**（纯标准库；复活 v1.4.0 删除代码的可靠子集 + 用户参考值匹配器）：
+- 时间层：`parse_hhmm` / `parse_time_restriction`(EOBT/ETA/复合/跨午夜) / `_in_window`(环形) / `route_matches_time` / `plan_times_utc`(JST−9h=UTC、ETA=起飞+航程÷`CRUISE_KT`450)。
+- 脏列**按用户参考值**判属(True/False/**None=无法判**)：`alt_matches`(解析 `FLxxx±`/`FLxxx-FLyyy`区间/`Axxx`；**因用户给 FL，`FL180-FL230` 区间可正确判属**，修当初反向解析 bug) / `aircraft_matches`(JET/DH8D/PROP；地理/机场条件→None) / `filter_candidates`→`match|no|unknown` / `resolve_unique`(唯一 match→idx) / `describe_restriction`(时段转 JST + 日间/夜间标签)。
+
+**`dispatcher/gui.py`**（复用 F20 面板）：
+- 表单加 `var_strict_ops`「严格遵循现实运行规则」勾选(默认不勾)，`f["strict_ops"]`。
+- `_compute_proc` 改**逐 AIP 候选**预算端点预筛(复用 `_plan_worker` 传入的 `pts`/`dist`)，返回 `aip_candidates=[{route,restr,alt,aircraft,dist,pts,dep_rows,dep_matched,arr_rows,arr_matched}]`；生成航路＝单候选。签名加 `matched`/`aip_dists`/`aip_pts`/`strict_ops`。
+- 面板加「AIP 航路」`cb_aip`(仅>1 显示) +「确认航路…」按钮；`_on_aip_route_selected` 换 `_proc_base_route` + 用该候选预算好的 rows 级联跑道/SID·STAR + 重建 SimBrief。
+- `_open_aip_popup`：`Toplevel`+`Treeview`(选择/航路/时段/高度/机型/用途/距离)，行首 ●/○ 单选点行即选中并同步面板；**严格**多一「判定」列 + 上方 EOBT/机型/高度输入区，`filter_candidates`+`resolve_unique` 唯一即自动选定。
+- `_render_plan` 每条 AIP 追加灰字「条件：时段/高度/机型」(rr 逗号串 `split(",")` 取 `[2]/[3]/[4]`；主行改显 `[5]` 航路本身而非整条逗号串)。
+- **实现踩坑**：`self.after`/`Toplevel(self)` 应为 `self.root.after`/`Toplevel(self.root)`（`DispatcherGUI` 非 Tk 控件）。
+
+**SID/STAR 端点匹配修复**（`dispatcher/procedures.py`——F20 逻辑 bug，测 F21 时发现）：
+- **现象**：RJCC→RJTT 航路 `TOBBY Y10 GODIN`（离场点 TOBBY），SID 只给 `JUGGL2.BUTOS`/`MKE9.BUTOS`/`TOBBY9.BUTOS` 等，**没给裸 SID**。
+- **根因**：BUTOS/PANSY 过渡的序列是 `TOBBY(IF起)→…→BUTOS/PANSY(末)`，TOBBY 是过渡**首点(=本场离场交付点)**。旧 `matching_choices` 用「端点 ∈ 过渡经过的全部航点」→ TOBBY 命中 BUTOS/PANSY → 误标 `X.BUTOS`(会冲过 TOBBY)。
+- **修法**：`enumerate_procedures` 改记每条过渡的 **`(first, term)`**（首/末点）+ `body_first`/`body_term`(跑道/common 段端点)；`matching_choices` 改为**接过渡端点**——离场(SID)接**末点** `tt`(=标准 SID.TRANS)，进场(STAR)接**首点** `tf`；未命中过渡端则裸程序衔接过渡另一端(无过渡则 body 端点)。删掉旧 `_HEAD_SCAN` 消歧。
+- **验证**：RJCC `TOBBY→裸 JUGGL2/MKE9/TOBBY9`、`BUTOS→X.BUTOS` ✓；F20 回归无损(RJTT `AGRIS→ROVE3A.BRUCE`、`LAXAS→LAXAS4`、`XAC→ISOGO3.XAC/VISIP1.XAC/VAMOS4.DRAKY`、RJBB `CANDY→CANDYx`、RJNS `ENSYU/OHCHA` 与旧一致)。附带认知：过渡名 ≠ 其接航路端点（`ROVE3A.BRUCE` 的 BRUCE 是中段 section-P 转弯点、真正接航路的是末点 AGRIS；`VAMOS4.DRAKY` 实际终结于 XAC VOR）。
+
+**全段航路预览**（`procedures.py` + `gui.py`）：选定 SID/STAR 后把 **SID+enroute+STAR 全段**画到地图（复用 F18 `_open_map`）。
+- `procedures.py` 新增：`_load_fix_index`/`_resolve_fix`(解析 `earth_fix.dat` 全部含 terminal + `earth_nav.dat` ENRT 台 → `(ident,region)` 坐标索引，能还原 `CC01T`/`D185F` 等 section-P 终端航点) / `_parse_legs`(每程序每段有序航点) / `procedure_coords`(选定跑道+过渡还原 SID/STAR 有序坐标，离场 跑道段→common→过渡、进场反向) / `full_route_coords`(拼 SID+`enroute pts[1:-1]`+STAR，按 ident 去相邻重复，接缝端点自动合一)。
+- `gui.py`：候选存 `pts`；面板 SimBrief 上方加「🗺️ 预览完整航路（SID+enroute+STAR）」链接(仅 `_HAS_MAP` 显示，row 7，SimBrief 移 row 8) + `_preview_full_route`(按当前选定 SID/STAR/跑道拼坐标 → `_open_map`)。
+- **验证**：RJCC→RJTT 全段 29 点、跑道头到跑道头连续、全部解析出坐标、TOBBY/GODIN 接缝去重(`01L D330P CHE D185F D185K TOBBY …Y10… GODIN CHIPS … CREAM 34L`)。
+
+**验证汇总**：`timed.py` 单测 34 断言全过；headless 冒烟(多/单/空候选、切换级联、严格活体自动定唯一 22:00→日间/05:00→夜间、SimBrief 重建)；真实数据 RJTT→RJBB 4 条 AIP 逐条正确解析(LAXAS 离场 7 条 SID / OPPAR 离场 6 条，证明逐候选端点预筛按各航路首点区分)；`_render_plan` 全链渲染。**未提交、未升版本**。
+
+### 生成航路：VATJPN 到着尾段补全（进场门后 DCT 直飞）+ SimBrief 链接对齐（2026-07-01 · v1.4.1 开发中，未提交）
+
+> 两处：① 生成航路进场只到「进场门」就停，漏掉 VATJPN「到着」里门后的 DCT 直飞点（如 RJFM 北向 KUE 之后的 `ESKAP KROMA ENBEN MZE`，管制据以引导）；② 结果卡「一键签派 SimBrief」发的 route 为空，SimBrief 自算出与本工具完全不同的航路。
+
+**① 到着尾段补全**
+- **现象**：NW→RJFM 生成航路末尾只到 `KUE` 就停。门后 `ESKAP/ENBEN/MZE` 不在航路网上（0 airway 边、只 DCT），A* 走不到；旧 `transfer_points.json` 抽取只留了「进场门」（门后 DCT 尾段被丢，见 skill `transfer_points.md` 旧述）。
+- **数据** `transfer_points.json`：新增 `arr_dct`（`{进场门: [门后 DCT 直飞点…]}`），从 skill `transfer_points.md`「到着」原始串抽取（门=段内首个落在 `arr` 门列表的 token，尾=其后非 airway 的 fix），覆盖 **25 机场**（RJFM `KUE→ESKAP KROMA ENBEN MZE`、RJOO `AGPUK→MIRAI ABENO IKOMA` 等）。
+- **逻辑** `dispatcher/router.py`：`_arrival_tail_keys`（解析尾段 keys；遇解析不到 / 背离本场超 `_ARR_TAIL_BACKTRACK_NM`=8nm 即截断——丢 ROAH `NHC→LAVON`、RJTL `…SHT→TOHNE` 倒飞尾点）+ `_append_arrival_tail`（A* 落到某门后把尾段 DCT 接到 `route_str`/`fixes`/`coords`/`dist_nm` 末尾；enroute 连贯性已在 `_finish` 算过、尾段不再计入避免误告警）；`_direct_route` 末尾调用。尾点坐标全从 `graph.by_ident` 解析（ESKAP/ENBEN/MZE 虽无 airway 边但在 nodes 里）。
+- **验证**：NW→RJFM 五条全补 `KUE ESKAP KROMA ENBEN MZE`；NE/E→RJFM（RYUGU 门无尾）不变；`RJTT→RJOO …AGPUK MIRAI ABENO IKOMA`、`RJSC→RJOM …BAMBO KINOE ITUKI MYE` 一并生效；无尾端点(WIMPY/HKC/NAVER)不动；`route_geometry` 重解析出全部尾点、`dist(res)==dist(geo)`（F19 距离 / F18 地图 / F20 端点自动跟随）；`suspect=False` 无误告警。
+
+**② SimBrief 链接对齐** `dispatcher/planner.py`
+- **根因**：`build_flight_plan` 的 `sb_url` 用 `timed_route`（GUI 从不传，恒 None）当 route → 空 → SimBrief 自算另一条（RJOB→RJFM 得 `WASYU2 WASYU V28 MARCO`，与生成的 `WASYU…TFE ABUMI SIIBA MZE` 完全不同）。
+- **修法**：`sb_route = timed_route or generated_route or _first_aip_route_str(route_details)`——F16 结果卡链接默认带**本工具展示的航路**（生成航路含到着尾段优先、否则首条 AIP 航路串；`_first_aip_route_str` 从逗号拼接串取第 6 列 Route）。无生成无 AIP 才留空让 SimBrief 自算。与 F20/F21 面板链接（本就用 base_route）口径统一。
+
+**可调旋钮**：`_ARR_TAIL_BACKTRACK_NM`(8)。**未提交、未升版本。**
+
+### FlightAware 排班：中转联程误判为直飞（2026-07-01 · v1.4.1 开发中，未提交）
+
+> `findflight` 每条结果其实是一个**航段(leg)**（带 `origin`/`destination` IATA）。中转联程 SYO→HND→ITM 被拆成两段：首段 `SYO→HND`（带 `connectionCity`）、续段 `HND→ITM`（带 `layoverDuration`）。旧 `fetch_real_flights_with_filter` 不看起止，把每段航班号都当直飞抓——SYO→ITM 误列 `ANA398`(SYO→HND 首段) / `ANA21`(HND→ITM 续段) 等联程分段。
+
+- **修法** `dispatcher/flightaware.py`：只留**本段 `origin`==全程出发 且 `destination`==全程到达**的直飞段（`has_od` 门控 + 循环内 `continue` 跳过分段）。两端 IATA 从数据自身推（无需 ICAO→IATA 表）：`dep_iata`=首条结果 `origin`；`arr_iata`=第一条【行程】最后一段 `destination`（结果按行程分段依次排列，`origin` 再次==dep 即换了行程）。缺 `origin`/`destination` 字段(FA 改版)→ `has_od=False` 不过滤、保持旧行为不致返回空。
+- **验证**（实网）：`RJSY→RJOO`(SYO→ITM 全联程) → **0 条直飞**、降级模拟呼号（原误列 5 条）；`RJTT→RJOO`(HND→ITM) → 5 条真·直飞(ANA41/JAL139/ANA39…)；`RJCC→RJFF`(CTS→FUK) → 5 条真·直飞。**未提交、未升版本。**
+
+---
+
+### F20（2026-06-30 · v1.4.1 开发中，未提交）— 跑道 + SID/STAR 选择（按航路端点预筛）+ METAR/TAF 天气辅助选跑道
+
+> 规划好一次航班后，让用户为它**选出发/到达跑道 + SID/STAR**：程序按【生成/AIP 航路的首点=离场点、末点=进场点】**预筛**出真正接得上本航路的程序、并用 METAR 风给跑道算风分量/适航做**决策支持**（不替用户拍板）；选定后**显示 + 拼进 SimBrief `route`**，**不改本地航路生成**。设计与决策详见计划文件 `~/.claude/plans/giggly-weaving-zephyr.md`。
+
+**用户已定**：① 交互=规划后在结果区细化（随机/固定都支持）；② 作用=仅显示 + 填 SimBrief route（不重算航路）；③ 可用跑道=只列**有程序**的跑道，长度由**两端跑道头坐标**算（CIFP 单跑道长度字段不可靠）；④ 用航路端点**预筛** SID/STAR；⑤ METAR+TAF 都从 NOAA 取；⑥ 风=决策支持（顺/逆风+侧风分量全显示，按日本经验 **顺风≤10kt/侧风≤30kt** 标适航/超限，预选合规但用户可改）；⑦ 单位：跑道长度**米**(显示层；数据底层英尺)、风**节**。
+
+**新增 `dispatcher/procedures.py`**（纯标准库，按机场懒加载缓存）：
+- `_parse_runways`(扫 `RWY:` 记录取 `;` 后跑道头 DMS 坐标 `_dms`) / `runway_length_ft`(反向端 `16L`↔`34R` 两跑道头 `haversine_nm`，CIFP 长度字段不可靠故由坐标算) / `runway_heading_deg`(跑道号×10，CIFP 朝向字段不可靠)。
+- `enumerate_procedures` → `{"SID":{name:{runways,trans,exits}}, "STAR":{...}}`：`runways`=`RW` 段展开(**`RW34B`→34L+34R**)；`trans`={过渡名:section-**E∪D** 连接航点}(标准写法 `SID.TRANS` 的 TRANS；**含 section D VOR**——很多端点是 VOR 如 XAC，只取 E 会漏)；`exits`=common/`RW`/`ALL` 段的连接航点。`transition=="ALL"` 按 common 处理(服务全跑道)。
+- `matching_choices(icao, dat, route_fixes, kind)`：dep 传航路正序、arr 传逆序，`route_fixes[0]`=端点 → 命中 `endpoint ∈ trans` 的 `SID.TRANS`(共起点时按航路前段重合度消歧)，次选 `endpoint ∈ exits` 的裸名；无命中→回退列全部(`matched=False`)。`all_rw` **纳入物理跑道(`RWY:` 记录)**——服务全跑道(ALL/common)的程序据此挂到各跑道(否则全 ALL 的机场如 RJNS 列不出 STAR)。
+
+**新增 `dispatcher/weather.py`**（纯标准库 urllib，按 URL 缓存 10 分钟）：
+- METAR/TAF 都用 **NOAA tgftp**(`…/observations/metar/`、`…/forecasts/taf/`；第 1 行时间戳、其后报文，**TAF 多行合并**)。不用 `metar-taf.com`(WebFetch 403/反爬)。备源 `aviationweather.gov`。
+- `parse_wind`(正则 `(\d{3}|VRB)(\d{2,3})(G…)?(KT|MPS)`；MPS→KT；`00000KT`静风；VRB) / `runway_wind`(**带符号逆风** `spd·cosΔ`、侧风 `spd·|sinΔ|`) / `runway_ok`(顺风≤`_MAX_TAILWIND_KT`=10 且 侧风≤`_MAX_CROSSWIND_KT`=30，常量可调)。
+
+**`dispatcher/planner.py`**：`FlightPlan.sb_base`={orig,dest,airline,fltnum,actype} + 公开 `simbrief_url(sb_base, route)`，供选定 SID/STAR 后重建带 `route` 的链接。
+
+**`dispatcher/gui.py`**：结果区下方常驻「跑道/SID·STAR」面板(`_build_proc_panel`，初始隐藏)。`_compute_proc`(后台线程)：`base_route`=生成航路 或 `aip_data` 行 `r[5]`(注：`find_aip_route` 返回的是逗号拼接串，不能 `route[0][5]`) → `route_geometry` 取首/末点 → `matching_choices` + `fetch_metar/fetch_taf`。`_render_plan(plan, proc)` → `_populate_proc`：每机场 **METAR+TAF 块**紧贴其「出发/到达」行(信息密度)；跑道下拉显示 **米长度 + 逆/顺风X节 侧风Y节 + ✓/⚠️超限**(合规→逆风→跑道号排序)；跑道→`SID.TRANS`/`STAR` 级联(可搜索)；选定即更新摘要 + 用 `route=SID名+enroute+STAR名` 重建 SimBrief。无 CIFP/无程序/断网均优雅降级。
+
+**实现中修的 bug**：① `find_aip_route` 返回逗号拼接串 → `base_route` 从 `aip_data` 行取 `r[5]`；② `transition=="ALL"` 误成 `TSC.ALL` → 按 common；③ section-D VOR 端点(XAC)漏匹配 → 连接航点取 E∪D；④ `all_rw` 只从程序跑道取 → 全 ALL 的 RJNS 列不出 STAR → 纳入物理跑道(`RWY:`)；⑤ 风分量去掉冗余 `+/-`(顺/逆已表向)取绝对值、加单位「节」；⑥ 跑道长度显示层改「米」。
+
+**验证**：数据层(RJTT `RW34B`→34L+34R、`ISOGO3.XAC`/`ROVE3A.BRUCE` 预筛消歧、RJBB 长度 06L/24R=4000m·06R/24L=3500m、RJNS `ENSYU`/`OHCHA`)、天气(parse_wind、逆/顺/侧风、`runway_ok` 超限、`VRB`/静风/无网降级)、headless 构造 GUI + `_compute_proc` 端到端(RJTT→RJBB base_route=真实 AIP、matched、级联、SimBrief 重建)、空 proc 降级。**未提交、未升版本**。
+
 ---
 
 ### ⏸️ 分时段规划 + 向 SimBrief 提交航路（**设计保留、功能延后** · 2026-06-27）
