@@ -14,12 +14,20 @@
 #    TOBBY，应给裸 JUGGL2/MKE9/TOBBY9；若按「TOBBY∈过渡途经点」会误标成 X.BUTOS（冲过 TOBBY 到 BUTOS）。）
 
 import os
+import re
 
 from .router import haversine_nm, _navdata_dir
 
 _NM_TO_FT = 6076.12
 _PROC_CACHE = {}                 # icao -> {"SID":{name:{...}}, "STAR":{...}}
 _RWY_CACHE = {}                  # icao -> {rwy_id:(lat,lon)}
+_APPCH_CACHE = {}                # icao -> [进近程序 dict…]（F23）
+
+# CIFP APPCH 类型字母（p[1] / ident 首字母）→ 显示名（F23）
+_APPCH_TYPE = {"I": "ILS", "X": "LDA", "D": "VOR/DME", "V": "VOR", "N": "NDB",
+               "R": "RNAV", "P": "GPS", "J": "GLS", "B": "LOC BC", "L": "LOC",
+               "Q": "NDB/DME", "S": "VOR/DME", "T": "TACAN", "U": "SDF", "G": "GPS"}
+_RWNUM_RE = re.compile(r"(\d{2}[LRC]?)")   # 从进近编码名里取跑道（I16L→16L、X22-W→22）
 
 
 def _cifp_path(icao, dat_path=None):
@@ -164,11 +172,61 @@ def enumerate_procedures(icao, dat_path=None):
 
 
 def _rw_sort_key(rwy_id):
-    body = rwy_id.replace("RW", "").strip()
+    body = (rwy_id or "").replace("RW", "").strip()
     try:
         return (int(body[:2]), body[2:])
     except ValueError:
         return (99, body)
+
+
+def enumerate_approaches(icao, dat_path=None):
+    """扫 CIFP `APPCH:` 记录 → 每条进近程序 `{ident, type, suffix, runway, name, trans}`（按机场缓存，F23）。
+    ident 是编码名（内嵌跑道）：`I16L`→ILS RWY16L、`D34L`→VOR/DME RWY34L、`X22-W`→LDA W RWY22、`R34L-Y`→RNAV Y RWY34L。
+    CIFP 无自然语言名，`name` 由 类型(首字母映射)+后缀+跑道 合成；`trans`=各 IAF 过渡名（APPCH 里的 p[3]）。
+    类型 `A` 行是进近过渡(feeder)段，其过渡名并入所属 ident。解析失败 → 空列表（绝不崩）。"""
+    icao = icao.upper()
+    if icao in _APPCH_CACHE:
+        return _APPCH_CACHE[icao]
+    procs, order = {}, []
+    try:
+        with open(_cifp_path(icao, dat_path), encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if not line.startswith("APPCH:"):
+                    continue
+                p = line.partition(":")[2].split(",")
+                if len(p) < 4:
+                    continue
+                rtype, ident, trans = p[1].strip(), p[2].strip(), p[3].strip()
+                if not ident:
+                    continue
+                d = procs.get(ident)
+                if d is None:
+                    d = procs[ident] = {"rtypes": set(), "trans": set()}
+                    order.append(ident)
+                if rtype and rtype != "A":
+                    d["rtypes"].add(rtype)
+                if trans:
+                    d["trans"].add(trans)
+    except Exception:
+        pass
+    out = []
+    for ident in order:
+        d = procs[ident]
+        tletter = ident[0] if (ident and ident[0].isalpha()) else (sorted(d["rtypes"])[0] if d["rtypes"] else "")
+        typ = _APPCH_TYPE.get(tletter, tletter or "APP")
+        m = _RWNUM_RE.search(ident)
+        if m:
+            rwytxt = m.group(1)
+            runway = "RW" + rwytxt
+            suffix = ident[m.end():].lstrip("-").strip()      # 后缀可带 -（X22-W）或直接跟（I34LX）
+            name = "%s%s RWY%s" % (typ, (" " + suffix) if suffix else "", rwytxt)
+        else:                                                 # 无跑道（盘旋进近，如 VORA）→ 用原始编码名
+            runway, suffix, name = None, "", ident
+        out.append({"ident": ident, "type": typ, "suffix": suffix,
+                    "runway": runway, "name": name, "trans": sorted(d["trans"])})
+    out.sort(key=lambda a: (_rw_sort_key(a["runway"] or "RW99"), a["ident"]))
+    _APPCH_CACHE[icao] = out
+    return out
 
 
 def matching_choices(icao, dat_path, route_fixes, kind):

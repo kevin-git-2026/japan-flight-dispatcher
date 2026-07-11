@@ -16,6 +16,99 @@
 
 ---
 
+## v1.6.0(✅ 已实现 · 2026-07-10)— F24 运行规则应用引擎（operation.json 规划时预选跑道/SID/STAR/IAP）
+
+- **关联**：`PRD.md` §8.2 / 新功能 F24；设计与问答见计划文件 `~/.claude/plans/giggly-weaving-zephyr.md`。
+- **背景**：F23(v1.5.0) 交付了运行规则编辑器 + `operation.json` 存储，但**规划器不消费它**。用户已录入羽田全套真实规则(~52 条)。本版把规则**在规划时应用**：按 当前(或 EOBT)JST 时段 + 星期 + 实测风 + 天气 匹配出该航班应用哪条规则，在进离场面板**自动预选**跑道 + SID/STAR(展示 IAP)，决策支持、用户可改。
+- **用户已定(问答)**：① 面板加 **EOBT(JST) 输入**(默认当前 JST)——离场按 EOBT、到达按 ETA 匹配；EOBT **复用到 SimBrief**(deph/depm)。② 都心避侧风 = **显式侧风门槛**：16L/16R 侧风 > ~15kt(非 30kt 适航限)就改落 22/23 → `wind_kind` 加 **`crosswind`** 种类，都心规则写 `ref_runway:RW16L, wind_kind:crosswind, wind_min_kt:15`。③ 自动预选 + 标注 + 允许改选；侧风作编辑器一等选项(任何机场可复用)。
+
+### 新增 `weather.py`（云/能见度解码 + now-JST；纯标准库）
+- `parse_sky(metar_raw)` → `(layers, vis_m)`：云组 `_CLOUD_RE=\b(FEW|SCT|BKN|OVC|VV)(\d{3}|///)`(去尾 `\b` 否则 `///` 匹配不上) → `[(density 1-4, base_ft|None)]`(base ×100，`///`→None)；`_parse_visibility`(CAVOK→9999 / 风组后首个 4 位米组 / xSM×1609)。
+- `ceiling_ft(layers, cover="SCT")`：密度 ≥ cover 的各层最低**已知** base；无该密度云 / 均 `///` → None(无约束云底，好天门槛按过)。
+- `now_jst()`：`_utcnow()+540min` → `(当日分钟, ISO 星期 1-7)`。
+
+### 新增 `operations.py` 应用引擎（导入 weather+procedures，无环）
+- `_wind_component(cond, wind)`：headwind=`runway_wind[0]` 逆风 / tailwind=−逆风 / **crosswind=`runway_wind[1]` 侧风**；ref 跑道朝向 `procedures.runway_heading_deg`。
+- `evaluate_gates(cond, ctx)`：time(`_match_time` 环形跨午夜)/days/wind/weather 四闸「存在即须成立、缺省即过」；天气未知(ceiling/vis None)按过=好天。`ctx={jst_min,weekday,wind,sky_layers,vis_m}`。
+- `select_rule(rules, side, ctx, rows)` → `(rule, runway, proc_label)|None`：相关过滤(side 块非空) → 闸门过滤 → **适航过滤(所选跑道 `runway_ok` 失败[顺风>10/侧风>30]即丢弃——下风超限的规则绝不采用，这正是真实 北風→南風 换向；全部超限→返回 None 让面板回退按风合规跑道)** → **词典序取舍** `(路线不相容, −时段/星期具体度, −有满足风门槛, 所选跑道侧风, 顺风, −有天气门槛, 列表序)`。路线相容 = 规则 sids/stars(bare 名) ∩ 该跑道端点标签(`label.split('.')[0]`) 非空 / 规则无程序 / 该跑道无程序。恶天孪生无天气闸恒过、好天规则天气闸不满足被滤 → 等价「从好天往下数一条」、不依赖相邻。
+
+### 🐛 Bugfix（2026-07-10，用户实测报）— 深夜南风误选下风超限的 34R
+- **现象**：RJSR→RJTT EOBT 2300、到达南风 190/16，程序预选 **34R（顺风 14 节·超限）** + `北风ABC（进场，34R，好天）GODI1H`。根因：到达航路经 GODIN 门（喂 34/16/22/23），深夜时段(ETA≈0030)里唯一路线相符的规则是**全天无风门槛的 北风ABC-34R**（其 STAR GODI1H 接 GODIN），而深夜/南风规则要么按星期未命中、要么 STAR 走夜间门(AKSELN…)与本航路 GODIN 门不符被路线过滤；引擎当时**不查适航**，就用了下风超限的 34R。
+- **修法**：`select_rule` 加**适航过滤**（丢弃 `runway_ok` 失败的候选）。修后同场景 → **深夜南风强风C運用 → 16L（逆风 14 节·适航）/ GODINL**（16L 也由 GODIN 门经 GODINL 供给，STAR 由 `_fill_proc` 级联出路线相符首个；`_apply_ops_side` 标签改用实选程序而非规则原值）。真实上 34 下风超限本就该转南風運用。回归用例已加进 `smoke_apply_engine.py` [E]。
+
+### `planner.py`：SimBrief 复用 EOBT
+- `_build_simbrief_url`/`simbrief_url` 加 `eobt_utc_min` → `deph`/`depm`(UTC 时/分)。
+
+### `gui.py`：proc 面板应用 + 编辑器 +侧风
+- `_build_proc_panel`：加 `var_eobt`(Entry, JST HHMM) + `var_apply_ops`(Checkbutton, 默认勾) + `var_ops_dep/arr`(两行 🎯 标注)；网格行整体下移(EOBT 行 0、AIP 行 1、…)。EOBT `trace_add`→`_on_eobt_changed`、开关→`_on_apply_ops_toggle`。
+- `_populate_proc`：存 `_dep_sky/_arr_sky=weather.parse_sky(metar_raw)`、`_ops_data=operations.load_operations()`、`_proc_dist`；EOBT 默认置当前 JST；`_proc_ready` 守卫抑制填充期 trace 递归。
+- `_on_aip_route_selected`：两次 `_fill_rwy` 后调 `_apply_ops_rules()`(在末尾 `_on_proc_changed` 之前，故 SimBrief 用应用后的选择 + EOBT)。
+- `_apply_ops_rules`/`_apply_ops_side`：组 ctx(离场 EOBT-JST + 今日星期；到达 ETA-JST=`timed.plan_times_utc`+航程、跨午夜星期+1) → `select_rule` → 命中则设跑道下拉 + `_fill_proc` 级联 + 设 SID/STAR var + 标注 `🎯 <icao> 运行规则：<名> → RW.. / SID|STAR .. / IAP ..`；无规则不动、无命中给提示；关开关/异常优雅降级。
+- `_on_proc_changed`：SimBrief `simbrief_url(sb_base, route, eobt_utc)`（`deph`/`depm`=**UTC/Zulu**，经 Navigraph Dispatch Redirect Guide 核实）；EOBT 旁实时显示「→ SimBrief HHMMZ」灰字提示（Zulu=JST−9h，免用户误以为「改了 EOBT 但 SimBrief 没变」——实际 SimBrief 一律按 UTC 显示，如 2330 JST→1430Z）。
+- **编辑器 +侧风**：`wind_kind` 下拉 `["顺风","逆风","侧风"]`；`_ops_form_to_rule`/`_ops_rule_to_form` 用 `{"逆风":"headwind","侧风":"crosswind"}`/反向 映射；Treeview 风列 klabel、换向门槛说明文案同步。
+
+### `operation.json`（用户数据）：都心规则改用 crosswind
+- 脚本把羽田 4 条都心特殊规则 `headwind@RW22/RW23≥15` 改为 `crosswind@RW16L≥15`(原 headwind 是不准的代理)；备份 `operation.json.bak`。
+
+### 版本 / 验证
+- `__init__.py` → **1.6.0**；`weather._UA` 同步。
+- **验证**：`scratchpad/smoke_select_rule.py`——合成规则 5 组(北风/南风、都心 crosswind[SW230/20→22·S200/15→16·强SW205/25 两命中→22]、好天/恶天孪生[IAP X22-W↔I22·未知云底→好天]、深夜具体度压全天、边界)全过；`scratchpad/smoke_apply_engine.py`——headless 喂**真实羽田规则** + NavData：离场北风 EOBT 1000(B)→34R/ROVE4B、改 1200(A)→ROVE3A、开关关→标注清空、都心 好天→22/X22-W·恶天→22/I22(顺位下移)·正南风→16L·弱风→北风默认，全过；`weather.parse_sky` 分支(实测/网格`///`/CAVOK/CB 后缀) + 侧风编辑器往返(侧风↔crosswind) 通过；F22/F23 回归冒烟仍过；四模块 `py_compile` 过。
+
+---
+
+## v1.5.0(✅ 已实现 · 2026-07-02)— F22 网格天气回退 + F23 机场运行规则编辑器
+
+### F23 — 机场运行规则可视化编辑器（operation.json）
+
+- **关联**:`PRD.md` §8.2 / 新功能 F23；设计与 CRUD 细节见计划文件 `~/.claude/plans/giggly-weaving-zephyr.md`。
+- **背景**:日本很多机场有成套运行规则(羽田:南風運用 16L/16R 起飞 22/23 落地、北風運用反之、夜間又不同——按**时段+风**切换跑道/SID/STAR/IAP),可指导规划。本版交付可视化编辑器让用户为任意 RJ/RO 机场编写这些规则,存运行目录 `operation.json`。
+- **用户已定**:①本轮**仅编辑器+存储**(应用下一版,结构预留);②运行条件「气象」**仅风**(风向扇区+风速);③规则**分离场/进场**。
+
+**新增 `dispatcher/operations.py`**(纯标准库、仿 airlines.py/config.py 运行目录读写):`_path`(`get_real_run_path()` 锚定)、`load_operations`(缺失/损坏→`{}`、告警不覆盖、不自动建默认)、`_prune`(_comment 置顶+剔除空机场)、`save_operations`(原子 temp→`os.replace`、失败清残留 .tmp)、`airport_rules`/`airports`。schema:`{ICAO:{rules:[{name,cond:{time_jst,days,ref_runway,wind_kind,wind_min_kt,ceiling_min_ft,ceiling_cover,visibility_min_m},dep:{runways,sids},arr:{runways,stars,iaps}}]}}`。`days`=生效星期(1=周一…7=周日 ISO,空=每天;深夜运用常按星期几不同)。两重门槛(均可选、AND、留空作兜底靠优先级):**①风门槛**=相对 `ref_runway` 的【`wind_kind`(tailwind 顺风 / headwind 逆风) 分量 ≥ `wind_min_kt` 节】(顺风超→换向[南風運用];逆风超→例外[都心運用:22 逆风≥20 保持南風A]);**②好天门槛**=云底 ≥ `ceiling_min_ft` ft(`ceiling_cover`=FEW/SCT/BKN/OVC 起算算"云底",LDA 的 few 不计=SCT 起算) 且 能见度 ≥ `visibility_min_m` m(业内 好天/坏天 标准,如 LDA 云底≥1500·SCT·能见度≥6000)。用户数据 → `.gitignore`。
+
+**`dispatcher/procedures.py` +`enumerate_approaches(icao)`**(净新增,懒缓存 `_APPCH_CACHE`):全库原只有 `router._cifp_endpoints` 解析 APPCH 的航点、无人枚举进近程序名。新函数扫 `APPCH:` 行按编码名 `p[2]` 归组 → `{ident,type,suffix,runway,name,trans}`:类型 `_APPCH_TYPE` 映射 ident 首字母(I=ILS/D=VOR/DME/R=RNAV/X=LDA/V=VOR/N=NDB/J=GLS…)、跑道 `_RWNUM_RE` 从编码取、**后缀取跑道后剩余串**(带 `-` 如 `X22-W` 或直接跟 如 `I34LX`)、合成显示名(「ILS RWY16L」「LDA W RWY22」「ILS X RWY34L」);无跑道的盘旋进近(如 `VORA`)用原始编码名。RJTT 实测 32 条、类型/跑道/后缀/过渡均正确。
+
+**`dispatcher/gui.py` 编辑器**(入口按钮 `btn_ops`「⚙️ 编辑机场运行规则」由 `_set_controls_state` 门控[`_ready`+`dat_path`];`_open_ops_editor` Toplevel 仿 F21 脚手架):顶部机场 ICAO Combobox(值=已有规则机场+可键入新码);左侧规则 Treeview + 「＋新增」「－删除」;右侧详情表单(名称 Entry、时段(JST) Entry[逗号多段]、**星期[7 勾选,全不勾=每天]** + **换向门槛[参照跑道 Combobox + 顺/逆风 Combobox + ≥N节 Entry]** + **好天门槛[云底≥Nft Entry + 云量口径 Combobox + 能见度≥Mm Entry]**、离场[跑道+SID]与到达[跑道+STAR+IAP]共 **5 个多选 `Listbox`**(候选来自 `_parse_runways`/`enumerate_procedures` 键/`enumerate_approaches`;**`selectmode=multiple` 点击即切换免 ctrl;SID/STAR/IAP 各带模糊搜索框**——`_ops_make_lb(filterable=)` + **值集合模型** `_all`/`_sel`/`_shown` + `_ops_lb_render`/`_ops_lb_on_select`,过滤时隐藏的已选项不丢);底部「💾 保存」「关闭」。
+- **增删改查(内存工作副本,唯保存落盘)**:`_ops_all`(全量 dict)/`_ops_rules`(当前机场工作副本)/`_ops_sel`/`_ops_dirty`/`_ops_form_dirty`。marshaller `_ops_form_to_rule`(收表单+校验时段/风向,不合法→None+提示)/`_ops_rule_to_form`(回填,Listbox 按存值命中多选)。**查**:`_ops_load_airport`(先提交当前机场→读 CIFP 候选填 Listbox+载入规则)、`_ops_on_tree_select`(切换前静默提交旧规则未应用改动,`_ops_loading` 守卫避免程序化选择回调递归)。**增**:`_ops_add_rule`(空白规则+选中+聚焦)。**改**:`_ops_apply_rule`(表单→所选规则+刷新该行)。**删**:`_ops_delete_rule`(确认后移除)。**多机场隔离**:切机场/保存前 `_ops_commit_current` 把工作副本写回 `_ops_all`。**持久化** `_ops_save`(提交当前表单+机场→`save_operations`→内存 `_prune` 同步)。**未保存守卫** `_ops_on_close`(askyesnocancel)。`win._ops` 测试钩子。IAP 存**编码 ident**(稳定)、显示合成名。
+- **复用 + 拖拽排序(易用性)**:`_ops_dup_rule`「📋 复制」把所选规则整条 `copy.deepcopy`(相同跑道/SID/STAR/IAP 不必每条重输,深拷贝独立)、改名"…副本"插其后;`_ops_move_rule` + 拖拽处理(`_ops_drag_start/motion/drop`,`<B1-Motion>` 里 `tv.move` 实时视觉移动、drop 时按拖后视觉序 `_ops_move_rule(from,to)` 重排列表并刷新 iid)。**规则匹配为「均等 + 恶天顺位下移」模型**(下一版应用引擎,用户 2026-07-03 定):引擎按条件命中选规则(时段+星期+风门槛)、**不按上下优先级**;风门槛达标即选该方向(南風顺风≥10/都心逆风≥15)、无门槛者为默认(北風);好/恶天靠**位置**——好天规则带云底/能见度门槛、其恶天对应规则紧跟其下一行,天气不达好天门槛即「从好天规则往下数一条」用恶天那条。故拖拽调序只用于保证「好天→恶天」成对相邻(好天在上)、**非全局优先级**;用户手册写法留待应用引擎那版。
+- **纯编辑器、与规划解耦**(不改 `_plan_worker`/`_compute_proc`/proc 面板)。
+
+**版本/边界/验证**:`__init__.py` 已是 1.5.0(F22/F23 同版);`.gitignore` +`operation.json`。降级:无 CIFP→候选空+提示、`operation.json` 缺失→`{}`/损坏→`{}` 不覆盖、全程 try/except。验证:`smoke_ops_editor.py` headless 跑完整 CRUD(查 RJTT 候选非空/IAP 32 条·增填南風规则[cond/dep/arr 结构正确·IAP 存 ident]·改名回填命中·多机场隔离 RJTT↔RJCC[含跨午夜时段]·保存读回两机场一致·删空机场被剔除·无 CIFP RJXX 降级)全过;`procedures.enumerate_approaches` 与 `operations` 单测全过;三模块 `py_compile` 过。
+
+### F22 — 网格天气回退（小机场 METAR 缺测/过期时用 Open-Meteo 合成标准 METAR）
+
+- **关联**:`PRD.md` §8.2 / 新功能 F22；设计与 RJFK 校准全程见计划文件 `~/.claude/plans/giggly-weaving-zephyr.md`。
+- **背景**:F20 的选跑道决策依赖 METAR 风。但很多日本小机场(RJTO 大岛/RJTH 八丈岛/RJAF 松本/RJER 壱岐等)的 METAR **只在日间更新、夜间返回白天旧报文,或完全取不到**。现状 `weather.py` 取到 tgftp 首行 `obs_time` 却**从不使用**——无任何过期判断:夜间旧报被当现值、缺测则只显示「天气获取失败」且跑道风退化为无风排序。
+- **用户已定**:① METAR **缺测或过期**都回退、网格**替换显示**;② 取风 + 上下文(能见度/云/温/QNH);③ **把网格数据编码成一条标准格式 METAR 串**(合成 METAR)再走现有解析/显示流水线——仅显示层标注「模型合成·非实测」。
+
+### 数据源与取数策略(实测 RJFK 后定)
+- **Open-Meteo `/v1/forecast`** — 唯一满足全部硬约束者:无 key、纯 JSON、纯标准库 urllib+json、全球含日本、`wind_speed_unit=kn`。一次调用给 10m 风/阵风 + 能见度 + 云(分层) + `pressure_msl` + 温/露点 + `weather_code`(WMO) + `precipitation`。许可 **CC BY 4.0**。
+- **`models=jma_msm` 主**(JMA 中尺度 5km、日本本地,风/温/压/**云**最准);其 `visibility`/`wind_gusts` 恒 `null`(实测确认)。曾比 `best_match`(能补能见度/阵风),但其 `visibility=920m` 实测**严重失真**(实报 9999)——能见度本就是最不可靠的诊断量。**故 jma_msm 主 + 能见度保守 + 仅机场在 MSM 域外(如 RJAM 154°E)才回退 best_match**。
+- 备选源皆不合格:aviationweather.gov 无网格点;api.weather.gov 仅美国;NOMADS/GFS 是 GRIB;OWM/WeatherAPI 需 key;JMA 直连按区域码 + 日文文本。
+
+### 新增 `dispatcher/weather.py` 函数（纯标准库；gzip-capable JSON 仿 `volanta.py`）
+- 新增常量 `_OPENMETEO_URL`/`_GRID_TTL=1800`(网格缓存 30min)/`_METAR_STALE_SEC=7200`(观测 >2h 视为过期)/`_GRID_FIELDS`。
+- `_utcnow()`(naive UTC，避 `utcnow()` 弃用又可与 strptime naive 相减) + `metar_age_sec(obs_time)`(解析 tgftp 首行求龄——**`obs_time` 至此才真正被使用**)。
+- `_fetch_grid_raw(lat,lon,model)`(urllib+gzip+json,超时 6s,try/except→None) + `fetch_grid_weather(lat,lon)`(jma_msm 主、无风→best_match、按坐标缓存 → 规整 dict)。
+- `grid_to_metar(icao,grid)` → `(标准 METAR 串, obs_time)`,分组编码器:`_enc_time`(DDHHMMZ)、`_enc_wind`(向→最近10°、`gust−spd≥10kt` 才附 G、0→00000KT)、`_enc_visibility`(**保守**:仅 WMO 45/48/65/75/82/95+ 才信低能见度,否则 9999)、`_enc_weather`(类型取 code、强度按 `precip` 速率、**毛毛雨 51–55 归并 RA**、雾仅 45/48)、`_enc_clouds`(**分层** low/mid/high、云底未知 `///`、0→NSC)、`_enc_temp`(四舍五入·负值 M)、QNH(`pressure_msl`)、`RMK OPEN-METEO`。
+- `resolve_airport_wx(icao,lat,lon)` → 统一 `{source:'metar'|'grid'|None, wind, metar_raw, metar_age_sec, taf_raw, model}`:METAR 新鲜(age≤2h 或无法解析)→用实测;否则 fetch 网格→合成 METAR、`wind=parse_wind(合成串)`;网格也失败→退回过期实测或 None。**首次用到网格 print `🌐 天气数据来自 Open-Meteo (CC BY 4.0)`(署名)**。
+
+### `dispatcher/gui.py`（改天气消费三处；`_wind_desc`/`_fill_rwy`/`runway_wind`/`runway_ok`/`parse_wind` 不改）
+- `_compute_proc`:4 个 `fetch_metar/fetch_taf` 调用 → 两次 `weather.resolve_airport_wx(code, lat_dd, lon_dd)` → proc `dep_wx`/`arr_wx`(后台线程,网络不卡 UI)。
+- `_populate_proc`:`self._{dep,arr}_wind = wx['wind']`;`_wx_text(prefix, code, wx)`。
+- `_wx_text` 重写吃统一 wx,**两分支同一套渲染**(风摘要 + `metar_raw` 原文),仅标题:实测→原样(过期加「⚠️可能过期」);网格→标「🌐 … 《Open-Meteo·<model> 模型合成 METAR·非实测 · <Z>》」+(原实测过期时)「⚠️ 实测 METAR 已 N 小时前,改用网格合成」;wx=None→「天气获取失败」。TAF 各分支追加。
+
+### RJFK 校准（复杂天气实测,2026-07-02）
+- 真实 `RJFK 022100Z 31003KT 260V330 9999 -RA FEW005 BKN060 BKN080 22/21 Q1014`;jma_msm@2115Z 合成 **`RJFK 022115Z 21001KT 9999 -RA FEW/// BKN/// OVC/// 22/21 Q1013 RMK OPEN-METEO`**。
+- **校准前旧规则过 severe**:曾信 best_match `vis 920m`→ `0900 -DZ FG OVC/// …`(能见度虚低 + 从能见度臆造雾 + 云塌 OVC + 温度错舍 + 忠实 code 强度成 +DZ)。**校准后**:温露 `22/21`✓完全一致、能见度 `9999`✓、QNH ±1、云结构贴近、降水 `-RA`✓;唯轻风向(1kt)不可靠但对选跑道无碍。
+- **用户定调**:本功能面向无实报可校的地区、无标准答案 → 取最可靠通用表示(毛毛雨归并 RA、强度按速率、能见度保守)。
+
+### 版本 / 验证
+- `__init__.py` `__version__` → **1.5.0**;`_UA` 同步。
+- **验证**:`scratchpad/smoke_weather.py`——`metar_age_sec`、`grid_to_metar` 离线确定性(RJFK 合成串 == 校准后预期 + `parse_wind(合成)==(210,1,None)`)、编码分支(阵风阈值/保守能见度/毛毛雨归并/分层云/负温)、实网 `fetch_grid_weather(RJFK)` + `resolve_airport_wx(RJTT)=metar` 全过。`scratchpad/smoke_gridwx_gui.py`——headless 构造 GUI,metar 源/grid 源/过期/None 四态 `_wx_text` 渲染正确、跑道用合成风算分量、优雅降级,全过。`py_compile` 三模块过。
+
+---
+
 ## v1.4.0(🚧 开发中 · 2026-06-27)— 本地航路生成 + SimBrief 集成 + 机型库 + 交互地图（F15/F16…；首次引入第三方库）
 
 - **关联**:`PRD.md` §8.2（原「规划中」）/ 新功能 F15；用户书面规则见工作目录 `flight_planning.txt`。

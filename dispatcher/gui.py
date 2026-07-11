@@ -11,6 +11,7 @@
 
 import os
 import sys
+import copy
 import threading
 import webbrowser
 
@@ -31,7 +32,7 @@ from .routing import calculate_distance_nm, find_aip_route, get_random_route
 from .planner import build_flight_plan, parse_runway_ft, parse_dist, simbrief_url
 from .aircraft import aircraft_choices
 from .router import generate_route, route_geometry, route_length_nm
-from . import procedures, weather, timed
+from . import procedures, weather, timed, operations
 
 try:                                                 # 地图可视化（第三方库；缺失则地图按钮不显示，不影响其它功能）
     import tkintermapview
@@ -244,6 +245,8 @@ class DispatcherGUI:
         ttk.Separator(form, orient="horizontal").grid(row=r, column=0, columnspan=2, sticky="ew", pady=6); r += 1
         self.btn_plan = ttk.Button(form, text="🛫 规划航线", command=self._on_plan_click)
         self.btn_plan.grid(row=r, column=0, columnspan=2, sticky="ew", ipady=4); r += 1
+        self.btn_ops = ttk.Button(form, text="⚙️ 编辑机场运行规则", command=self._open_ops_editor)   # F23
+        self.btn_ops.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(4, 0)); r += 1
 
         # 受 _refresh_controls 统一启停的表单控件
         self._form_widgets = [e_dep, e_dest, e_air, self.cb_aircraft, e_tm, e_rw, e_dmin, e_dmax, chk_strict, chk_ops, self.chk_auto]
@@ -285,6 +288,10 @@ class DispatcherGUI:
                 pass
         try:
             self.btn_plan.configure(state=("normal" if form_on else "disabled"))
+        except Exception:
+            pass
+        try:                                                # F23：运行规则编辑器（就绪即可，不受 _busy 规划影响）
+            self.btn_ops.configure(state=("normal" if (self._ready and self.dat_path) else "disabled"))
         except Exception:
             pass
         # 地景复选框：还需检测到地景目录（scenery_map 非 None）才可用
@@ -545,11 +552,11 @@ class DispatcherGUI:
             candidates.append({"route": generated, "restr": "", "alt": "", "aircraft": "", "dist": None, "pts": gpts,
                                "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am})
 
-        print("🌦️ 正在获取机场天气（METAR/TAF）…")
+        print("🌦️ 正在获取机场天气（METAR / 网格回退）…")
         return {
             "aip_candidates": candidates, "selected": 0, "strict_ops": bool(strict_ops),
-            "dep_metar": weather.fetch_metar(dep_obj.code), "dep_taf": weather.fetch_taf(dep_obj.code),
-            "arr_metar": weather.fetch_metar(arr_obj.code), "arr_taf": weather.fetch_taf(arr_obj.code),
+            "dep_wx": weather.resolve_airport_wx(dep_obj.code, dep_obj.lat_dd, dep_obj.lon_dd),
+            "arr_wx": weather.resolve_airport_wx(arr_obj.code, arr_obj.lat_dd, arr_obj.lon_dd),
         }
 
     def _finish_plan(self):
@@ -711,10 +718,23 @@ class DispatcherGUI:
         self.var_dep_rwy = tk.StringVar(); self.var_dep_sid = tk.StringVar()
         self.var_arr_rwy = tk.StringVar(); self.var_arr_star = tk.StringVar()
         self.var_aip = tk.StringVar()
+        self.var_eobt = tk.StringVar(); self.var_apply_ops = tk.BooleanVar(value=True)
+        self.var_ops_dep = tk.StringVar(); self.var_ops_arr = tk.StringVar(); self.var_eobt_z = tk.StringVar()
+
+        # v1.6.0：EOBT(JST) + 按运行规则预选 —— EOBT 用于匹配 operation.json 时段(离场按 EOBT、到达按 ETA)并回填 SimBrief 撤轮挡
+        ctrl = ttk.Frame(fr)
+        ctrl.grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 4))
+        ttk.Label(ctrl, text="EOBT(JST)").grid(row=0, column=0, sticky="w")
+        self.ent_eobt = ttk.Entry(ctrl, textvariable=self.var_eobt, width=7)
+        self.ent_eobt.grid(row=0, column=1, sticky="w", padx=(2, 2))
+        ttk.Label(ctrl, textvariable=self.var_eobt_z, foreground="#9aa0a6").grid(row=0, column=2, sticky="w", padx=(0, 12))
+        ttk.Checkbutton(ctrl, text="按机场运行规则预选跑道/程序（operation.json）", variable=self.var_apply_ops,
+                        command=self._on_apply_ops_toggle).grid(row=0, column=3, sticky="w")
+        self.var_eobt.trace_add("write", lambda *_a: self._on_eobt_changed())
 
         # F21：AIP 航路选择行（仅该航线有多条 AIP 时显示）——下拉即时切换 +「确认航路」开弹窗按 EOBT/机型/高度选/定
         self._aip_row = ttk.Frame(fr)
-        self._aip_row.grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 4))
+        self._aip_row.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(0, 4))
         self._aip_row.columnconfigure(1, weight=1)
         ttk.Label(self._aip_row, text="AIP 航路").grid(row=0, column=0, sticky="w")
         self.cb_aip = ttk.Combobox(self._aip_row, textvariable=self.var_aip, state="readonly")
@@ -725,35 +745,39 @@ class DispatcherGUI:
         self._aip_row.grid_remove()
 
         ttk.Label(fr, textvariable=self.var_dep_wx, foreground="#5f6368", wraplength=560, justify="left"
-                  ).grid(row=1, column=0, columnspan=4, sticky="w")
-        ttk.Label(fr, text="出发跑道").grid(row=2, column=0, sticky="w")
+                  ).grid(row=2, column=0, columnspan=4, sticky="w")
+        ttk.Label(fr, text="出发跑道").grid(row=3, column=0, sticky="w")
         self.cb_dep_rwy = ttk.Combobox(fr, textvariable=self.var_dep_rwy, width=24, state="readonly")
-        self.cb_dep_rwy.grid(row=2, column=1, sticky="ew", padx=(2, 8))
-        ttk.Label(fr, text="SID").grid(row=2, column=2, sticky="w")
+        self.cb_dep_rwy.grid(row=3, column=1, sticky="ew", padx=(2, 8))
+        ttk.Label(fr, text="SID").grid(row=3, column=2, sticky="w")
         self.cb_dep_sid = ttk.Combobox(fr, textvariable=self.var_dep_sid, width=18)
-        self.cb_dep_sid.grid(row=2, column=3, sticky="ew", padx=2)
+        self.cb_dep_sid.grid(row=3, column=3, sticky="ew", padx=2)
+        ttk.Label(fr, textvariable=self.var_ops_dep, foreground="#137333", wraplength=560, justify="left"
+                  ).grid(row=4, column=0, columnspan=4, sticky="w")
 
         ttk.Label(fr, textvariable=self.var_arr_wx, foreground="#5f6368", wraplength=560, justify="left"
-                  ).grid(row=3, column=0, columnspan=4, sticky="w", pady=(4, 0))
-        ttk.Label(fr, text="到达跑道").grid(row=4, column=0, sticky="w")
+                  ).grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        ttk.Label(fr, text="到达跑道").grid(row=6, column=0, sticky="w")
         self.cb_arr_rwy = ttk.Combobox(fr, textvariable=self.var_arr_rwy, width=24, state="readonly")
-        self.cb_arr_rwy.grid(row=4, column=1, sticky="ew", padx=(2, 8))
-        ttk.Label(fr, text="STAR").grid(row=4, column=2, sticky="w")
+        self.cb_arr_rwy.grid(row=6, column=1, sticky="ew", padx=(2, 8))
+        ttk.Label(fr, text="STAR").grid(row=6, column=2, sticky="w")
         self.cb_arr_star = ttk.Combobox(fr, textvariable=self.var_arr_star, width=18)
-        self.cb_arr_star.grid(row=4, column=3, sticky="ew", padx=2)
+        self.cb_arr_star.grid(row=6, column=3, sticky="ew", padx=2)
+        ttk.Label(fr, textvariable=self.var_ops_arr, foreground="#137333", wraplength=560, justify="left"
+                  ).grid(row=7, column=0, columnspan=4, sticky="w")
 
         ttk.Label(fr, textvariable=self.var_proc_hint, foreground="#9aa0a6", wraplength=560, justify="left"
-                  ).grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 0))
+                  ).grid(row=8, column=0, columnspan=4, sticky="w", pady=(4, 0))
         ttk.Label(fr, textvariable=self.var_proc_sel, foreground="#202124", wraplength=560, justify="left"
-                  ).grid(row=6, column=0, columnspan=4, sticky="w")
+                  ).grid(row=9, column=0, columnspan=4, sticky="w")
         if _HAS_MAP:                                          # F21 续：预览全段航路(SID+enroute+STAR) → 复用 _open_map
             self.lbl_proc_preview = ttk.Label(fr, text="🗺️ 预览完整航路（SID + enroute + STAR）",
                                               foreground="#137333", cursor="hand2")
-            self.lbl_proc_preview.grid(row=7, column=0, columnspan=4, sticky="w", pady=(2, 0))
+            self.lbl_proc_preview.grid(row=10, column=0, columnspan=4, sticky="w", pady=(2, 0))
             self.lbl_proc_preview.bind("<Button-1>", self._preview_full_route)
         self.lbl_proc_sb = ttk.Label(fr, text="🛩️ 按所选程序派遣 SimBrief（需登录）",
                                      foreground="#1a6fdb", cursor="hand2")
-        self.lbl_proc_sb.grid(row=8, column=0, columnspan=4, sticky="w", pady=(2, 0))
+        self.lbl_proc_sb.grid(row=11, column=0, columnspan=4, sticky="w", pady=(2, 0))
         self.lbl_proc_sb.bind("<Button-1>", self._open_proc_simbrief)
 
         self.cb_dep_rwy.bind("<<ComboboxSelected>>", lambda e: self._on_rwy_selected("dep"))
@@ -773,6 +797,9 @@ class DispatcherGUI:
         self._proc_sb_url = None
         self._aip_candidates = []
         self._proc_sel_idx = 0
+        self._proc_ready = False
+        if hasattr(self, "var_ops_dep"):
+            self.var_ops_dep.set(""); self.var_ops_arr.set("")
 
     def _wind_desc(self, wind, rwy_id):
         """(逆/顺风文本+侧风+适航, ok, headwind)；wind=(dir,spd,gust) 或 None / 静风 / VRB → ('', True, 0)。"""
@@ -783,22 +810,37 @@ class DispatcherGUI:
         wd = ("逆风%.0f节" % hw) if hw >= 0 else ("顺风%.0f节" % abs(hw))   # 顺/逆已表方向，分量取绝对值 + 单位「节」
         return "%s 侧风%.0f节 %s" % (wd, cw, "✓" if ok else "⚠️超限"), ok, hw
 
-    def _wx_text(self, prefix, icao, metar, taf):
-        """该机场的天气块：标题+风 / METAR 原文 / TAF 原文（各占一行，缩进对齐；TAF 原文本身含 TAF<ICAO> 前缀）。"""
-        if not metar:
+    def _wx_text(self, prefix, icao, wx):
+        """该机场的天气块（F22）：实测 METAR 与网格合成 METAR 两分支【同一套渲染】（风摘要 + 报文原文），
+        仅标题标注不同——网格分支明确标「Open-Meteo·<model> 模型合成·非实测」。wx=resolve_airport_wx 结果。"""
+        raw = wx.get("metar_raw") if wx else None
+        if not raw:
             head = "%s %s  ·  天气获取失败（断网或暂无观测）" % (prefix, icao)
+            taf = wx.get("taf_raw") if wx else None
+            return head + ("\n    %s" % taf if taf else "")
+        wd, ws, gust = weather.parse_wind(raw)
+        if not ws:
+            wind_s = "静风"
+        elif isinstance(wd, int):
+            wind_s = "风 %03d°/%d节%s" % (wd, ws, ("阵%d" % gust if gust else ""))
         else:
-            raw = metar[0]
-            wd, ws, gust = weather.parse_wind(raw)
-            if not ws:
-                wind_s = "静风"
-            elif isinstance(wd, int):
-                wind_s = "风 %03d°/%d节%s" % (wd, ws, ("阵%d" % gust if gust else ""))
-            else:
-                wind_s = "风 不定/%d节" % ws
-            head = "%s %s  %s\n    %s" % (prefix, icao, wind_s, raw)
+            wind_s = "风 不定/%d节" % ws
+        age = wx.get("metar_age_sec")
+        stale = age is not None and age > weather._METAR_STALE_SEC
+        if wx.get("source") == "grid":
+            model = (wx.get("model") or "model").upper().replace("_", "-")
+            toks = raw.split()
+            zt = toks[1] if len(toks) > 1 and toks[1].endswith("Z") else ""
+            head = "%s %s  🌐 %s  《Open-Meteo·%s 模型合成 METAR·非实测%s》\n    %s" % (
+                prefix, icao, wind_s, model, (" · " + zt if zt else ""), raw)
+            if stale:
+                head += "\n    ⚠️ 实测 METAR 已 %.0f 小时前，改用网格合成" % (age / 3600.0)
+        else:
+            head = "%s %s  %s%s\n    %s" % (
+                prefix, icao, wind_s, ("  ⚠️可能过期(%.0fh)" % (age / 3600.0) if stale else ""), raw)
+        taf = wx.get("taf_raw")
         if taf:
-            head += "\n    %s" % taf[0]
+            head += "\n    %s" % taf
         return head
 
     def _fill_rwy(self, side, rows, wind):
@@ -858,7 +900,94 @@ class DispatcherGUI:
                               % (self._proc_dep_icao, dep_rwy, sid or "—",
                                  self._proc_arr_icao, arr_rwy, star or "—"))
         route = " ".join(x for x in [sid.split(".")[0], self._proc_base_route, star.split(".")[0]] if x)
-        self._proc_sb_url = simbrief_url(self._proc_sb_base, route) if self._proc_sb_base else None
+        eobt_utc = self._eobt_utc_min()                 # SimBrief 用 UTC(Zulu)：JST−9h
+        self.var_eobt_z.set(("→ SimBrief %02d%02dZ" % (eobt_utc // 60, eobt_utc % 60)) if eobt_utc is not None else "")
+        self._proc_sb_url = simbrief_url(self._proc_sb_base, route, eobt_utc) if self._proc_sb_base else None
+
+    def _eobt_jst_min(self):
+        """EOBT 输入(JST HHMM) → 当日分钟；空/非法 → None。"""
+        return timed.parse_hhmm(self.var_eobt.get()) if getattr(self, "var_eobt", None) else None
+
+    def _eobt_utc_min(self):
+        """EOBT(JST) → 当日 UTC 分钟（供 SimBrief deph/depm）；无 → None。"""
+        j = self._eobt_jst_min()
+        return None if j is None else (j - 540) % 1440
+
+    def _on_eobt_changed(self):
+        """EOBT 改动：开关开则按新时段重选（经 _on_aip_route_selected→_apply_ops_rules），否则仅刷新 SimBrief。"""
+        if not getattr(self, "_proc_ready", False):
+            return
+        if self.var_apply_ops.get():
+            self._on_aip_route_selected(getattr(self, "_proc_sel_idx", 0))
+        else:
+            self._on_proc_changed()
+
+    def _on_apply_ops_toggle(self):
+        """勾/取消「按运行规则预选」：重跑当前候选（开→应用规则、关→回按风预选）。"""
+        if not getattr(self, "_proc_ready", False):
+            return
+        self._on_aip_route_selected(getattr(self, "_proc_sel_idx", 0))
+
+    def _apply_ops_rules(self):
+        """v1.6.0：按 operation.json 运行规则预选跑道/SID·STAR（覆盖 _fill_rwy 的按风默认），并展示命中规则。
+        离场机场按 EOBT、到达机场按 ETA(=EOBT+航程) 匹配时段；关闭开关或无规则 → 保持按风预选、优雅降级。"""
+        self.var_ops_dep.set(""); self.var_ops_arr.set("")
+        if not self.var_apply_ops.get() or not getattr(self, "_ops_data", None):
+            return
+        cands = getattr(self, "_aip_candidates", [])
+        if not cands:
+            return
+        c = cands[getattr(self, "_proc_sel_idx", 0)]
+        eobt_jst = self._eobt_jst_min()
+        now_min, now_wd = weather.now_jst()
+        dep_jst = eobt_jst if eobt_jst is not None else now_min
+        try:
+            dist = c.get("dist") or getattr(self, "_proc_dist", None) or 0
+            _eu, eta_utc = timed.plan_times_utc(dep_jst, dist)
+            eta_jst = (eta_utc + 540) % 1440
+        except Exception:
+            eta_jst = dep_jst
+        arr_wd = now_wd if eta_jst >= dep_jst else (now_wd % 7 + 1)   # 到达跨午夜 → 星期 +1
+        dep_layers, dep_vis = getattr(self, "_dep_sky", ([], None))
+        arr_layers, arr_vis = getattr(self, "_arr_sky", ([], None))
+        self._apply_ops_side("dep", self._proc_dep_icao, c.get("dep_rows", []),
+                             {"jst_min": dep_jst, "weekday": now_wd, "wind": getattr(self, "_dep_wind", None),
+                              "sky_layers": dep_layers, "vis_m": dep_vis}, self.var_ops_dep, "SID")
+        self._apply_ops_side("arr", self._proc_arr_icao, c.get("arr_rows", []),
+                             {"jst_min": eta_jst, "weekday": arr_wd, "wind": getattr(self, "_arr_wind", None),
+                              "sky_layers": arr_layers, "vis_m": arr_vis}, self.var_ops_arr, "STAR")
+
+    def _apply_ops_side(self, side, icao, rows, ctx, label_var, proc_name):
+        """单侧应用：命中规则 → 设跑道下拉 + 级联程序 + 设 SID/STAR + 展示；无规则不动、无命中给提示。"""
+        rules = operations.airport_rules(getattr(self, "_ops_data", {}), icao)
+        if not rules:
+            return
+        try:
+            sel = operations.select_rule(rules, side, ctx, rows)
+        except Exception as e:
+            print("⚠️ 运行规则匹配失败:", e)
+            return
+        if not sel:
+            label_var.set("🎯 %s 运行规则：当前风/时段/天气无【可用】匹配规则（超限跑道已排除，保持按风合规跑道）" % icao)
+            return
+        rule, rwy, proc_label = sel
+        proccombo = self.cb_dep_sid if side == "dep" else self.cb_arr_star
+        rmap = getattr(self, "_%s_rwy_map" % side, {})
+        disp = next((d for d, it in rmap.items() if it["rwy"] == rwy), None)
+        if disp:
+            (self.cb_dep_rwy if side == "dep" else self.cb_arr_rwy).set(disp)
+            self._fill_proc(side, rmap[disp])               # 级联该跑道路线相符的 SID/STAR（预选首个）
+        if proc_label:
+            proccombo.set(proc_label)                       # 规则程序命中航路端点→用它；否则保留 _fill_proc 的路线相符首个
+        iap = ""
+        if side == "arr":
+            iaps = (rule.get("arr") or {}).get("iaps") or []
+            if iaps:
+                iap = "  IAP %s" % iaps[0]
+        label_var.set("🎯 %s 运行规则：%s → RW%s / %s %s%s%s"
+                      % (icao, rule.get("name", ""), (rwy or "").replace("RW", ""),
+                         proc_name, proccombo.get() or "—", iap,
+                         "" if disp else "（规则跑道不在本航路端点候选，仅标注）"))
 
     def _open_proc_simbrief(self, _event=None):
         url = self._proc_sb_url or self._last_simbrief_url
@@ -897,14 +1026,22 @@ class DispatcherGUI:
         if not proc or not proc.get("aip_candidates"):
             self._reset_proc()
             return
+        self._proc_ready = False                            # 抑制填充期 EOBT trace 递归（末尾置 True）
         self._proc_dep_icao, self._proc_arr_icao = plan.dep.code, plan.arr.code
         self._proc_sb_base = getattr(plan, "sb_base", None)
         self._aip_candidates = proc["aip_candidates"]
         self._proc_strict_ops = bool(proc.get("strict_ops"))
-        self._dep_wind = weather.parse_wind(proc["dep_metar"][0]) if proc.get("dep_metar") else None
-        self._arr_wind = weather.parse_wind(proc["arr_metar"][0]) if proc.get("arr_metar") else None
-        self.var_dep_wx.set(self._wx_text("🛫 出发", plan.dep.code, proc.get("dep_metar"), proc.get("dep_taf")))
-        self.var_arr_wx.set(self._wx_text("🛬 到达", plan.arr.code, proc.get("arr_metar"), proc.get("arr_taf")))
+        self._proc_dist = getattr(plan, "dist_nm", None)
+        dep_wx, arr_wx = proc.get("dep_wx"), proc.get("arr_wx")
+        self._dep_wind = dep_wx.get("wind") if dep_wx else None
+        self._arr_wind = arr_wx.get("wind") if arr_wx else None
+        self._dep_sky = weather.parse_sky(dep_wx.get("metar_raw") if dep_wx else None)   # (layers, vis_m) 供好天门槛
+        self._arr_sky = weather.parse_sky(arr_wx.get("metar_raw") if arr_wx else None)
+        self._ops_data = operations.load_operations()       # v1.6.0：规划时应用运行规则
+        self.var_dep_wx.set(self._wx_text("🛫 出发", plan.dep.code, dep_wx))
+        self.var_arr_wx.set(self._wx_text("🛬 到达", plan.arr.code, arr_wx))
+        nm, _wd = weather.now_jst()                         # EOBT 默认＝当前 JST（可改）
+        self.var_eobt.set("%02d%02d" % (nm // 60, nm % 60))
 
         cands = self._aip_candidates
         if len(cands) > 1:                                  # 多条 AIP → 显示下拉 + 确认按钮，规划后自动弹窗
@@ -916,6 +1053,7 @@ class DispatcherGUI:
 
         self._proc_frame.grid()
         self._on_aip_route_selected(proc.get("selected", 0))
+        self._proc_ready = True
         if len(cands) > 1:
             self.root.after(0, self._open_aip_popup)        # 规划检索到多条 AIP → 自动弹窗（严格自动定唯一 / 非严格备注选）
 
@@ -945,6 +1083,7 @@ class DispatcherGUI:
             self.cb_aip.current(idx)
         self._fill_rwy("dep", c.get("dep_rows", []), getattr(self, "_dep_wind", None))
         self._fill_rwy("arr", c.get("arr_rows", []), getattr(self, "_arr_wind", None))
+        self._apply_ops_rules()                             # v1.6.0：运行规则命中则覆盖按风预选（在 _on_proc_changed 之前）
         notes = []
         dep_rows, arr_rows = c.get("dep_rows"), c.get("arr_rows")
         has_proc = lambda rows: any(r[2] for r in (rows or []))   # 行内 label 非空 = 该跑道挂有 SID/STAR
@@ -1223,6 +1362,525 @@ class DispatcherGUI:
         except Exception:
             pass
         self.root.destroy()
+
+    # ========== F23：机场运行规则编辑器（operation.json；增删改查在内存工作副本，仅「保存」落盘）==========
+    def _open_ops_editor(self, _e=None):
+        """可视化编辑各机场运行规则（时段+风 → 离/进场跑道 + SID/STAR/IAP），存运行目录 operation.json。"""
+        if getattr(self, "_ops_win", None) is not None:
+            try:
+                self._ops_win.lift(); return
+            except Exception:
+                self._ops_win = None
+        if not self.dat_path:
+            messagebox.showwarning("运行规则", "导航数据未就绪，暂时无法编辑（需 CIFP 程序数据）。")
+            return
+        self._ops_all = operations.load_operations()
+        self._ops_icao = None
+        self._ops_rules = []
+        self._ops_sel = None
+        self._ops_dirty = False
+        self._ops_form_dirty = False
+        self._ops_loading = False
+        self._ops_drag = None
+
+        win = tk.Toplevel(self.root)
+        self._ops_win = win
+        win.title("⚙️ 机场运行规则编辑器")
+        win.geometry("%dx%d" % (int(1100 * self.scale), int(700 * self.scale)))
+        win.transient(self.root)
+        win.protocol("WM_DELETE_WINDOW", self._ops_on_close)
+        win.columnconfigure(0, weight=1); win.rowconfigure(1, weight=1)
+
+        # 顶部：机场选择（查·机场级）
+        top = ttk.Frame(win, padding=(10, 8)); top.grid(row=0, column=0, sticky="ew")
+        ttk.Label(top, text="机场 ICAO").pack(side="left")
+        self._ops_var_icao = tk.StringVar()
+        self._ops_cb_airport = ttk.Combobox(top, textvariable=self._ops_var_icao, width=10)
+        self._ops_cb_airport.pack(side="left", padx=(4, 6))
+        self._ops_cb_airport.bind("<<ComboboxSelected>>",
+                                  lambda e: self._ops_load_airport(self._ops_var_icao.get()))
+        ttk.Button(top, text="载入", command=lambda: self._ops_load_airport(self._ops_var_icao.get())).pack(side="left")
+        self._ops_var_existing = tk.StringVar()
+        ttk.Label(top, textvariable=self._ops_var_existing, foreground="#5f6368", wraplength=640).pack(side="left", padx=10)
+
+        # 中部：左规则表 + 右详情
+        body = ttk.Frame(win, padding=(10, 0)); body.grid(row=1, column=0, sticky="nsew")
+        body.columnconfigure(1, weight=1); body.rowconfigure(0, weight=1)
+
+        left = ttk.Frame(body); left.grid(row=0, column=0, sticky="ns", padx=(0, 8))
+        left.rowconfigure(0, weight=1)
+        cols = [("name", "名称", 116), ("time", "时段", 84), ("days", "星期", 54), ("wind", "风", 76),
+                ("wx", "天气", 90), ("dep", "离场", 58), ("arr", "进场", 58)]
+        tv = ttk.Treeview(left, columns=[c[0] for c in cols], show="headings", height=16, selectmode="browse")
+        for k, t, w in cols:
+            tv.heading(k, text=t); tv.column(k, width=int(w * self.scale), anchor="w")
+        tv.grid(row=0, column=0, sticky="ns")
+        tv.bind("<<TreeviewSelect>>", self._ops_on_tree_select)
+        tv.bind("<ButtonPress-1>", self._ops_drag_start, add="+")     # 拖拽排序（保持"好天→恶天"成对相邻；匹配为均等+恶天顺位下移，非全局优先级）
+        tv.bind("<B1-Motion>", self._ops_drag_motion, add="+")
+        tv.bind("<ButtonRelease-1>", self._ops_drag_drop, add="+")
+        self._ops_tree = tv
+        lb = ttk.Frame(left); lb.grid(row=1, column=0, sticky="ew", pady=4)
+        ttk.Button(lb, text="＋ 新增", command=self._ops_add_rule).pack(side="left")
+        ttk.Button(lb, text="📋 复制", command=self._ops_dup_rule).pack(side="left", padx=6)
+        ttk.Button(lb, text="－ 删除", command=self._ops_delete_rule).pack(side="left")
+        ttk.Label(left, text="（拖拽规则可调优先级顺序：上→下先匹配）", foreground="#9aa0a6").grid(
+            row=2, column=0, sticky="w")
+
+        det = ttk.LabelFrame(body, text="规则详情", padding=8); det.grid(row=0, column=1, sticky="nsew")
+        det.columnconfigure(0, weight=1); det.rowconfigure(1, weight=1)
+        # 条件区
+        cf = ttk.Frame(det); cf.grid(row=0, column=0, sticky="ew", pady=(0, 6)); cf.columnconfigure(1, weight=1)
+        ttk.Label(cf, text="名称").grid(row=0, column=0, sticky="w")
+        self._ops_var_name = tk.StringVar()
+        e_name = ttk.Entry(cf, textvariable=self._ops_var_name); e_name.grid(row=0, column=1, sticky="ew", padx=4, pady=2)
+        self._ops_e_name = e_name
+        ttk.Label(cf, text="时段(JST)").grid(row=1, column=0, sticky="w")
+        self._ops_var_time = tk.StringVar()
+        ttk.Entry(cf, textvariable=self._ops_var_time).grid(row=1, column=1, sticky="ew", padx=4, pady=2)
+        ttk.Label(cf, text="如 1500-1900，逗号分隔多段；空=全天不限", foreground="#9aa0a6").grid(
+            row=2, column=1, sticky="w", padx=4)
+        ttk.Label(cf, text="星期").grid(row=3, column=0, sticky="w")
+        self._ops_var_days = [tk.BooleanVar() for _ in range(7)]
+        dfr = ttk.Frame(cf); dfr.grid(row=3, column=1, sticky="w", padx=4)
+        for _i, _lab in enumerate("一二三四五六日"):
+            ttk.Checkbutton(dfr, text=_lab, variable=self._ops_var_days[_i],
+                            command=lambda: setattr(self, "_ops_form_dirty", True)).pack(side="left")
+        ttk.Label(dfr, text="（全不勾=每天；深夜运用常按星期几不同）", foreground="#9aa0a6").pack(side="left", padx=(6, 0))
+        ttk.Label(cf, text="换向门槛").grid(row=4, column=0, sticky="w")
+        self._ops_var_refrwy = tk.StringVar(); self._ops_var_wkind = tk.StringVar(value="顺风"); self._ops_var_tw = tk.StringVar()
+        wf = ttk.Frame(cf); wf.grid(row=4, column=1, sticky="w", padx=4)
+        ttk.Label(wf, text="相对跑道").pack(side="left")
+        self._ops_cb_refrwy = ttk.Combobox(wf, textvariable=self._ops_var_refrwy, width=6, state="readonly")
+        self._ops_cb_refrwy.pack(side="left", padx=(2, 6))
+        self._ops_cb_wkind = ttk.Combobox(wf, textvariable=self._ops_var_wkind, width=5, state="readonly",
+                                           values=["顺风", "逆风", "侧风"])
+        self._ops_cb_wkind.pack(side="left")
+        ttk.Label(wf, text="≥").pack(side="left", padx=(4, 0))
+        ttk.Entry(wf, textvariable=self._ops_var_tw, width=4).pack(side="left", padx=2)
+        ttk.Label(wf, text="节 时触发").pack(side="left")
+        ttk.Label(cf, text="风分量相对该参照跑道算：顺风超→换向（南風運用：相对 34R 顺风≥10）；侧风超→换落跑道（都心：相对 16L 侧风≥15 改落 22/23）；逆风超→其它例外；留空=默认构型",
+                  foreground="#9aa0a6", wraplength=460).grid(row=5, column=1, sticky="w", padx=4)
+        ttk.Label(cf, text="好天门槛").grid(row=6, column=0, sticky="w")
+        self._ops_var_ceil = tk.StringVar(); self._ops_var_ceilcov = tk.StringVar(value="SCT"); self._ops_var_vis = tk.StringVar()
+        wxf = ttk.Frame(cf); wxf.grid(row=6, column=1, sticky="w", padx=4)
+        ttk.Label(wxf, text="云底 ≥").pack(side="left")
+        ttk.Entry(wxf, textvariable=self._ops_var_ceil, width=6).pack(side="left", padx=2)
+        ttk.Label(wxf, text="ft ·").pack(side="left")
+        self._ops_cb_ceilcov = ttk.Combobox(wxf, textvariable=self._ops_var_ceilcov, width=5, state="readonly",
+                                             values=["FEW", "SCT", "BKN", "OVC"])
+        self._ops_cb_ceilcov.pack(side="left", padx=(2, 0))
+        ttk.Label(wxf, text="及以上算云底 · 能见度 ≥").pack(side="left", padx=(2, 0))
+        ttk.Entry(wxf, textvariable=self._ops_var_vis, width=6).pack(side="left", padx=2)
+        ttk.Label(wxf, text="m").pack(side="left")
+        ttk.Label(cf, text="好天=天气至少这么好才用本规则（如 LDA：云底≥1500ft·SCT 起算[few 不计]·能见度≥6000m）；坏天规则不填、排其后作兜底；留空=不限",
+                  foreground="#9aa0a6", wraplength=460).grid(row=7, column=1, sticky="w", padx=4)
+        # 跑道/程序多选区
+        lists = ttk.Frame(det); lists.grid(row=1, column=0, sticky="nsew")
+        lists.columnconfigure(0, weight=1); lists.columnconfigure(1, weight=1); lists.rowconfigure(0, weight=1)
+        depf = ttk.LabelFrame(lists, text="离场", padding=4); depf.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+        ttk.Label(depf, text="跑道").pack(anchor="w")
+        self._ops_lb_dep_rwy = self._ops_make_lb(depf, 5)
+        ttk.Label(depf, text="SID（可搜索 · 点击切换）").pack(anchor="w")
+        self._ops_lb_dep_sid = self._ops_make_lb(depf, 7, filterable=True)
+        arrf = ttk.LabelFrame(lists, text="到达", padding=4); arrf.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
+        ttk.Label(arrf, text="跑道").pack(anchor="w")
+        self._ops_lb_arr_rwy = self._ops_make_lb(arrf, 3)
+        ttk.Label(arrf, text="STAR（可搜索）").pack(anchor="w")
+        self._ops_lb_arr_star = self._ops_make_lb(arrf, 4, filterable=True)
+        ttk.Label(arrf, text="IAP 仪表进近（可搜索）").pack(anchor="w")
+        self._ops_lb_arr_iap = self._ops_make_lb(arrf, 5, filterable=True)
+        ttk.Button(det, text="✓ 应用到所选规则", command=self._ops_apply_rule).grid(row=2, column=0, sticky="e", pady=(6, 0))
+
+        # 表单任一变化 → 标脏（供切换/保存时提交）
+        for v in (self._ops_var_name, self._ops_var_time, self._ops_var_refrwy, self._ops_var_wkind,
+                  self._ops_var_tw, self._ops_var_ceil, self._ops_var_ceilcov, self._ops_var_vis):
+            v.trace_add("write", lambda *_a: setattr(self, "_ops_form_dirty", True))
+        # Listbox 点选的标脏在 _ops_lb_on_select 里做（搜索框改变不算编辑，不标脏）
+
+        # 底部：保存 / 关闭
+        bar = ttk.Frame(win, padding=(10, 8)); bar.grid(row=2, column=0, sticky="ew")
+        ttk.Button(bar, text="💾 保存到 operation.json", command=self._ops_save).pack(side="left")
+        ttk.Button(bar, text="关闭", command=self._ops_on_close).pack(side="right")
+
+        self._ops_refresh_existing()
+        win._ops = {"load": self._ops_load_airport, "add": self._ops_add_rule,
+                    "apply": self._ops_apply_rule, "delete": self._ops_delete_rule,
+                    "dup": self._ops_dup_rule, "move": self._ops_move_rule,
+                    "save": self._ops_save, "to_rule": self._ops_form_to_rule,
+                    "to_form": self._ops_rule_to_form, "select": self._ops_select_rule}
+
+    def _ops_make_lb(self, parent, height, filterable=False):
+        """多选 Listbox（`selectmode='multiple'` 点击即切换、免 ctrl）+ 可选模糊搜索框。
+        用【值集合 `_sel`】模型（与显示解耦）——搜索/过滤时隐藏的已选项也不会丢。`exportselection=False` 让多个 Listbox 同时保留选择。"""
+        holder = ttk.Frame(parent); holder.pack(fill="both", expand=True, pady=(0, 4))
+        lbx = tk.Listbox(holder, selectmode="multiple", exportselection=False, height=height,
+                         font=("Consolas", 9), activestyle="none")
+        lbx._all, lbx._sel, lbx._shown, lbx._fvar = [], set(), [], None
+        if filterable:
+            lbx._fvar = tk.StringVar()
+            ttk.Entry(holder, textvariable=lbx._fvar).pack(fill="x")   # 搜索框在列表上方
+            lbx._fvar.trace_add("write", lambda *_a, _lb=lbx: self._ops_lb_render(_lb))
+        lbx.pack(fill="both", expand=True)
+        lbx.bind("<<ListboxSelect>>", lambda e, _lb=lbx: self._ops_lb_on_select(_lb))
+        return lbx
+
+    def _ops_lb_render(self, lb):
+        """按搜索框重画（模糊子串匹配显示或存值），并从 `_sel` 恢复勾选高亮。程序化选择不触发 on_select。"""
+        filt = lb._fvar.get().strip().lower() if lb._fvar is not None else ""
+        lb.delete(0, "end")
+        shown = []
+        for disp, val in lb._all:
+            if not filt or filt in disp.lower() or filt in val.lower():
+                lb.insert("end", disp); shown.append(val)
+        lb._shown = shown
+        for i, val in enumerate(shown):
+            if val in lb._sel:
+                lb.selection_set(i)
+
+    def _ops_lb_on_select(self, lb):
+        """用户点选变化 → 同步 `_sel`：只改当前显示项，隐藏的已选项保留。"""
+        shown = lb._shown
+        now = {shown[i] for i in lb.curselection() if i < len(shown)}
+        lb._sel = (lb._sel - set(shown)) | now
+        self._ops_form_dirty = True
+
+    def _ops_fill_lb(self, lb, pairs):
+        """pairs=[(显示, 存值)…] → 重置候选与选择、清搜索、重画。"""
+        lb._all = list(pairs)
+        lb._sel = set()
+        if lb._fvar is not None:
+            lb._fvar.set("")
+        self._ops_lb_render(lb)
+
+    def _ops_read_lb(self, lb):
+        """已选存值列表（保持候选原顺序）。"""
+        return [val for _d, val in lb._all if val in lb._sel]
+
+    def _ops_select_lb(self, lb, values):
+        """按存值集合设选择、清搜索、重画（换规则时避免旧过滤藏住新项）。"""
+        lb._sel = set(values or [])
+        if lb._fvar is not None:
+            lb._fvar.set("")
+        self._ops_lb_render(lb)
+
+    def _ops_commit_current(self):
+        """把当前机场工作副本写回全量 dict（切机场/保存前调，隔离多机场）。"""
+        if self._ops_icao:
+            self._ops_all[self._ops_icao] = {"rules": list(self._ops_rules)}
+
+    def _ops_refresh_existing(self):
+        aps = operations.airports(self._ops_all)
+        self._ops_cb_airport["values"] = aps
+        self._ops_var_existing.set(("已有规则：" + " ".join(aps)) if aps else "（暂无机场规则；键入 ICAO + 载入即可新建）")
+
+    def _ops_load_airport(self, icao):
+        """查·机场级：提交当前机场 → 读该机场 CIFP 候选填四类 Listbox + 载入其规则。"""
+        icao = (icao or "").strip().upper()
+        if not icao:
+            return
+        self._ops_commit_current()
+        self._ops_icao = icao
+        self._ops_var_icao.set(icao)
+        try:
+            rwys = sorted(procedures._parse_runways(icao, self.dat_path), key=procedures._rw_sort_key)
+        except Exception:
+            rwys = []
+        try:
+            procs = procedures.enumerate_procedures(icao, self.dat_path)
+            sids = sorted(procs.get("SID", {}).keys())
+            stars = sorted(procs.get("STAR", {}).keys())
+        except Exception:
+            sids = stars = []
+        try:
+            iaps = procedures.enumerate_approaches(icao, self.dat_path)
+        except Exception:
+            iaps = []
+        self._ops_fill_lb(self._ops_lb_dep_rwy, [(r.replace("RW", ""), r) for r in rwys])
+        self._ops_fill_lb(self._ops_lb_dep_sid, [(s, s) for s in sids])
+        self._ops_fill_lb(self._ops_lb_arr_rwy, [(r.replace("RW", ""), r) for r in rwys])
+        self._ops_fill_lb(self._ops_lb_arr_star, [(s, s) for s in stars])
+        self._ops_fill_lb(self._ops_lb_arr_iap, [(a["name"], a["ident"]) for a in iaps])
+        self._ops_cb_refrwy["values"] = [""] + [r.replace("RW", "") for r in rwys]   # 换向门槛的参照跑道
+        if not (rwys or sids or stars or iaps):
+            print(f"ℹ️ {icao} 无 CIFP 程序数据，候选为空（仍可建规则、但选不出跑道/程序）。")
+        self._ops_rules = operations.airport_rules(self._ops_all, icao)
+        self._ops_sel = None
+        self._ops_clear_form()
+        self._ops_refresh_tree()
+
+    def _ops_row_values(self, rule):
+        cond = rule.get("cond", {}) or {}
+        tm = ",".join(cond.get("time_jst") or []) or "全天"
+        days = cond.get("days") or []
+        dtxt = "".join("一二三四五六日"[d - 1] for d in sorted(days) if 1 <= d <= 7) if days else "每天"
+        ref = (cond.get("ref_runway") or "").replace("RW", "")
+        wmin = cond.get("wind_min_kt")
+        klabel = {"headwind": "逆风", "crosswind": "侧风"}.get(cond.get("wind_kind"), "顺风")
+        wind = ("%s≥%s@%s" % (klabel, wmin, ref)) if (wmin is not None and ref) else "默认"
+        wxp = []
+        if cond.get("ceiling_min_ft") is not None:
+            wxp.append("云≥%s" % cond["ceiling_min_ft"])
+        if cond.get("visibility_min_m") is not None:
+            wxp.append("能≥%s" % cond["visibility_min_m"])
+        wx = "·".join(wxp) or "-"
+        dep = ",".join(r.replace("RW", "") for r in (rule.get("dep", {}).get("runways") or [])) or "-"
+        arr = ",".join(r.replace("RW", "") for r in (rule.get("arr", {}).get("runways") or [])) or "-"
+        return [rule.get("name") or "(未命名)", tm, dtxt, wind, wx, dep, arr]
+
+    def _ops_refresh_tree(self):
+        """查·规则级：按工作副本重绘 Treeview（程序化选择时置 _ops_loading 避免回调递归）。"""
+        tv = self._ops_tree
+        self._ops_loading = True
+        try:
+            tv.delete(*tv.get_children())
+            for i, rule in enumerate(self._ops_rules):
+                tv.insert("", "end", iid=str(i), values=self._ops_row_values(rule))
+            if self._ops_sel is not None and 0 <= self._ops_sel < len(self._ops_rules):
+                tv.selection_set(str(self._ops_sel)); tv.focus(str(self._ops_sel))
+        finally:
+            self._ops_loading = False
+
+    def _ops_on_tree_select(self, _e=None):
+        if self._ops_loading:
+            return
+        f = self._ops_tree.focus()
+        if f == "":
+            return
+        new = int(f)
+        if self._ops_sel is not None and self._ops_sel != new and self._ops_form_dirty \
+                and 0 <= self._ops_sel < len(self._ops_rules):     # 切换前静默提交旧规则的未应用改动
+            rule = self._ops_form_to_rule(warn=False)
+            if rule is not None:
+                self._ops_rules[self._ops_sel] = rule
+                self._ops_tree.item(str(self._ops_sel), values=self._ops_row_values(rule))
+                self._ops_dirty = True
+        self._ops_select_rule(new)
+
+    def _ops_select_rule(self, idx):
+        """选中并回填第 idx 条（供 Treeview 回调与测试钩子共用）。"""
+        if not (0 <= idx < len(self._ops_rules)):
+            return
+        self._ops_sel = idx
+        self._ops_rule_to_form(self._ops_rules[idx])
+        self._ops_form_dirty = False
+
+    def _ops_add_rule(self):
+        """增：追加空白规则、选中、聚焦名称。"""
+        if not self._ops_icao:
+            messagebox.showinfo("运行规则", "请先在上方键入机场 ICAO 并「载入」。")
+            return
+        blank = {"name": "新规则",
+                 "cond": {"time_jst": [], "days": [], "ref_runway": None, "wind_kind": "tailwind", "wind_min_kt": None,
+                          "ceiling_min_ft": None, "ceiling_cover": None, "visibility_min_m": None},
+                 "dep": {"runways": [], "sids": []}, "arr": {"runways": [], "stars": [], "iaps": []}}
+        self._ops_rules.append(blank)
+        self._ops_sel = len(self._ops_rules) - 1
+        self._ops_dirty = True
+        self._ops_refresh_tree()
+        self._ops_rule_to_form(blank)
+        self._ops_form_dirty = False
+        try:
+            self._ops_e_name.focus_set(); self._ops_e_name.selection_range(0, "end")
+        except Exception:
+            pass
+
+    def _ops_dup_rule(self):
+        """复用：把所选规则整条深拷贝一份（含全部条件/程序），改名"…副本"、插在其后，供微调——
+        免得相同的跑道/SID/STAR/IAP 每条都重输。"""
+        if self._ops_sel is None:
+            messagebox.showinfo("运行规则", "请先选中一条规则再复制。")
+            return
+        if self._ops_form_dirty:                              # 先提交当前表单编辑，复制所见
+            r = self._ops_form_to_rule(warn=True)
+            if r is None:
+                return
+            self._ops_rules[self._ops_sel] = r
+        dup = copy.deepcopy(self._ops_rules[self._ops_sel])
+        dup["name"] = (dup.get("name") or "规则") + " 副本"
+        self._ops_rules.insert(self._ops_sel + 1, dup)
+        self._ops_sel += 1
+        self._ops_dirty = True
+        self._ops_refresh_tree()
+        self._ops_rule_to_form(dup)
+        self._ops_form_dirty = False
+        try:
+            self._ops_e_name.focus_set(); self._ops_e_name.selection_range(0, "end")
+        except Exception:
+            pass
+
+    def _ops_move_rule(self, from_idx, to_idx):
+        """把第 from_idx 条规则移到 to_idx（拖拽排序 / 测试共用）。规则顺序 = 优先级（上→下先匹配）。"""
+        n = len(self._ops_rules)
+        if not (0 <= from_idx < n):
+            return
+        to_idx = max(0, min(int(to_idx), n - 1))
+        if to_idx == from_idx:
+            return
+        self._ops_rules.insert(to_idx, self._ops_rules.pop(from_idx))
+        self._ops_sel = to_idx
+        self._ops_dirty = True
+        self._ops_refresh_tree()
+
+    def _ops_drag_start(self, event):
+        self._ops_drag = self._ops_tree.identify_row(event.y) or None
+
+    def _ops_drag_motion(self, event):
+        drag = self._ops_drag
+        if not drag:
+            return
+        tv = self._ops_tree
+        tgt = tv.identify_row(event.y)
+        if tgt and tgt != drag:
+            tv.move(drag, "", tv.index(tgt))                  # 实时视觉移动（iid 不变）
+
+    def _ops_drag_drop(self, event):
+        drag = self._ops_drag
+        self._ops_drag = None
+        if not drag:
+            return
+        try:                                                  # iid=原下标 str；拖后其视觉位置即目标序
+            to_idx = list(self._ops_tree.get_children("")).index(drag)
+        except ValueError:
+            return
+        self._ops_move_rule(int(drag), to_idx)                # 据此重排列表并刷新（iid 复位）
+
+    def _ops_apply_rule(self, _e=None):
+        """改：把表单收进所选规则并刷新该行。"""
+        if self._ops_sel is None:
+            messagebox.showinfo("运行规则", "请先在左侧选中一条规则（或「＋ 新增规则」）。")
+            return
+        rule = self._ops_form_to_rule(warn=True)
+        if rule is None:
+            return
+        self._ops_rules[self._ops_sel] = rule
+        self._ops_tree.item(str(self._ops_sel), values=self._ops_row_values(rule))
+        self._ops_dirty = True
+        self._ops_form_dirty = False
+
+    def _ops_delete_rule(self):
+        """删：确认后移除所选规则。"""
+        if self._ops_sel is None:
+            return
+        if not messagebox.askyesno("删除规则", "删除所选运行规则？"):
+            return
+        del self._ops_rules[self._ops_sel]
+        self._ops_sel = None
+        self._ops_dirty = True
+        self._ops_clear_form()
+        self._ops_refresh_tree()
+
+    def _ops_parse_int(self, s):
+        s = (s or "").strip()
+        if not s:
+            return None
+        try:
+            return int(float(s))
+        except ValueError:
+            return None
+
+    def _ops_form_to_rule(self, warn=True):
+        """收表单 → 规则 dict；时段/风向不合法 → 返回 None（warn=True 时弹提示）。"""
+        name = self._ops_var_name.get().strip() or "新规则"
+        times = []
+        for seg in self._ops_var_time.get().replace("，", ",").split(","):
+            seg = seg.strip().replace("：", ":")
+            if not seg:
+                continue
+            p = seg.split("-")
+            if len(p) != 2 or timed.parse_hhmm(p[0]) is None or timed.parse_hhmm(p[1]) is None:
+                if warn:
+                    messagebox.showwarning("时段格式", "时段应为 HHMM-HHMM（如 1500-1900），多段用逗号。\n无法解析：%s" % seg)
+                return None
+            times.append("%s-%s" % (p[0].strip(), p[1].strip()))
+        days = [i + 1 for i, v in enumerate(self._ops_var_days) if v.get()]   # 1=周一…7=周日(ISO)
+        if len(days) == 7:
+            days = []                                        # 全选 = 每天，规整为空
+        ref = self._ops_var_refrwy.get().strip().upper()
+        ref_rwy = ("RW" + ref) if ref else None
+        wkind = {"逆风": "headwind", "侧风": "crosswind"}.get(self._ops_var_wkind.get().strip(), "tailwind")
+        wmin = self._ops_parse_int(self._ops_var_tw.get())
+        if wmin is not None and ref_rwy is None:
+            if warn:
+                messagebox.showwarning("换向门槛", "填了风分量节数就得选一条参照跑道（顺/逆/侧风分量相对它算）。")
+            return None
+        ceil = self._ops_parse_int(self._ops_var_ceil.get())
+        vis = self._ops_parse_int(self._ops_var_vis.get())
+        ceilcov = (self._ops_var_ceilcov.get().strip().upper() or "SCT") if ceil is not None else None
+        return {"name": name,
+                "cond": {"time_jst": times, "days": days, "ref_runway": ref_rwy, "wind_kind": wkind, "wind_min_kt": wmin,
+                         "ceiling_min_ft": ceil, "ceiling_cover": ceilcov, "visibility_min_m": vis},
+                "dep": {"runways": self._ops_read_lb(self._ops_lb_dep_rwy),
+                        "sids": self._ops_read_lb(self._ops_lb_dep_sid)},
+                "arr": {"runways": self._ops_read_lb(self._ops_lb_arr_rwy),
+                        "stars": self._ops_read_lb(self._ops_lb_arr_star),
+                        "iaps": self._ops_read_lb(self._ops_lb_arr_iap)}}
+
+    def _ops_rule_to_form(self, rule):
+        """回填表单。"""
+        cond = rule.get("cond", {}) or {}
+        self._ops_var_name.set(rule.get("name") or "")
+        self._ops_var_time.set(",".join(cond.get("time_jst") or []))
+        _dset = set(cond.get("days") or [])
+        for _i, _v in enumerate(self._ops_var_days):
+            _v.set((_i + 1) in _dset)
+        self._ops_var_refrwy.set((cond.get("ref_runway") or "").replace("RW", ""))
+        self._ops_var_wkind.set({"headwind": "逆风", "crosswind": "侧风"}.get(cond.get("wind_kind"), "顺风"))
+        self._ops_var_tw.set("" if cond.get("wind_min_kt") is None else str(cond.get("wind_min_kt")))
+        self._ops_var_ceil.set("" if cond.get("ceiling_min_ft") is None else str(cond.get("ceiling_min_ft")))
+        self._ops_var_ceilcov.set(cond.get("ceiling_cover") or "SCT")
+        self._ops_var_vis.set("" if cond.get("visibility_min_m") is None else str(cond.get("visibility_min_m")))
+        dep, arr = rule.get("dep", {}) or {}, rule.get("arr", {}) or {}
+        self._ops_select_lb(self._ops_lb_dep_rwy, dep.get("runways"))
+        self._ops_select_lb(self._ops_lb_dep_sid, dep.get("sids"))
+        self._ops_select_lb(self._ops_lb_arr_rwy, arr.get("runways"))
+        self._ops_select_lb(self._ops_lb_arr_star, arr.get("stars"))
+        self._ops_select_lb(self._ops_lb_arr_iap, arr.get("iaps"))
+        self._ops_form_dirty = False
+
+    def _ops_clear_form(self):
+        for v in (self._ops_var_name, self._ops_var_time, self._ops_var_refrwy, self._ops_var_tw,
+                  self._ops_var_ceil, self._ops_var_vis):
+            v.set("")
+        for v in self._ops_var_days:
+            v.set(False)
+        self._ops_var_wkind.set("顺风")
+        self._ops_var_ceilcov.set("SCT")
+        for lbx in (self._ops_lb_dep_rwy, self._ops_lb_dep_sid, self._ops_lb_arr_rwy,
+                    self._ops_lb_arr_star, self._ops_lb_arr_iap):
+            self._ops_select_lb(lbx, [])
+        self._ops_form_dirty = False
+
+    def _ops_save(self):
+        """持久化：提交当前表单 + 当前机场 → 整体原子写 operation.json（剔除空机场）。"""
+        if self._ops_sel is not None and self._ops_form_dirty:
+            rule = self._ops_form_to_rule(warn=True)
+            if rule is None:
+                return
+            self._ops_rules[self._ops_sel] = rule
+            self._ops_tree.item(str(self._ops_sel), values=self._ops_row_values(rule))
+            self._ops_form_dirty = False
+        self._ops_commit_current()
+        if operations.save_operations(self._ops_all):
+            self._ops_all = operations._prune(self._ops_all)     # 内存同步剔除空机场
+            self._ops_dirty = False
+            self._ops_refresh_existing()
+            n = len(operations.airports(self._ops_all))
+            print(f"💾 运行规则已保存到 operation.json（{n} 个机场）。")
+            messagebox.showinfo("运行规则", f"已保存到 operation.json（{n} 个机场）。")
+
+    def _ops_on_close(self):
+        if self._ops_dirty or self._ops_form_dirty:
+            ans = messagebox.askyesnocancel("未保存", "有未保存的规则改动，保存后关闭？\n（是=保存并关闭 / 否=直接关闭 / 取消=返回）")
+            if ans is None:
+                return
+            if ans:
+                self._ops_save()
+        try:
+            self._ops_win.destroy()
+        except Exception:
+            pass
+        self._ops_win = None
 
 
 def _enable_hidpi():

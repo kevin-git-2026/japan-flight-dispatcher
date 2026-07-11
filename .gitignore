@@ -19,6 +19,9 @@ installed_scenery.json
 routes_cache.csv
 # airlines.json 首次运行从内置默认生成（默认数据在 dispatcher/airlines.py）
 airlines.json
+# operation.json 用户在「⚙️ 编辑机场运行规则」里自建的机场运行规则（个人数据，编辑器保存时生成）
+operation.json
+operation.json.bak
 # xp_path_config.txt 旧版 XP 路径记忆（已并入 installed_scenery.json）
 xp_path_config.txt
 

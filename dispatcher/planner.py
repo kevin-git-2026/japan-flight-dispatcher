@@ -52,9 +52,10 @@ def _split_callsign(s):
     return (m.group(1).upper(), m.group(2)) if m else ("", "")
 
 
-def _build_simbrief_url(orig, dest, airline, fltnum, actype, route=None):
+def _build_simbrief_url(orig, dest, airline, fltnum, actype, route=None, eobt_utc_min=None):
     """拼 SimBrief 一键派遣预填链接（custom options，公开预填、用用户自己浏览器登录态，无需任何凭据）。
-    必填 orig/dest/type；airline/fltnum 可选；route 为空则 SimBrief 用自己数据库的推荐航路。"""
+    必填 orig/dest/type；airline/fltnum 可选；route 为空则 SimBrief 用自己数据库的推荐航路。
+    eobt_utc_min（当日 UTC 分钟）非空则填 deph/depm 计划撤轮挡时刻（v1.6.0：复用运行规则面板的 EOBT）。"""
     params = {"orig": orig, "dest": dest}
     if actype:
         params["type"] = actype
@@ -64,6 +65,10 @@ def _build_simbrief_url(orig, dest, airline, fltnum, actype, route=None):
         params["fltnum"] = fltnum
     if route:
         params["route"] = route                          # F16 分时段：填入按起飞时间选出的官方航路，补 SimBrief 时段盲区
+    if eobt_utc_min is not None:
+        m = int(eobt_utc_min) % 1440
+        params["deph"] = "%02d" % (m // 60)              # SimBrief 计划撤轮挡（UTC 时/分）
+        params["depm"] = "%02d" % (m % 60)
     return "https://dispatch.simbrief.com/options/custom?" + urlencode(params)
 
 
@@ -75,13 +80,14 @@ def _first_aip_route_str(route_details):
     return parts[5].strip() if len(parts) > 5 and parts[5].strip() else None
 
 
-def simbrief_url(sb_base, route=None):
-    """据 FlightPlan.sb_base + 一条 route 重建 SimBrief 派遣链接（F20：用户选定 SID/STAR 后调用）。sb_base 缺失 → ''。"""
+def simbrief_url(sb_base, route=None, eobt_utc_min=None):
+    """据 FlightPlan.sb_base + 一条 route 重建 SimBrief 派遣链接（F20：用户选定 SID/STAR 后调用）。sb_base 缺失 → ''。
+    eobt_utc_min 非空则附计划撤轮挡时刻（v1.6.0 运行规则面板 EOBT）。"""
     if not sb_base:
         return ""
     return _build_simbrief_url(sb_base.get("orig", ""), sb_base.get("dest", ""),
                                sb_base.get("airline", ""), sb_base.get("fltnum", ""),
-                               sb_base.get("actype", ""), route)
+                               sb_base.get("actype", ""), route, eobt_utc_min)
 
 
 def build_flight_plan(dep_obj, arr_obj, route_dist, route_details,
