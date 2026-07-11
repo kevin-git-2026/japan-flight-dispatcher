@@ -1,0 +1,1777 @@
+{
+  "_comment": "机场运行规则：用「⚙️ 编辑机场运行规则」可视化编辑。每机场一组 rules，规划器（下一版）按当前 JST 时段+风匹配以预选跑道/SID/STAR/IAP。",
+  "RJTT": {
+    "rules": [
+      {
+        "name": "北风（离场，05）",
+        "cond": {
+          "time_jst": [],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW05"
+          ],
+          "sids": [
+            "GUSRO1",
+            "LAXAS4",
+            "NINOX4",
+            "RUTAS4",
+            "VAMOS4"
+          ]
+        },
+        "arr": {
+          "runways": [],
+          "stars": [],
+          "iaps": []
+        }
+      },
+      {
+        "name": "北风A（离场，34R）",
+        "cond": {
+          "time_jst": [
+            "0600-0700",
+            "1130-1500",
+            "1900-2300"
+          ],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW34R"
+          ],
+          "sids": [
+            "BEKL3A",
+            "ROVE3A",
+            "TIAR2A"
+          ]
+        },
+        "arr": {
+          "runways": [],
+          "stars": [],
+          "iaps": []
+        }
+      },
+      {
+        "name": "北风B（离场，34R）",
+        "cond": {
+          "time_jst": [
+            "0700-1130"
+          ],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW34R"
+          ],
+          "sids": [
+            "BEKL4B",
+            "ROVE4B",
+            "TIAR3B"
+          ]
+        },
+        "arr": {
+          "runways": [],
+          "stars": [],
+          "iaps": []
+        }
+      },
+      {
+        "name": "北风C（离场，34R）",
+        "cond": {
+          "time_jst": [
+            "1500-1900"
+          ],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW34R"
+          ],
+          "sids": [
+            "BEKL5C",
+            "ROVE4C",
+            "TIAR3C"
+          ]
+        },
+        "arr": {
+          "runways": [],
+          "stars": [],
+          "iaps": []
+        }
+      },
+      {
+        "name": "北风ABC（进场，34L，好天）",
+        "cond": {
+          "time_jst": [],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": 1500,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 6000
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW34L"
+          ],
+          "stars": [
+            "AKSE1K",
+            "AROS1K",
+            "XAC1K"
+          ],
+          "iaps": [
+            "I34LX"
+          ]
+        }
+      },
+      {
+        "name": "北风ABC（进场，34L，恶天）",
+        "cond": {
+          "time_jst": [],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW34L"
+          ],
+          "stars": [
+            "AKSE1A",
+            "AROS1A",
+            "XAC1A"
+          ],
+          "iaps": [
+            "I34LZ"
+          ]
+        }
+      },
+      {
+        "name": "北风ABC（进场，34R，好天）",
+        "cond": {
+          "time_jst": [],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": 1500,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 6000
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW34R"
+          ],
+          "stars": [
+            "GODI1H",
+            "POLI1H"
+          ],
+          "iaps": []
+        }
+      },
+      {
+        "name": "北风ABC（进场，34R，恶天）",
+        "cond": {
+          "time_jst": [],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW34R"
+          ],
+          "stars": [
+            "GODI1C",
+            "POLI1C"
+          ],
+          "iaps": [
+            "I34RZ"
+          ]
+        }
+      },
+      {
+        "name": "南风A（离场，16L）",
+        "cond": {
+          "time_jst": [
+            "0600-0700",
+            "1130-1500",
+            "1900-2300"
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW16L"
+          ],
+          "sids": [
+            "BEKL3A",
+            "ROVE3A",
+            "TIAR2A"
+          ]
+        },
+        "arr": {
+          "runways": [],
+          "stars": [],
+          "iaps": []
+        }
+      },
+      {
+        "name": "南风B（离场，16L）",
+        "cond": {
+          "time_jst": [
+            "0700-1130"
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW16L"
+          ],
+          "sids": [
+            "BEKL4B",
+            "ROVE4B",
+            "TIAR3B"
+          ]
+        },
+        "arr": {
+          "runways": [],
+          "stars": [],
+          "iaps": []
+        }
+      },
+      {
+        "name": "南风AB（离场，16R）",
+        "cond": {
+          "time_jst": [
+            "0600-1500",
+            "1900-2300"
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW16R"
+          ],
+          "sids": [
+            "GUSRO1",
+            "LAXAS4",
+            "NINOX4",
+            "RUTAS4",
+            "VAMOS4"
+          ]
+        },
+        "arr": {
+          "runways": [],
+          "stars": [],
+          "iaps": []
+        }
+      },
+      {
+        "name": "南风C（离场，16R）",
+        "cond": {
+          "time_jst": [
+            "1500-1900"
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW16R"
+          ],
+          "sids": [
+            "BEKL5C",
+            "ROVE4C",
+            "TIAR3C"
+          ]
+        },
+        "arr": {
+          "runways": [],
+          "stars": [],
+          "iaps": []
+        }
+      },
+      {
+        "name": "南风C（离场，22）",
+        "cond": {
+          "time_jst": [
+            "1500-1900"
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW22"
+          ],
+          "sids": [
+            "GUSRO1",
+            "LAXAS4",
+            "NINOX4",
+            "RUTAS4",
+            "VAMOS4"
+          ]
+        },
+        "arr": {
+          "runways": [],
+          "stars": [],
+          "iaps": []
+        }
+      },
+      {
+        "name": "南风AB（进场，22，好天）",
+        "cond": {
+          "time_jst": [
+            "0600-1500",
+            "1900-2300"
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": 1500,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 6000
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW22"
+          ],
+          "stars": [
+            "AKSE1B",
+            "AROS1B",
+            "XAC1B"
+          ],
+          "iaps": [
+            "X22-W"
+          ]
+        }
+      },
+      {
+        "name": "南风AB（进场，22，恶天）",
+        "cond": {
+          "time_jst": [
+            "0600-1500",
+            "1900-2300"
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW22"
+          ],
+          "stars": [
+            "AKSE1N",
+            "AROS1N",
+            "XAC1N"
+          ],
+          "iaps": [
+            "I22"
+          ]
+        }
+      },
+      {
+        "name": "南风AB（进场，23，好天）",
+        "cond": {
+          "time_jst": [
+            "0600-1500",
+            "1900-2300"
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": 1500,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 6000
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW23"
+          ],
+          "stars": [
+            "GODI1D",
+            "POLI1D"
+          ],
+          "iaps": [
+            "X23-W"
+          ]
+        }
+      },
+      {
+        "name": "南风AB（进场，23，恶天）",
+        "cond": {
+          "time_jst": [
+            "0600-1500",
+            "1900-2300"
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW23"
+          ],
+          "stars": [
+            "GODI1S",
+            "POLI1S"
+          ],
+          "iaps": [
+            "I23-Z"
+          ]
+        }
+      },
+      {
+        "name": "南风C（进场，16L，好天）",
+        "cond": {
+          "time_jst": [
+            "1500-1900"
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": 650,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 2000
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW16L"
+          ],
+          "stars": [
+            "AKSELL",
+            "AROSAL",
+            "XACL"
+          ],
+          "iaps": [
+            "R16L"
+          ]
+        }
+      },
+      {
+        "name": "南风C（进场，16L，恶天）",
+        "cond": {
+          "time_jst": [
+            "1500-1900"
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW16L"
+          ],
+          "stars": [
+            "AKSELL",
+            "AROSAL",
+            "XACL"
+          ],
+          "iaps": [
+            "I16L"
+          ]
+        }
+      },
+      {
+        "name": "南风C（进场，16R，好天）",
+        "cond": {
+          "time_jst": [
+            "1500-1900"
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": 650,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 2000
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW16R"
+          ],
+          "stars": [
+            "GODINR",
+            "POLIXR"
+          ],
+          "iaps": [
+            "R16R"
+          ]
+        }
+      },
+      {
+        "name": "南风C（进场，16R，恶天）",
+        "cond": {
+          "time_jst": [
+            "1500-1900"
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW16R"
+          ],
+          "stars": [
+            "GODINR",
+            "POLIXR"
+          ],
+          "iaps": [
+            "I16R"
+          ]
+        }
+      },
+      {
+        "name": "南风C（进场，22，好天，特殊）",
+        "cond": {
+          "time_jst": [
+            "1500-1900"
+          ],
+          "ref_runway": "RW16L",
+          "wind_kind": "crosswind",
+          "wind_min_kt": 15,
+          "ceiling_min_ft": 1500,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 6000
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW22"
+          ],
+          "stars": [
+            "AKSE1B",
+            "AROS1B",
+            "XAC1B"
+          ],
+          "iaps": [
+            "X22-W"
+          ]
+        }
+      },
+      {
+        "name": "南风C（进场，22，恶天，特殊）",
+        "cond": {
+          "time_jst": [
+            "1500-1900"
+          ],
+          "ref_runway": "RW16L",
+          "wind_kind": "crosswind",
+          "wind_min_kt": 15,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW22"
+          ],
+          "stars": [
+            "AKSE1N",
+            "AROS1N",
+            "XAC1N"
+          ],
+          "iaps": [
+            "I22"
+          ]
+        }
+      },
+      {
+        "name": "南风C（进场，23，好天，特殊）",
+        "cond": {
+          "time_jst": [
+            "1500-1900"
+          ],
+          "ref_runway": "RW16L",
+          "wind_kind": "crosswind",
+          "wind_min_kt": 15,
+          "ceiling_min_ft": 1500,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 6000
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW23"
+          ],
+          "stars": [
+            "GODI1D",
+            "POLI1D"
+          ],
+          "iaps": [
+            "X23-W"
+          ]
+        }
+      },
+      {
+        "name": "南风C（进场，23，恶天，特殊）",
+        "cond": {
+          "time_jst": [
+            "1500-1900"
+          ],
+          "ref_runway": "RW16L",
+          "wind_kind": "crosswind",
+          "wind_min_kt": 15,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW23"
+          ],
+          "stars": [
+            "GODI1S",
+            "POLI1S"
+          ],
+          "iaps": [
+            "I23-Z"
+          ]
+        }
+      },
+      {
+        "name": "深夜北风/南风微风AD（离场05，进场34L）",
+        "cond": {
+          "time_jst": [
+            "0030-0600"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW05"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW34L"
+          ],
+          "stars": [
+            "AKSELN",
+            "AROSAN",
+            "MESSEN",
+            "XACN"
+          ],
+          "iaps": [
+            "I34LY"
+          ]
+        }
+      },
+      {
+        "name": "深夜南风强风AD（离场16R，进场23，好天）",
+        "cond": {
+          "time_jst": [
+            "0030-0600"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": 1500,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 6000
+        },
+        "dep": {
+          "runways": [
+            "RW16R"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW23"
+          ],
+          "stars": [
+            "AKSELN",
+            "AROSAN",
+            "MESSEN",
+            "XACN"
+          ],
+          "iaps": [
+            "X23-Y"
+          ]
+        }
+      },
+      {
+        "name": "深夜南风强风AD（离场16R，进场23，恶天）",
+        "cond": {
+          "time_jst": [
+            "0030-0600"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW16R"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW23"
+          ],
+          "stars": [
+            "AKSELN",
+            "AROSAN",
+            "MESSEN",
+            "XACN"
+          ],
+          "iaps": [
+            "I23-Y"
+          ]
+        }
+      },
+      {
+        "name": "深夜北风/南风微风CD（离场05，进场34R，周一/周四/周天）",
+        "cond": {
+          "time_jst": [
+            "2300-0600"
+          ],
+          "days": [
+            1,
+            4,
+            7
+          ],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW05"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW34R"
+          ],
+          "stars": [
+            "AKSELN",
+            "AROSAN",
+            "MESSEN",
+            "XACN"
+          ],
+          "iaps": [
+            "I34RY"
+          ]
+        }
+      },
+      {
+        "name": "深夜南风强风CD（离场16L，进场23，好天，周一/周四/周日）",
+        "cond": {
+          "time_jst": [
+            "2300-0600"
+          ],
+          "days": [
+            1,
+            4,
+            7
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": 1500,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 6000
+        },
+        "dep": {
+          "runways": [
+            "RW16L"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW23"
+          ],
+          "stars": [
+            "AKSELN",
+            "AROSAN",
+            "MESSEN",
+            "XACN"
+          ],
+          "iaps": [
+            "X23-Y"
+          ]
+        }
+      },
+      {
+        "name": "深夜南风强风CD（离场16L，进场23，恶天，周一/周四/周日）",
+        "cond": {
+          "time_jst": [
+            "2300-0600"
+          ],
+          "days": [
+            1,
+            4,
+            7
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW16L"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW23"
+          ],
+          "stars": [
+            "AKSELN",
+            "AROSAN",
+            "MESSEN",
+            "XACN"
+          ],
+          "iaps": [
+            "I23-Y"
+          ]
+        }
+      },
+      {
+        "name": "深夜北风/南风微风CD（离场05，进场34R，周二/周五）",
+        "cond": {
+          "time_jst": [
+            "2330-0030"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW05"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW34R"
+          ],
+          "stars": [
+            "AKSELN",
+            "AROSAN",
+            "MESSEN",
+            "XACN"
+          ],
+          "iaps": [
+            "I34RY"
+          ]
+        }
+      },
+      {
+        "name": "深夜南风强风CD（离场16L，进场23，好天，周二/周五）",
+        "cond": {
+          "time_jst": [
+            "2330-0030"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": 1500,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 6000
+        },
+        "dep": {
+          "runways": [
+            "RW16L"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW23"
+          ],
+          "stars": [
+            "AKSELN",
+            "AROSAN",
+            "MESSEN",
+            "XACN"
+          ],
+          "iaps": [
+            "X23-Y"
+          ]
+        }
+      },
+      {
+        "name": "深夜南风强风CD（离场16L，进场23，恶天，周二/周五）",
+        "cond": {
+          "time_jst": [
+            "2330-0030"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW16L"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW23"
+          ],
+          "stars": [
+            "AKSELN",
+            "AROSAN",
+            "MESSEN",
+            "XACN"
+          ],
+          "iaps": [
+            "I23-Y"
+          ]
+        }
+      },
+      {
+        "name": "深夜北风/南风微风CD（离场05，进场34R，周三/周六）",
+        "cond": {
+          "time_jst": [
+            "2300-2330"
+          ],
+          "days": [
+            3,
+            6
+          ],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW05"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW34R"
+          ],
+          "stars": [
+            "AKSELN",
+            "AROSAN",
+            "MESSEN",
+            "XACN"
+          ],
+          "iaps": [
+            "I34RY"
+          ]
+        }
+      },
+      {
+        "name": "深夜南风强风CD（离场16L，进场23，好天，周三/周六）",
+        "cond": {
+          "time_jst": [
+            "2300-2330"
+          ],
+          "days": [
+            3,
+            6
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": 1500,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 6000
+        },
+        "dep": {
+          "runways": [
+            "RW16L"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW23"
+          ],
+          "stars": [
+            "AKSELN",
+            "AROSAN",
+            "MESSEN",
+            "XACN"
+          ],
+          "iaps": [
+            "X23-Y"
+          ]
+        }
+      },
+      {
+        "name": "深夜南风强风CD（离场16L，进场23，恶天，周三/周六）",
+        "cond": {
+          "time_jst": [
+            "2300-2330"
+          ],
+          "days": [
+            3,
+            6
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW16L"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW23"
+          ],
+          "stars": [
+            "AKSELN",
+            "AROSAN",
+            "MESSEN",
+            "XACN"
+          ],
+          "iaps": [
+            "I23-Y"
+          ]
+        }
+      },
+      {
+        "name": "深夜北风强风C（离场34R，进场34R）",
+        "cond": {
+          "time_jst": [
+            "2330-0600"
+          ],
+          "days": [
+            3,
+            6
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "headwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW34R"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW34R"
+          ],
+          "stars": [
+            "AKSELN",
+            "AROSAN",
+            "MESSEN",
+            "XACN"
+          ],
+          "iaps": [
+            "I34RY"
+          ]
+        }
+      },
+      {
+        "name": "深夜北风微风/南风微风C（离场16L，进场34R）",
+        "cond": {
+          "time_jst": [
+            "2330-0600"
+          ],
+          "days": [
+            3,
+            6
+          ],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW16L"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW34R"
+          ],
+          "stars": [
+            "AKSELN",
+            "AROSAN",
+            "MESSEN",
+            "XACN"
+          ],
+          "iaps": [
+            "I34RY"
+          ]
+        }
+      },
+      {
+        "name": "深夜南风强风C（离场16L，进场16L，好天）",
+        "cond": {
+          "time_jst": [
+            "2330-0600"
+          ],
+          "days": [
+            3,
+            6
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": 1500,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 6000
+        },
+        "dep": {
+          "runways": [
+            "RW16L"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW16L"
+          ],
+          "stars": [
+            "AKSELV",
+            "AROSAV",
+            "MESSEV",
+            "XACV"
+          ],
+          "iaps": [
+            "VORA"
+          ]
+        }
+      },
+      {
+        "name": "深夜南风强风恶天（离场16L，进场23，回退CD）",
+        "cond": {
+          "time_jst": [
+            "2330-0600"
+          ],
+          "days": [
+            3,
+            6
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW16L"
+          ],
+          "sids": [
+            "OPPAR4"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW23"
+          ],
+          "stars": [
+            "AKSELN",
+            "AROSAN",
+            "MESSEN",
+            "XACN"
+          ],
+          "iaps": [
+            "I23-Y"
+          ]
+        }
+      },
+      {
+        "name": "深夜北风A时段（离场，34R）",
+        "cond": {
+          "time_jst": [
+            "2300-2330"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW34R"
+          ],
+          "sids": [
+            "BEKL3A",
+            "ROVE3A",
+            "TIAR2A"
+          ]
+        },
+        "arr": {
+          "runways": [],
+          "stars": [],
+          "iaps": []
+        }
+      },
+      {
+        "name": "深夜北风A时段（进场，34L，好天）",
+        "cond": {
+          "time_jst": [
+            "2300-2330"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": 1500,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 6000
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW34L"
+          ],
+          "stars": [
+            "AKSE1K",
+            "AROS1K",
+            "XAC1K"
+          ],
+          "iaps": [
+            "I34LX"
+          ]
+        }
+      },
+      {
+        "name": "深夜北风A时段（进场，34L，恶天）",
+        "cond": {
+          "time_jst": [
+            "2300-2330"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW34L"
+          ],
+          "stars": [
+            "AKSE1A",
+            "AROS1A",
+            "XAC1A"
+          ],
+          "iaps": [
+            "I34LZ"
+          ]
+        }
+      },
+      {
+        "name": "深夜北风A时段（进场，34R，好天）",
+        "cond": {
+          "time_jst": [
+            "2300-2330"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": 1500,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 6000
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW34R"
+          ],
+          "stars": [
+            "GODI1H",
+            "POLI1H"
+          ],
+          "iaps": []
+        }
+      },
+      {
+        "name": "深夜北风A时段（进场，34R，恶天）",
+        "cond": {
+          "time_jst": [
+            "2300-2330"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW34R"
+          ],
+          "stars": [
+            "GODI1C",
+            "POLI1C"
+          ],
+          "iaps": [
+            "I34RZ"
+          ]
+        }
+      },
+      {
+        "name": "深夜南风A时段（离场，16L）",
+        "cond": {
+          "time_jst": [
+            "2300-2330"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW16L"
+          ],
+          "sids": [
+            "BEKL3A",
+            "ROVE3A",
+            "TIAR2A"
+          ]
+        },
+        "arr": {
+          "runways": [],
+          "stars": [],
+          "iaps": []
+        }
+      },
+      {
+        "name": "深夜南风A时段（离场，16R）",
+        "cond": {
+          "time_jst": [
+            "2300-2330"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW16R"
+          ],
+          "sids": [
+            "GUSRO1",
+            "LAXAS4",
+            "NINOX4",
+            "RUTAS4",
+            "VAMOS4"
+          ]
+        },
+        "arr": {
+          "runways": [],
+          "stars": [],
+          "iaps": []
+        }
+      },
+      {
+        "name": "深夜南风A时段（进场，22，好天）",
+        "cond": {
+          "time_jst": [
+            "2300-2330"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": 1500,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 6000
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW22"
+          ],
+          "stars": [
+            "AKSE1B",
+            "AROS1B",
+            "XAC1B"
+          ],
+          "iaps": [
+            "X22-W"
+          ]
+        }
+      },
+      {
+        "name": "深夜南风A时段（进场，22，恶天）",
+        "cond": {
+          "time_jst": [
+            "2300-2330"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW22"
+          ],
+          "stars": [
+            "AKSE1N",
+            "AROS1N",
+            "XAC1N"
+          ],
+          "iaps": [
+            "I22"
+          ]
+        }
+      },
+      {
+        "name": "深夜南风A时段（进场，23，好天）",
+        "cond": {
+          "time_jst": [
+            "2300-2330"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": 1500,
+          "ceiling_cover": "SCT",
+          "visibility_min_m": 6000
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW23"
+          ],
+          "stars": [
+            "GODI1D",
+            "POLI1D"
+          ],
+          "iaps": [
+            "X23-W"
+          ]
+        }
+      },
+      {
+        "name": "深夜南风A时段（进场，23，恶天）",
+        "cond": {
+          "time_jst": [
+            "2300-2330"
+          ],
+          "days": [
+            2,
+            5
+          ],
+          "ref_runway": "RW34R",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [],
+          "sids": []
+        },
+        "arr": {
+          "runways": [
+            "RW23"
+          ],
+          "stars": [
+            "GODI1S",
+            "POLI1S"
+          ],
+          "iaps": [
+            "I23-Z"
+          ]
+        }
+      }
+    ]
+  }
+}
