@@ -45,6 +45,9 @@ class ProcView:
         self.arr_wx = self._wx_text()
         self.dep_rwy, self.dep_proc = self._rwy_row("dep")
         self.arr_rwy, self.arr_proc = self._rwy_row("arr")
+        # 实测运用状况（国土交通省 ntrack，仅羽田）——预选的首选依据，故用更醒目的靛蓝
+        self.dep_nt = ft.Text("", size=12, color=ft.Colors.INDIGO_400, selectable=True)
+        self.arr_nt = ft.Text("", size=12, color=ft.Colors.INDIGO_400, selectable=True)
         self.dep_ops = ft.Text("", size=12, color=ft.Colors.GREEN_600, selectable=True)
         self.arr_ops = ft.Text("", size=12, color=ft.Colors.GREEN_600, selectable=True)
 
@@ -71,10 +74,12 @@ class ProcView:
         # （实测规划完直接停在「到达」那侧，出发块被顶出视野）；ListView 老实停在顶部。
         body = ft.ListView([
             self.dep_wx,
+            self.dep_nt,
             ft.Row([self.dep_rwy, self.dep_proc], spacing=8),
             self.dep_ops,
             ft.Divider(height=8),
             self.arr_wx,
+            self.arr_nt,
             ft.Row([self.arr_rwy, self.arr_proc], spacing=8),
             self.arr_ops,
             self.hint,
@@ -192,10 +197,12 @@ class ProcView:
                                     for i, lbl in enumerate(m.aip_labels())]
                 self.aip.value = str(m.sel_idx)
 
-            for side, wx, cb_rwy, cb_proc, ops in (
-                    ("dep", self.dep_wx, self.dep_rwy, self.dep_proc, self.dep_ops),
-                    ("arr", self.arr_wx, self.arr_rwy, self.arr_proc, self.arr_ops)):
+            for side, wx, nt, cb_rwy, cb_proc, ops in (
+                    ("dep", self.dep_wx, self.dep_nt, self.dep_rwy, self.dep_proc, self.dep_ops),
+                    ("arr", self.arr_wx, self.arr_nt, self.arr_rwy, self.arr_proc, self.arr_ops)):
                 wx.value = m.wx_text(side)
+                nt.value = m.nt_label[side]
+                nt.visible = bool(nt.value)
                 items = m.items[side]
                 cb_rwy.options = [ft.DropdownOption(key=it["rwy"], text=it["disp"]) for it in items]
                 cb_rwy.value = m.sel_rwy[side]

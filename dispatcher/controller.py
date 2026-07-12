@@ -18,7 +18,7 @@ from .volanta import (
 from .routing import calculate_distance_nm, find_aip_route, get_random_route
 from .planner import build_flight_plan, parse_runway_ft, parse_dist
 from .router import generate_route, route_geometry, route_length_nm
-from . import procedures, weather, timed
+from . import procedures, weather, timed, ntrack
 
 
 class NavDataMissing(Exception):
@@ -261,10 +261,18 @@ def compute_proc(state, dep_obj, arr_obj, generated, matched=None,
                            "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am})
 
     print("🌦️ 正在获取机场天气（METAR / 网格回退）…")
+    # 实测运用状况（国土交通省 ntrack，目前仅羽田）：取到就是进离场预选的首选依据，取不到就走规则引擎
+    nt = {}
+    for obj in (dep_obj, arr_obj):
+        if ntrack.supports(obj.code) and obj.code not in nt:
+            cfg = ntrack.fetch_latest(obj.code)
+            if cfg:
+                nt[obj.code] = cfg
     return {
         "aip_candidates": candidates, "selected": 0, "strict_ops": bool(strict_ops),
         "dep_wx": weather.resolve_airport_wx(dep_obj.code, dep_obj.lat_dd, dep_obj.lon_dd),
         "arr_wx": weather.resolve_airport_wx(arr_obj.code, arr_obj.lat_dd, arr_obj.lon_dd),
+        "ntrack": nt,
     }
 
 

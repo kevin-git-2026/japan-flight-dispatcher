@@ -14,7 +14,7 @@
 import copy
 import math
 
-from . import operations, procedures, timed, weather
+from . import ntrack, operations, procedures, timed, weather
 from .aircraft import aircraft_choices
 from .planner import simbrief_url as _planner_simbrief_url
 
@@ -336,9 +336,13 @@ def wx_text(prefix, icao, wx):
     return head
 
 
-def runway_items(rows, wind):
-    """跑道行 → 显示项（长度[米] + 风分量 + 适航），并排序：合规优先、再逆风大、再跑道号。
-    rows=[(rwy_id, length_ft, labels)]；返回 [{disp, rwy, labels, ok, hw}]。"""
+def runway_items(rows, wind, in_use=None):
+    """跑道行 → 显示项（长度[米] + 风分量 + 适航），并排序。
+    rows=[(rwy_id, length_ft, labels)]；返回 [{disp, rwy, labels, ok, hw, in_use}]。
+
+    `in_use` = 实测正在使用的跑道集合（ntrack，仅羽田）。命中的标「✅在用」并**排在最前**——
+    于是「按风默认」自然落在实测在用的跑道里。其余跑道仍在下拉里可选（用户永远能改选）。"""
+    used = set(in_use or ())
     items = []
     for rwy_id, length_ft, labels in rows:
         short = rwy_id.replace("RW", "")
@@ -346,8 +350,13 @@ def runway_items(rows, wind):
         wdesc, ok, hw = wind_desc(wind, rwy_id)
         if wdesc:
             parts.append(wdesc)
-        items.append({"disp": " · ".join(parts), "rwy": rwy_id, "labels": list(labels), "ok": ok, "hw": hw})
-    items.sort(key=lambda it: (not it["ok"], -it["hw"], procedures._rw_sort_key(it["rwy"])))
+        hit = rwy_id in used
+        if hit:
+            parts.append("✅在用")
+        items.append({"disp": " · ".join(parts), "rwy": rwy_id, "labels": list(labels),
+                      "ok": ok, "hw": hw, "in_use": hit})
+    items.sort(key=lambda it: (not it["in_use"], not it["ok"], -it["hw"],
+                               procedures._rw_sort_key(it["rwy"])))
     return items
 
 
@@ -429,6 +438,16 @@ class ProcPanelModel:
         self.sky = {"dep": weather.parse_sky(dep_wx.get("metar_raw") if dep_wx else None),   # (layers, vis_m)
                     "arr": weather.parse_sky(arr_wx.get("metar_raw") if arr_wx else None)}
 
+        # 实测运用状况（ntrack，目前仅羽田）：{ICAO: {time_jst, approaches, ldg, dep, raw}}
+        self.ntrack = dict(proc.get("ntrack") or {})
+        self.nt_iaps = {}                                # {ICAO: [CIFP 进近 ident]}
+        for icao, cfg in self.ntrack.items():
+            try:
+                self.nt_iaps[icao] = ntrack.match_iaps(
+                    cfg.get("approaches"), procedures.enumerate_approaches(icao, dat_path))
+            except Exception:                            # noqa: BLE001
+                self.nt_iaps[icao] = []
+
         self.apply_ops = True
         nm, _wd = weather.now_jst()                      # EOBT 默认＝当前 JST（可改）
         self.eobt = "%02d%02d" % (nm // 60, nm % 60)
@@ -439,6 +458,7 @@ class ProcPanelModel:
         self.proc_labels = {"dep": [], "arr": []}
         self.sel_proc = {"dep": "", "arr": ""}
         self.ops_label = {"dep": "", "arr": ""}
+        self.nt_label = {"dep": self._nt_text("dep"), "arr": self._nt_text("arr")}
         self.select_candidate(proc.get("selected", 0))
 
     # ---- 只读派生 ----
@@ -538,9 +558,38 @@ class ProcPanelModel:
         self.apply_ops = bool(on)
         self.select_candidate(self.sel_idx)
 
+    # ---- 内部：实测运用状况（ntrack）----
+    def _icao(self, side):
+        return self.dep_icao if side == "dep" else self.arr_icao
+
+    def _nt_cfg(self, side):
+        return self.ntrack.get(self._icao(side))
+
+    def _nt_rwys(self, side):
+        """该侧【实测在用】的跑道集合；无数据 → None。离场看 DEP、到达看 LDG。"""
+        cfg = self._nt_cfg(side)
+        if not cfg:
+            return None
+        return set(cfg.get("dep" if side == "dep" else "ldg") or ()) or None
+
+    def _nt_text(self, side):
+        cfg = self._nt_cfg(side)
+        if not cfg:
+            return ""
+        icao, t = self._icao(side), cfg.get("time_jst", "")
+        if side == "dep":
+            return "✈️ %s 实测运用（%s）：离场 %s" % (
+                icao, t, "/".join(r.replace("RW", "") for r in cfg.get("dep") or []))
+        iaps = self.nt_iaps.get(icao) or []
+        return "✈️ %s 实测运用（%s）：落地 %s · 进近 %s%s" % (
+            icao, t, "/".join(r.replace("RW", "") for r in cfg.get("ldg") or []),
+            " / ".join(cfg.get("approaches") or []) or "—",
+            ("（IAP %s）" % " ".join(iaps)) if iaps else "")
+
     # ---- 内部 ----
     def _fill_rwy(self, side, rows):
-        items = runway_items(rows, self.wind[side])
+        # 实测在用的跑道标 ✅ 并排最前 → 按风默认自然落在其中；其余跑道仍可选（用户能改选）
+        items = runway_items(rows, self.wind[side], in_use=self._nt_rwys(side))
         self.items[side] = items
         if items:
             self.sel_rwy[side] = items[0]["rwy"]
@@ -579,18 +628,30 @@ class ProcPanelModel:
                               "sky_layers": self.sky["arr"][0], "vis_m": self.sky["arr"][1]}, "STAR")
 
     def _apply_ops_side(self, side, icao, rows, ctx, proc_name):
-        """单侧应用：命中规则 → 设跑道 + 级联程序 + 设 SID/STAR + 标注；无规则不动、无命中给提示。"""
+        """单侧应用：命中规则 → 设跑道 + 级联程序 + 设 SID/STAR + 标注；无规则不动、无命中给提示。
+
+        有实测运用状况（ntrack）时，把它作为 `config` 传给规则引擎：**ntrack 定「用哪些跑道 + 什么进近」
+        （硬约束），规则定「在其中怎么选 + 配什么 SID/STAR」**（SID/STAR 正是 ntrack 给不了的）。
+        风闸/天气闸由实测取代、时段/星期闸门保留——详见 operations.select_rule 的说明。"""
+        nt = self._nt_cfg(side)
+        cfg = None
+        if nt:
+            cfg = {"runways": set(nt.get("dep" if side == "dep" else "ldg") or ()),
+                   "iaps": set(self.nt_iaps.get(icao) or ())}
         rules = operations.airport_rules(self.ops_data, icao)
         if not rules:
             return
         try:
-            sel = operations.select_rule(rules, side, ctx, rows)
+            sel = operations.select_rule(rules, side, ctx, rows, config=cfg)
         except Exception as e:                            # noqa: BLE001
             print("⚠️ 运行规则匹配失败:", e)
             return
         if not sel:
-            self.ops_label[side] = ("🎯 %s 运行规则：当前风/时段/天气无【可用】匹配规则"
-                                    "（超限跑道已排除，保持按风合规跑道）" % icao)
+            self.ops_label[side] = (
+                ("🎯 %s 运行规则：实测在用的跑道未匹配到规则，已按风在【实测跑道】中预选" % icao)
+                if nt else
+                ("🎯 %s 运行规则：当前风/时段/天气无【可用】匹配规则"
+                 "（超限跑道已排除，保持按风合规跑道）" % icao))
             return
         rule, rwy, proc_label = sel
         item = next((i for i in self.items[side] if i["rwy"] == rwy), None)
@@ -601,9 +662,10 @@ class ProcPanelModel:
             self.sel_proc[side] = proc_label              # 规则程序命中航路端点→用它；否则保留路线相符首个
         iap = ""
         if side == "arr":
-            iaps = (rule.get("arr") or {}).get("iaps") or []
+            # IAP 也以实测为准：ntrack 明确给出当前在用的进近，比规则里录的更准
+            iaps = self.nt_iaps.get(icao) or (rule.get("arr") or {}).get("iaps") or []
             if iaps:
-                iap = "  IAP %s" % iaps[0]
+                iap = "  IAP %s" % " / ".join(iaps[:2])
         self.ops_label[side] = ("🎯 %s 运行规则：%s → RW%s / %s %s%s%s"
                                 % (icao, rule.get("name", ""), (rwy or "").replace("RW", ""),
                                    proc_name, self.sel_proc[side] or "—", iap,

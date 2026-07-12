@@ -126,19 +126,27 @@ def _wind_component(cond, wind):
     return -hw                                           # tailwind 顺风
 
 
-def evaluate_gates(cond, ctx):
+def evaluate_gates(cond, ctx, skip_wind=False, skip_weather=False):
     """规则四闸(time/days/wind/weather)「存在即须成立、缺省即过」→ bool。
-    ctx = {jst_min, weekday(1-7), wind=(dir,spd,..), sky_layers, vis_m}。天气未知(None) 按过=好天。"""
+    ctx = {jst_min, weekday(1-7), wind=(dir,spd,..), sky_layers, vis_m}。天气未知(None) 按过=好天。
+
+    `skip_wind` / `skip_weather`：有【实测运用状况】(ntrack)时用。风闸与天气闸本就是我们用来
+    **推断**当前构型的代理指标（「顺风到 10 节就换向」「云底低于 1500ft 就算恶天」）；实测既然直接
+    把构型告诉我们了，这两道闸就该由它**取代**，而不是继续拦路——否则会出现「MLIT 说正在跑南風
+    都心運用，而我们的门槛还差 0.8 节没跳，于是把南風规则全闸掉」这种荒谬情形（实测过）。
+    时段/星期闸门仍然生效：ntrack 不告诉我们 A/B/C 是哪一档，那得靠 EOBT。"""
     cond = cond or {}
     if not _match_time(cond.get("time_jst") or [], ctx.get("jst_min")):
         return False
     days = cond.get("days") or []
     if days and ctx.get("weekday") not in days:
         return False
-    if cond.get("wind_min_kt") is not None:
+    if not skip_wind and cond.get("wind_min_kt") is not None:
         comp = _wind_component(cond, ctx.get("wind"))
         if comp is None or comp < cond["wind_min_kt"]:
             return False
+    if skip_weather:
+        return True
     cmin = cond.get("ceiling_min_ft")
     if cmin is not None:
         ceil = weather.ceiling_ft(ctx.get("sky_layers") or [], cond.get("ceiling_cover"))
@@ -152,13 +160,33 @@ def evaluate_gates(cond, ctx):
     return True
 
 
-def select_rule(rules, side, ctx, rows):
+def _pick_by_wind(rwys, wind):
+    """一组跑道里挑风况最合适的：适航优先、再逆风大、再跑道号。"""
+    def key(r):
+        hd = procedures.runway_heading_deg(r)
+        hw, xw = weather.runway_wind(hd, wind[0], wind[1]) if hd is not None else (0.0, 0.0)
+        return (not weather.runway_ok(hw, xw), -hw, procedures._rw_sort_key(r))
+    return sorted(rwys, key=key)[0] if rwys else None
+
+
+def select_rule(rules, side, ctx, rows, config=None):
     """为 side('dep'/'arr') 选一条命中规则 → (rule, runway_id, proc_label|None) 或 None。
     rows = procedures.matching_choices 的行 [(rwy,len,labels)]（端点预筛后本侧候选跑道+程序标签）。
-    取舍词典序 min：(路线不相容, −时段/星期具体度, −有满足风门槛, 所选跑道侧风, 顺风, −有天气门槛, 列表序)。"""
+    取舍词典序 min：(路线不相容, −时段/星期具体度, −实测进近命中, −有满足风门槛, 所选跑道侧风, 顺风, −有天气门槛, 列表序)。
+
+    **`config` = 实测运用状况**（ntrack，目前仅羽田）：`{"runways": {在用跑道}, "iaps": {在用进近 ident}}`。
+    给了它，就从「按风/天气**推断**构型」切换成「按实测构型**认**规则」：
+      · 跑道对不上实测在用集合的规则，直接排除（它不是当前在跑的那条）；
+      · **风闸与天气闸交给实测取代**（见 evaluate_gates 的 skip_* 说明）——它们本就是构型的代理指标；
+      · **不再做顺/侧风超限剔除**：实测在用的跑道就是现实，我们的风模型说它勉强也没用；
+      · **实测进近（IAP）成为好天/恶天的判别依据**——比云底/能见度门槛直接得多
+        （`LDA W RWY22` ⇒ 好天那条；`ILS RWY22` ⇒ 恶天那条）；
+      · 时段/星期闸门仍生效：ntrack 不告诉我们是 A/B/C 哪一档，那得靠 EOBT。"""
     rows = rows or []
     row_by_rwy = {r[0]: r for r in rows}
     wind = ctx.get("wind") or (None, 0, None)
+    used = set((config or {}).get("runways") or ())
+    used_iaps = set((config or {}).get("iaps") or ())
     cands = []
     for idx, rule in enumerate(rules or []):
         blk = (rule or {}).get(side) or {}
@@ -171,10 +199,17 @@ def select_rule(rules, side, ctx, rows):
             want = set(blk.get("stars") or [])
             if not (rwys or want or blk.get("iaps")):
                 continue
-        if not evaluate_gates(rule.get("cond") or {}, ctx):
+        inter_r = [r for r in rwys if r in used] if used else []
+        if used and not inter_r:
+            continue                              # 跑道对不上实测构型 → 不是当前在跑的这条规则
+        if not evaluate_gates(rule.get("cond") or {}, ctx,
+                              skip_wind=bool(used), skip_weather=bool(used)):
             continue
         cond = rule.get("cond") or {}
-        rwy = next((r for r in rwys if r in row_by_rwy), rwys[0] if rwys else None)
+        if used:                                  # 实测在用 ∩ 本航路端点候选 → 再按风挑一条
+            rwy = _pick_by_wind([r for r in inter_r if r in row_by_rwy] or inter_r, wind)
+        else:
+            rwy = next((r for r in rwys if r in row_by_rwy), rwys[0] if rwys else None)
         row = row_by_rwy.get(rwy)
         if row is not None:
             labels = row[2]
@@ -185,12 +220,14 @@ def select_rule(rules, side, ctx, rows):
         proc_label = inter[0] if inter else None
         hd = procedures.runway_heading_deg(rwy) if rwy else None
         hw, xw = weather.runway_wind(hd, wind[0], wind[1]) if hd is not None else (0.0, 0.0)
-        if not weather.runway_ok(hw, xw):
+        if not used and not weather.runway_ok(hw, xw):
             continue                    # 该规则跑道当前顺/侧风超限 → 真实运行不会用（北風→南風就是为此），跳过→回退按风合规跑道
+        iap_hit = len(set(blk.get("iaps") or []) & used_iaps) if (side == "arr" and used_iaps) else 0
         specificity = (1 if cond.get("time_jst") else 0) + (1 if cond.get("days") else 0)
         has_wind = cond.get("wind_min_kt") is not None
         has_wx = cond.get("ceiling_min_ft") is not None or cond.get("visibility_min_m") is not None
-        key = (not route_ok, -specificity, 0 if has_wind else 1, xw, -hw, 0 if has_wx else 1, idx)
+        key = (not route_ok, -specificity, -iap_hit,
+               0 if has_wind else 1, xw, -hw, 0 if has_wx else 1, idx)
         cands.append((key, rule, rwy, proc_label))
     if not cands:
         return None
