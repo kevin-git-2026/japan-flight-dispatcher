@@ -16,6 +16,162 @@
 
 ---
 
+## v2.0.0(🚧 开发中 · 2026-07-11)— F25 UI 迁移 tkinter → Flet（Flutter 渲染 · 业务逻辑零改动）
+
+> **目标**：界面换成 Flutter 渲染（Flet = Python 写、Flutter 画），**17 个逻辑模块零编辑**。
+> **前置**：`Flutter 本体(Dart) 不能融合本项目`——Dart 进程跑不了 Python，硬上只能重写 3,837 行逻辑或搭 sidecar+IPC。Flet 是唯一划算解。
+> **进度**：Phase 0 预研 ✅ · Phase 1 剥离 ✅ · Phase 2 骨架 ✅ · Phase 3 地图 ✅ · Phase 4–8 待做。
+> 完整分阶段计划见 `~/.claude/plans/giggly-weaving-zephyr.md`。
+
+### Phase 0 — 预研（Go/No-Go 闸门，全部通过）
+
+| 闸门 | 实测结论 |
+| --- | --- |
+| **中文 / 日文 / emoji 渲染**（可毙掉整个方案） | ✅ 零豆腐块，**无需打包 Noto 字体**；**emoji 彩色**（tk 单色妥协作废）；深色模式自动跟随系统 |
+| `flet_map` 可用性 | ✅ 已编入**预制客户端**（flet 仓库 `client/pubspec.yaml:76`）→ 用 `flet pack`(PyInstaller) 即可，**不需要 Visual Studio、不需要 Flutter SDK** |
+| `flet pack` + `get_real_run_path()` | ✅ 冻结态仍取 **exe 同级**（非 `_MEIPASS`）；把工作目录设成 `C:\Windows` 运行，NavData/ 与三个 json 照样读到 |
+| exe 体积 / 冷启动 | **onefile 54 MB / 2.33s**（排除 numpy·scipy·tkinter·PIL 后；不排除白多 25 MB）。onedir 104 MB → **定 onefile**，发布包布局沿用现状 |
+
+**三条硬约束（后续实现必须遵守）**：
+1. **瓦片源不能用 OSM 官方**：`tile.openstreetmap.org` **403 封禁 flutter_map 的 User-Agent**，而 `TileLayer` **没有 headers 字段**（只有 `user_agent_package_name`，设了也没用）→ 改不了 UA。实测可用：**CartoDB Voyager/Positron（选定，有配套 `dark_all` 深色版）**、Esri World Topo、OpenTopoMap。*(tk 的 tkintermapview 能用 OSM 是因为它自设 UA；Flet 侧做不到。)*
+2. **打包命令**：`flet pack flight_dispatcher.py -n flight_dispatcher -y --pyinstaller-build-args="--exclude-module=numpy" ...=scipy ...=tkinter ...=PIL`（`--pyinstaller-build-args` 必须用 `=` 形式，空格形式会被 argparse 吞掉）。
+3. **Flet 0.85.3 API 勘误**：`ft.Border.all(...)` 而非 `ft.border.all(...)`；`Dropdown` **无 `on_change`**，事件是 **`on_select`**(选中) + **`on_text_change`**(键入)，且有独立 **`text`** 字段存自由输入原文（比 tk 的 Combobox 更直接）。
+
+### Phase 1 — 剥离（最关键）：`controller.py` + `viewmodel.py`
+
+**用户硬性要求**：把 `gui.py` 的**控制逻辑与数据处理全部**剥离，剥完后 UI 层只剩「造控件 / 读控件 / 写控件 / 绑事件」。
+
+- **新增 `dispatcher/controller.py`（326 行，零 GUI 依赖）**——编排层。铁律：**绝不 import 任何 GUI 框架；只抛异常、只返回值、只回调；跨线程 marshal 由 UI 做**。
+  | 新增 | 来源（原 gui.py） |
+  | --- | --- |
+  | `AppState`(dat_path/scenery_map/aip_data/aip_index/flown_counts/volanta_auto/volanta_meta) | 原散落在 `self.*` 上的 7 个字段 |
+  | `NavDataMissing` 异常 + `NAVDATA_HELP`/`NAVDATA_LOG` 文案 | `_init_worker` 里的 `_post(self._on_navdata_missing)` 分支 |
+  | `LogSink`(file-like，`emit` 由 UI 提供并负责 marshal) | `_TkTextWriter`（原类直接调 `root.after`，与 tk 绑死） |
+  | `init_app()` | `_init_worker` 主体（314–350） |
+  | `plan(state, fields)` → `(FlightPlan, proc)` | `_plan_worker` 主体（405–506） |
+  | `compute_proc(...)` | `_compute_proc`（513–560，逐字搬） |
+  | `volanta_sync(cancel_evt, on_status, on_popup)` → `'synced'/'cancelled'/'timeout'/'error:…'` | `_volanta_worker` 的 300s 轮询 + 两个弹窗时机 |
+  | `reload_volanta(state)` / `set_auto_sync(on)` | `_volanta_synced` / `_on_auto_toggle` 的数据部分 |
+
+- **新增 `dispatcher/viewmodel.py`（约 1,050 行，零 GUI 依赖）**——**每个界面 = 一个纯数据 Model**，两套 UI 共用 → 行为天然一致，且**首次可 headless 单测**。
+  | Model / 函数 | 取代的 gui.py 代码 |
+  | --- | --- |
+  | **`result_spans(plan)` → `[Span(text, style, action)]`** | `_render_plan`(581–708) 的 20 个 `tag_configure` + `tag_bind` + `_map_tags` 簿记。**这是结果卡在两套 UI 下逐字一致的关键** |
+  | **`map_model(coords,title)`** → 折线 / 三档 marker / bounds / **center+zoom**；`plan_maps(plan)`；`map_tab_label(i,title)`；`_fit_zoom(bounds)` | `_open_map`(1195–1233) 的分档 + bounds 计算 |
+  | **`ProcPanelModel`** — F20/F21/F24 面板的整套状态机（AIP 候选 / 跑道 / SID·STAR / 天气 / EOBT / 运行规则预选） | `_fill_rwy`/`_fill_proc`/`_on_rwy_selected`/`_on_proc_changed`/`_apply_ops_rules`/`_apply_ops_side`/`_populate_proc` 的**全部**判断 |
+  | **`OpsEditorModel`**（含 `MultiSelectModel`） — F23 编辑器整套状态机 | `_ops_*` 20 个方法里的**全部**数据操作（载入/切机场/增删改/复制/重排/脏标记/静默提交/保存/多机场隔离） |
+  | **`AipTableModel`** — F21 表模型 + 严格模式判定 | `_open_aip_popup` 里的 `_draw`/`_recompute` |
+  | `AircraftModel`（filter/resolve） | `_on_aircraft_type` + `_resolve_aircraft` + `_ac_rows`/`_ac_labels`/`_ac_label_to_id` |
+  | `form_to_rule(FormData)` / `rule_to_form(rule)` / `ops_row_values` / `move_rule` / `blank_rule` / `ValidationError` | `_ops_form_to_rule`/`_ops_rule_to_form`/`_ops_row_values`/`_ops_move_rule`（**去掉全部 `tk.StringVar`**，改纯 dataclass；校验失败改抛异常而非弹窗+返回 None） |
+  | `wind_desc` / `wx_text` / `runway_items` / `filter_labels` / `eobt_jst_min`/`eobt_utc_min`/`eobt_zulu_text` / `aip_label` / `proc_notes` | 同名私有方法，逐字搬（本就是纯函数） |
+  | `enabled_controls(...)` → `{form, plan, ops_editor, scenery_only, volanta, volanta_cancel}` | `_set_controls_state`(280–308) 的启停规则（规则是数据，映射到具体控件留 UI） |
+  | `volanta_status_text` / `init_status_text` | `_apply_volanta` / `_on_init_done` 的文案拼装 |
+
+- **修改 `dispatcher/gui.py`（1,925 → 1,186 行，−38%）**——改成**纯渲染层**：现在只 `import tkinter` + `controller` + `viewmodel`，**不再直接 import/调用任何逻辑模块**（grep 验证）。`_render_spans(spans)` 把 span 画成 Tk tag（`map` 动作仍造动态 tag，因 tk 的 `tag_bind` 需要）。
+- **修改 `flight_dispatcher.py`**：迁移期临时双前端 —— 默认 `run_flet()`，`--ui=tk` 起基准版对比（Phase 7 删）。
+
+**验收（三道门全过）**：
+1. **黄金基准零差异** —— 上一轮会话的 smoke 脚本随临时目录清掉了，故改用更强的办法：**先用未改的 tk 版**跑出 21 组快照（结果卡全文 / 跑道下拉+选中 / SID·STAR / 天气块 / 🎯运行规则标注 / 提示 / 摘要 / 含 `deph·depm` 的 SimBrief URL / 机型过滤 / 多 AIP 切换 / 开关开关 / 手动改跑道级联），重构后再跑一遍**逐字 diff → 零差异**。（`scratchpad/oracle.py`，兼容新旧两套 API。）
+2. **零 GUI 冒烟全绿**（`scratchpad/smoke_viewmodel.py`，14 组）：深夜南风→16L 不选顺风超限的 34、关开关回落按风默认、多机场隔离、过滤时隐藏的已选项不丢、`crosswind` 往返、7 天全勾规整为空、静默提交遇非法表单不写脏数据……
+3. **17 个逻辑模块零编辑**（`git status` 确认只有 `gui.py` 有改动）。
+
+### Phase 2 — Flet 骨架 `dispatcher/ui_flet/`
+
+| 新增文件 | 职责 |
+| --- | --- |
+| **`shell.py`** | **唯一允许碰 `page` 的模块**。`page.update()` **非线程安全**（`patch_control()` 直接 `send_message`，无锁、无 `call_soon_threadsafe`）→ 跨线程 marshal 是**强制**的。`run_bg(fn)` = `page.run_thread`；**`post(fn)` = `page.run_task(coro)`**（内部 `run_coroutine_threadsafe`）——这才是 `root.after(0,…)` 的真正对应物。**铁律：`update()` 只许出现在 `post` 内或事件处理器内，绝不许出现在 `run_bg` 目标里。** stdout 桥：加锁入 buffer + 只调度一次 flush → **一批一个 patch**；带 **thread-local 重入守卫**（flet 自身 logging 写 stderr，而 stderr 已被我们接管，否则 `post→update→log→post` 死循环） |
+| **`theme.py`** | `Span.style`（语义名）→ `ft.TextStyle`。沿用 tk 的语义色，但选**中间调**(`*_600/700`)——浅色/深色底都读得清，无需按主题切两套表。**等宽字体只给航路串/METAR/呼号/日志**，其余走系统 UI 字体（修掉 tk 版满屏 Consolas 的廉价感） |
+| **`result_view.py`** | span → `ft.TextSpan(on_click=闭包)`。**tk 那套动态 tag + `tag_bind` + `_map_tags` 簿记整个省掉** |
+| **`form_view.py`** | Material 浮动标签 `TextField` → **省掉 tk 版一整列独立 Label**，左栏更紧凑；长文案进 `tooltip`（Checkbox 标签不换行）。机型用 `Dropdown(editable, enable_filter)`，取值 `dd.text or dd.value` 交 `AircraftModel.resolve` |
+| **`log_view.py`** | `ft.ListView(auto_scroll=True)`，400 条上限 |
+| **`app.py`** | 组装 + 把 controller 的后台任务接到 Shell 的 marshal 点。**自测钩子** `DISPATCHER_SELFTEST="RJTT>RJOO"`：初始化完自动跑一次规划 —— 这是 headless 冒烟看不见的那层（「控件构造得出、但 Flutter 端渲染抛错」） |
+
+**验收**：`scratchpad/smoke_flet_render.py` —— 控件是纯 dataclass，可脱离 session 构造后遍历断言。**核心门：Flet 结果卡的文字与 tk 黄金基准逐字相同**（字节级相等，因文案与语义样式全在 `result_spans` 里定死）。真客户端 RJTT→RJOO 自动规划通过。
+
+### Phase 3 — 地图 `ui_flet/map_view.py`
+
+- 吃 `viewmodel.map_model()`；**marker 直接用任意 Flet 控件画**（圆点 `Container` + 航点名 `Text`）→ **`Pillow` 与 `tkintermapview` 双双出局**（tk 版要用 PIL 现生成位图）。
+- 瓦片：**CartoDB**（Phase 0 定；`voyager` 浅色 / `dark_all` 深色，**跟随深色模式**）。署名 `© OpenStreetMap contributors · © CARTO`。
+- **⚠️ 唯一功能倒退（永久）**：Flet **无多窗口** → tk 版「一条航路开一个窗口、可并排比对」做不到。改为**同一地图视图里的标签页**（N 条航路一键切换）。标签页标签用 `map_tab_label` 生成 **`[1] OPPAR` / `[3] BRUCE`** —— 光看 `RJTT→RJCC` 四条全一样，分不清哪条。
+- **相机自己算（`viewmodel._fit_zoom`）**，不用 flutter_map 的 `CameraFit`：后者要等控件量到尺寸才准，构造期给不出可靠值。`_fit_zoom` 是纯函数（Web-Mercator，含 `1/cos(lat)` 墨卡托纬度拉伸修正），可单测 → 冒烟直接断言「可见跨度必须装得下整条航路，且留 1.1–2.2× 余量」。
+- **📌 排查留底（避免后人重走）**：一度以为相机是坏的（起飞机场被挤出视野），实为**截图脚本的假象**——用 `SetWindowPos` 按**物理像素**改窗口尺寸，而 Flutter 按**逻辑像素**排版，等于自己把视口搞乱了。用 `Map.on_event` 打印相机**实测** center/zoom 做隔离实验（裸 Map vs Tabs 内 Map），两边都精确等于设定值 → 证明 flet_map 无问题。**结论：验证 Flutter 界面时不要用 SetWindowPos 改尺寸。**
+- **🐛 marker 锚点漂移（用户 2026-07-11 验收时发现，已修）**：所有航点圆点**统一浮在航路折线上方约 35px**——均匀偏移，所以不是坐标算错（坐标错会杂乱无章），是锚点问题。根因：`Marker.coordinates` 是**整个 marker 盒子的中心**（`marker_layer.py` 原话：*"This will be the center of the marker, if alignment is CENTER"*），而当初给了 **`alignment=TOP_CENTER`**——那是把整个盒子挪到坐标点的**上方**，于是圆点飘了约一个盒高。**修法不是简单换回 `CENTER`**（那样「圆点在上、名称在下」这一列整体居中，圆点仍会高出半个文字高）：要让**圆点自己**落在盒子正中 → 内容排成 `Column([与名称等高的占位, 圆点, 名称])`、`height = 2×_LBL_H + 圆点直径`、`alignment=CENTER`，上下对称 ⇒ 圆点中心 = 盒子中心 = 坐标点。冒烟里对三档 marker 都钉死了「圆点中心 y == 盒子中心 y（偏 0px）」。
+
+### Phase 4 — 进离场面板 `ui_flet/proc_view.py`（硬骨头 1）
+
+约 210 行、**零业务逻辑**——整套状态机（跑道排序、风分量、天气块、运行规则匹配、SimBrief route 拼装）在 Phase 1 已剥进 `viewmodel.ProcPanelModel` 并 headless 单测过；这里只做「画下拉 / 收点选 / 画标注」。
+
+- **三段式版面（用户 2026-07-11 定：两个面板都要可滚动）**：头部（EOBT + 运行规则开关 + AIP 航路）与底栏（摘要 + 「🗺️ 预览完整航路」「🛩️ SimBrief」两个动作入口）**固定**，中间出发/到达两块**内部可滚动**；结果卡同样内部可滚动。
+  **为什么**：各人显示器分辨率不同，靠「缩字号 + 调高度比例」硬塞进窗口的做法换台机器就崩。能滚 → 内容永不被吃掉、字号也不必迁就（天气字号遂改回 11）。头尾不进滚动区 → 常驻控件与动作入口不被内容顶出视野。960×700 小窗实测降级正常。
+- **三个 Flet 布局坑（都实测踩过）**：
+  1. **`ft.Card` 会按内容的固有宽度撑开、不受父级约束** → 里头一放 `expand` 的下拉行就把卡片顶出栏外、横向溢出窗口。改用 `ft.Container`（`theme.panel()`），它老实遵守父级约束。
+  2. **`ft.Column` 默认 `horizontal_alignment=START`**，子控件取自身内容宽度而非拉满 → 右栏两个面板宽度不一致。须显式 `CrossAxisAlignment.STRETCH`。
+  3. **`ft.Column(scroll=AUTO)` 在内容更新后会把滚动位置跳到底部**（实测规划完直接停在「到达」侧，出发块被顶出视野）→ 滚动区改用 **`ft.ListView(auto_scroll=False)`**，它老实停在顶部。
+  另：Material 的**浮动标签会浮到控件上沿之外**，控件贴滚动区顶边会被裁掉 → 头部控件不放进滚动区、容器顶部留足 padding。
+- **重入守卫 `_syncing`**：Flet 的 `on_change` 对**程序化赋值**同样触发（同 tk 的 `trace`），不挡住就「model→控件→on_change→model」无限套娃。
+- **option key 用稳定值**（跑道用 `RW34L`、AIP 候选用下标）而非显示串 → **干掉 tk 那套 `_dep_rwy_map` 「显示串→item」字典 hack**。SID/STAR 的可搜索是 Flet 原生 `editable + enable_filter`，不用像 tk 那样手写 `KeyRelease` 过滤。
+- **📌 排查留底（第二次被 DPI 骗）**：连续三轮以为**面板横向溢出**，改了 `STRETCH`、换掉 `Card`……实为**截图脚本又在骗人**：PowerShell 不是 DPI-aware，`Screen.Bounds` 报虚拟化尺寸（1707×1067），但 `CopyFromScreen` 抓的是物理像素（真实屏 2560×1600 @150%）→ 按 `Screen.Bounds` 建 bitmap 会把窗口右边 63px 裁掉。**正解：按 `GetWindowRect × DPI缩放比` 算出物理矩形来抓。**（不过这轮仍有真收获——坑 1、坑 2 是真的。）
+- 验证：`scratchpad/smoke_flet_proc.py`（真 NavData + 真羽田 52 条规则，8 组）——深夜南风选 16L 不选顺风超限的 34R、开关关回落按风默认、改 EOBT 按新时段重选、手动改跑道级联 SID、多 AIP 切换、SimBrief `deph/depm`、链接回调、重入守卫。真客户端 RJTT→RJOO 实测：EOBT 2328→SimBrief 1428Z、`05 · 2501m · 顺风9节 侧风8节 ✓`、**🎯 RJTT 运行规则：北风（离场，05）→ RW05 / SID LAXAS4**。
+
+### Phase 5 — F21 多 AIP 航路确认弹窗 `ui_flet/aip_dialog.py`
+
+约 100 行。tk 是 `Toplevel` + `Treeview` + 行首 ☐/☑ 手写单选；Flet 用 **`AlertDialog(modal=True)` + `DataTable`**（判定行走 `DataRow.color` 语义底色，行点击走 `on_select_change`）。判定与选取全在 `viewmodel.AipTableModel`。
+
+- **两个版面修正**：① **航路串定宽 340 + 省略号 + tooltip**——AIP 航路串有几十个航点，不截断会把「距离 / 判定」两列顶出弹窗，而**判定正是严格模式的核心**；② **`RadioGroup` 的内层 `Row` 会撑满宽度**，把后面的「巡航高度」挤到下一行 → 给它定宽。
+- **EOBT 用进离场面板的值预填**（默认当前 JST），用户不必重敲。
+- **API 勘误**：`DataRow` 的事件是 **`on_select_change`**（不是 `on_select_changed`）。
+- 验证：`scratchpad/smoke_flet_aip.py`（用 `FakePage` 脱离 session 构造控件树后遍历断言，22 组）——非严格纯罗列 + 手动勾选、严格模式自动定唯一（0500 JST + FL230 → 唯一命中 idx 1）、✓可用/✗不符/？待定 三态与绿底、**缺参考值时不硬选**（提示补齐或手动勾）、严格模式下仍可手动改选、越界夹紧。真客户端 RJTT→RJCC（4 条 AIP）+ 勾严格：EOBT 0821 预填 → 夜间两条判 ✗不符、日间两条判 ？待定（需巡航高度才能在 `FL250+`/`FL240-` 间定唯一）——**时间可靠→自动筛、机型/高度是脏自由文本→按用户给的参考值判属、绝不凭脏列硬选**，行为与设计一致。
+
+### Phase 6 — F23 运行规则编辑器 `ui_flet/ops_view.py`（硬骨头 2）
+
+约 330 行、**零业务逻辑**——整套状态机（载入 / 切机场 / 增删改 / 复制 / 重排 / 脏标记 / 静默提交 / 保存 / 多机场隔离）在 Phase 1 已剥进 `viewmodel.OpsEditorModel` 并 headless 单测过。tk 的 `Toplevel` → Flet 的 **pushed `ft.View`**（无多窗口）。**三处比 tk 版更好**：
+
+| tk 版 | Flet 版 |
+| --- | --- |
+| `Treeview` + 手写 `identify_row` 命中测试做拖拽 | **原生 `ft.ReorderableListView`**（真拖拽手柄） |
+| 5 个 `Listbox(selectmode="multiple")` 模拟「点击即切换」+ 手写 `KeyRelease` 过滤 | **`ft.Checkbox` 列表 + 过滤框**（Checkbox 本就是诚实的点击即切换）；背后仍是 `MultiSelectModel`，「过滤时隐藏的已选项不丢」白送 |
+| 阻塞式 `messagebox.askyesnocancel` 做未保存守卫 | Flet 对话框**不阻塞** → 改**回调式三选一**（保存并关闭 / 直接关闭 / 取消）；系统返回手势也走同一守卫 |
+
+- **⚠️ 计划里那条 `ReorderableListView` 告警是错的（已核实推翻）**：计划写「下拖时 `new_index` 在移除前坐标系 → 须 `if new > old: new -= 1`」。查 flet **v0.85.3 的 Dart 源**（`packages/flet/lib/src/controls/reorderable_list_view.dart`）：`onReorder` 里 **`if (oldIndex < newIndex) newIndex -= 1;` 就在 `triggerEvent` 之前执行**，即**Flet 侧已经归一化**，Python 收到的 `new_index` 就是落位后的最终下标 → 直接 `pop/insert`（`VM.move_rule`）。**照计划再减 1 反而每次下拖都错一位**。（但另一半是对的：它**不会**替我们重排 `controls`，拖完仍要按 Model 的新顺序重建行。另注：`on_reorder_end` 的 `new_index` **未**归一化，别拿它做列表变更。）
+- **两个 Flet 版面坑**：① **不定宽的 `Checkbox` 放进 `wrap=True` 的 `Row` 里会各占一整行**——七个星期竖成一列，白吃 400+px 高度，把下面的跑道/程序多选区顶出视野 → 给 `width` 才横排。② 多选列表高度按**整行数**给（`rows × _ROW_H`），否则底部永远切着半个勾选框，看着像渲染坏了。
+- **pushed `ft.View` 显式给 `bgcolor`**（别指望默认底色）+ `horizontal_alignment=STRETCH`（同 Phase 4 的 Column 坑）。
+- **📌 排查留底（第三次被 DPI 骗，但这次抓到了真凶）**：截图边缘总漏出「底下主界面的残字」，疑似 pushed View 透明。实为**截图把窗口的不可见 resize 边框也框进去了**，抓到了窗口背后的桌面。查证方式：`GetWindowRect` 对**非 DPI-aware 的 PowerShell 返回的是虚拟化（逻辑）坐标**（需 ×1.5），而 **`DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS=9)` 返回真实物理坐标且不含不可见边框**；两者一比：`GetWindowRect×1.5` = 1860 宽，DWM 真实可见宽 = 1842 —— 差的 18px 正是 Win11 的隐形边框。**结论：截 Flutter 窗口一律用 DWM 扩展边界，不要 `GetWindowRect`，更不要 `Screen.Bounds`。**
+- 验证：`scratchpad/smoke_flet_ops.py`（**存盘路径重定向到临时副本**——仓库里的 `operation.json` 是追踪中的羽田 52 条规则，绝不能被测试覆盖；60+ 断言）——载入 RJTT 四类候选非空 / IAP 显示合成名存回 ident、选中回填（含 Checkbox 勾选态）、增改（时段/星期/风/天气结构正确）、**侧风↔crosswind 往返**、复制深拷贝独立、**拖拽含下拖（断言「若错减 1 会停在 1」）**、模糊搜索**过滤时隐藏的已选项不丢**、点 Checkbox 即切换、**多机场隔离**（RJTT↔RJCC 互不覆盖）、保存读回一致、删除确认、未保存守卫三选一、无 CIFP 小场与未载入机场的降级。真客户端载入 RJTT：52 条真规则全部渲染、拖拽手柄正常、「北风（离场，05）」选中后离场跑道 05 正确勾上。
+
+### Phase 7 — 全量切换：**删除 tkinter**
+
+**不可逆的一步**（用户已备份 v1.6.0 且有 git 回退点）。
+
+- **删除**：`dispatcher/gui.py`（1186 行 tk 渲染层）、`flight_dispatcher.spec`（PyInstaller 生成物，本就未入库）。随之出局的还有 **`tkintermapview` + `Pillow`**（v1.4.0 引入的仅有两个第三方依赖，只有 gui.py 用；Flet 的 marker 可以直接用任意控件画，不必再生成位图）以及 `_enable_hidpi`（Flutter 原生 DPI 感知）。**全仓 `import tkinter|tkintermapview|PIL` 残留 = 0 处。**
+- **入口薄壳**只剩 `from dispatcher.ui_flet import run_flet` —— 迁移期的 `--ui=tk` 开关一并移除。
+- **`viewmodel.result_spans` 的黄金基准仍在**：`scratchpad/oracle_before.json`（Phase 1 从**未改动的 tk 版**导出的 21 份行为快照）是**冻结产物**，`smoke_flet_render.py` 仍逐字对拍它。gui.py 删了，但它作为「正确性基准」留下的证据还在。
+- **Volanta + 生命周期接线**（`scratchpad/smoke_flet_life.py`，40+ 断言，不联网/不开浏览器）：stdout 桥在任何业务调用**之前**装好（`--noconsole` 下 `sys.stdout is None`，否则 `print()` 直接崩）、初始化排后台不阻塞 UI、同步中锁住规划按钮且按钮变「取消同步」、进度回调经 marshal 点回写、引导弹窗、**成功/取消/超时/出错四条路径都解锁**（不会卡死在「同步中」）、同步中再点 = 置取消位、自动同步偏好读写、视图栈（地图/编辑器 push-pop，**栈顶是编辑器且有未保存改动时系统返回手势也走守卫**）、缺导航数据优雅降级、关窗置取消位 + 复原 stdout/stderr。
+- **📌 两个测试自身的坑（留底，都不是程序的问题）**：① `Shell.post` 调的是 **`page.run_task(协程函数, *args)`**（Flet 真签名），不是传协程对象——FakePage 若按协程对象写就会 `AttributeError`，**而 `post` 的 `except Exception: pass` 会把它静默吞掉**（那个吞是给「窗口已关但回调还在飞」兜底的，保留）；② 被测程序会接管 `sys.stdout`/`sys.stderr`，**测试自己的 print 与未捕获异常的回溯都会被灌进日志控件、屏幕上什么都看不到** → 测试须留住真 stdout 并钉回 `sys.excepthook`。
+- 真客户端全流程复验（RJTT→RJOO）：AIP 航路 + 航路长 + 地图链接、Volanta 已飞标记、METAR/TAF、跑道风分量与适航、**🎯 运行规则预选 RW05 / SID LAXAS4**、SimBrief 链接、日志桥——删 tk 后一切正常。
+
+### 用户验收反馈（2026-07-11）
+
+1. **地图 marker 漂移** → 见 Phase 3 的 🐛 条（`Marker.coordinates` 是盒子中心，`TOP_CENTER` 用错了）。
+2. **界面字体不统一 / 中日文发虚**：不指定 `font_family` 时 Flutter 自己挑 CJK 回退字体，各处字重字形不一致。→ `theme.apply_theme` 显式指定 **`Microsoft YaHei UI`（微软雅黑）**：Windows 自带（Vista 起），**无需随程序打包字体**，中文 + 日文假名/汉字全覆盖（界面里有「南風運用・深夜早朝」这类日文）；非 Windows 上取不到会自动回退，不崩。等宽的 `Consolas`（航路串 / METAR / 呼号 / 日志）不受影响——那些 `TextStyle` 自带 `font_family`，优先级高于主题。
+   顺带把编辑器里的**全角 `＋` / `－`** 换成 Material 图标（`Icons.ADD` / `CONTENT_COPY` / `DELETE_OUTLINE`）——那两个全角符号在任何 UI 字体下都渲染得很难看，正是用户截图里最扎眼的地方。
+   *（跨平台 + 多语言那一轮要换成打包的 Noto Sans SC/JP：系统字体名不可移植，且**汉字统一**使得中日必须用不同字形的语言变体——「一个字体走天下」原理上不成立。已记入项目 memory。）*
+3. **地图航点名不够醒目**：深色瓦片颜色很杂，纯文字无论什么颜色都会被底图吃掉（原来的 `BLUE_800` / `BLUE_GREY_400` 小字几乎读不出）。→ `_label()` 把航点名做成**药丸底衬**：不透明底 + 加粗 + 边框（`bgcolor` 黑 72% / 白 88% 随深浅主题切，文字白 / 近黑），三档层级改由**边框宽度**承载（起降机场 2px 红 / 换路点 1px 蓝 / 加密点不描边）+ 圆点直径 + 字号。⚠️ 药丸**只加左右 padding、高度恒为 `_LBL_H`**，否则会破坏上面那条居中算法（冒烟里的「圆点中心 == 盒子中心」会立刻报警）。
+4. **地图两项增强（用户提）**：
+   - **每腿标注航路名**（`viewmodel.route_legs` + `map_view._leg_marker`）：航路名（`Y56`…）、SID/STAR 程序名、直飞 `DCT`，琥珀色药丸压在该腿折线中点上（与白色的航点名一眼分得开）。
+     **不动逻辑层就能拿到这个信息**：`router._parse_aip_route` 其实算过每段的 airway 名，但 `route_geometry` 只返回坐标、把名字丢了。改 `router.py` 是逻辑层（零编辑铁律），所以改为**在 viewmodel 里从「坐标序列 + 航路串」反推**——航路串里能在坐标里找到同名航点的 token = 换路点，其余 token = 名称；两个换路点之间的所有坐标（沿 airway 加密出来的中间点）同属一条腿，共用它前面那个名称，没有名称就是 `DCT`。**这套规则对 SID/STAR 自动成立**：程序的航点不在航路串里（串里只有程序名），于是整段落进程序名那一腿——离场是首腿、进场是末腿。为此 `ProcPanelModel.preview_coords` 的标题改成带 SID/STAR 名的 `route_str()`（原来只给 enroute 串，进离场两腿会被标成 DCT）。
+   - **两个标注开关**（航点名称 / 航路名称，均默认开，在地图 AppBar 上）：航点密集时（加密中间点很多）标注会挤，可分别关掉。**⚠️ 只能改 `opacity`，绝不能 `visible=False`**：① `Marker.content` 不可见时 flet_map 直接抛 `ValueError`（源码写死）；② 藏掉航点名会让 marker 那一列少一格、圆点不再落在盒子正中 → **航点又会漂离航路**（正是第 1 条那个 bug 的复发路径）。`opacity=0` 保留布局，两个问题一起躲开；冒烟同时断言 `opacity==0` **且** `visible is True`。
+   - **API 勘误**：`Switch` 的字段是 **`label_text_style`**（`Checkbox` 那边叫 `label_style`——Flet 这俩不统一）。
+
+### Phase 8 — 打包发布 v2.0.0
+
+- **版本号** `dispatcher/__init__.py` → `2.0.0`。**主版本号跳 2** 不是因为功能变了（功能与 v1.6.0 逐字一致），而是因为**前端整个换掉**、**exe 体积 15MB→54MB**（内含 Flutter 预制客户端）、并有**一处永久功能倒退**（地图不能并排多开）。
+- **打包**：`flet pack flight_dispatcher.py -n flight_dispatcher -y --pyinstaller-build-args="--exclude-module=numpy" ...=scipy ...=tkinter ...=PIL`。⚠️ `flet` 的 CLI 在 Python 的 `Scripts/` 下，可能不在 shell 的 PATH 上（Git-Bash 里就找不到）——用全路径调。
+- **实测**：**onefile 54.2 MB · 冷启动 1.79s**（进程启动→窗口出现）。把 exe + `NavData/` + `aircrafts.json`/`airlines.json`/`transfer_points.json`/`operation.json` 摆成发布布局，**从 `C:\Windows` 作为工作目录启动**（cwd ≠ exe 目录，专验 `get_real_run_path()` 不被 `_MEIPASS`/cwd 带偏）→ 初始化完成、导航数据已读取、地景 62、AIP 1436。**发布包文件清单与 v1.x 完全一致**，用户解压即用。
+- **窗口归属**：冻结态的窗口属于 **`flet` 子进程**（Flutter 客户端），不是 `flight_dispatcher.exe` 本身——按进程名找窗口时别找错。
+- **文档**：`CLAUDE.md`（Overview / Commands / 三层架构 + 架构表 `gui.py` 行 → `controller`/`viewmodel`/`ui_flet` 三行）、`PRD.md`（F13 改述 + F25 转 ✅ + 三层架构 + §8.1 两条永久限制 + §8.3 版本历史）、`README.md`（版本号 / 更新日志 v2.0.0 / 技术说明 / **CARTO + OSM 地图署名**）。
+
+---
+
 ## v1.6.0(✅ 已实现 · 2026-07-10)— F24 运行规则应用引擎（operation.json 规划时预选跑道/SID/STAR/IAP）
 
 - **关联**：`PRD.md` §8.2 / 新功能 F24；设计与问答见计划文件 `~/.claude/plans/giggly-weaving-zephyr.md`。
