@@ -16,6 +16,52 @@
 
 ---
 
+## v2.0.0_alpha2 数据更新(✅ 2026-07-12)— VATJPN 移管点表升级到 **AIRAC 2607**
+
+用户提供了 VATJPN 刚更新的「空港別移管高度表」（Google Sheets，含 AIRAC 2601 / 2604 / **2607** 三个标签页）。
+全表**自动重建**（`scratchpad/vatjpn_parse.py` 抓取+网格展开 → `vatjpn_rebuild.py` 切门+推导 → `vatjpn_md.py` 回写 skill 文档）。
+
+### 解析上的两个坑（记下来，下次别再踩）
+1. **ICAO 列是 rowspan 合并的**，机场块内后续行少两格 → 必须按 HTML 表格语义展开成网格（处理 rowspan+colspan），不能按列表顺序硬数。
+2. **追加的到着径路是整行 colspan=4 的单元格**（占在「移管点等」列的位置），不是移管点。
+   RJNA 的 5 条到着径路 = 1 行机场行 + 4 行追加行；按 colspan 判别（展开后表现为 4 列同值）。
+
+### 切门规则（比旧版严谨）
+门 = 到着串里**最后一个航路名之后的那个点**（无航路名 → 首点）；其后的裸点 = 门后径路。
+
+| 到着串 | 门 | 门后径路 |
+| --- | --- | --- |
+| `…MBE Y121 SWING` | SWING | — |
+| `…KOHWA Y546 AGPUK MIRAI ABENO IKOMA` | AGPUK | MIRAI ABENO IKOMA |
+| `…KUE ESKAP KROMA ENBEN MZE`（无航路名） | KUE | ESKAP KROMA ENBEN MZE |
+| `…Y48 EVERT Y46 CANDY` | **CANDY** | — |
+
+最后一行是**旧数据的错**：旧版按「门名单查表、取首个命中」得到 EVERT + 门后径路 `[CANDY]`——
+但 CANDY 是**经航路 Y46 到达**的，它本身就是一个门，根本不是 DCT 直飞点。
+
+### AIRAC 2604 → 2607 的实质变更
+- **RJFM 新增进场门 `JINGU`**（`…Y451 HKC A1 JINGU MZE`）+ 2 条离场径路（`・SIIBA ABUMI TFE…` / `・MZE JINGU A1 HKC…`）
+- **RJOK 新增进场门 `POPPY`**（`…Y282 POPPY / …V53 POPPY`，限 South Bound）
+- **RJSS** 新增到着 `…R217 SDE (East Bound)`；离场程序改名 DERBY→SUTBA DERBY、STEED→BUNKO STEED
+- **ROAH** 新增到着 `…IGURU Y57 VELNO`
+- **RJTT** `…Y87 TOPIT Y875 AROSA` → `…TOPIT Y875 AROSA`（去掉 Y87）
+- **RJAA** 新增离场 `ENPAR Y16…`
+- RJFS / RJSN / RJOA：纯排版（换行、合并单元格、排序）
+
+### 顺带修正 / 澄清
+- **旧数据的 2 处 arr_dct 错误**：`RJBB/EVERT: [CANDY]` → 无（见上）；`RJFS/OLE: [MILEP,UGAMU,SGE]` → `[SGE]`
+  （旧版把「`…Y251 OLE SGE`」与「`…Y40 MILEP UGAMU SGE`」两条独立径路揉成了一条）。
+- **离场头补全**：RJCC `+TOBBY/DALBI`（旧版空着）、RJSS `+GTC/YTE/RIKYU`（旧版只有 SAMBO）、RJFM `+SIIBA/MZE`。
+- **7 个机场 VATJPN 表里是空行**（RJAN/RJDA/RJDB/RJFH/RJNF/RJOY/RORT——小场/非管制场，官方就没给移管点）→ **不录**，别造假数据。
+- **RJCJ / RJTL / RJTY 三场 VATJPN 从未覆盖**（军用场：千歳基地 / 下総 / 横田）——旧 md 里那些标着「多分」的条目是**人工推测**，
+  不是官方数据。予以保留（聊胜于无），但 json 里加 `_source` 字段明示出处，md 头部也注明。
+
+### 验证
+- 7 套冒烟 + 交接不变式 + 门↔STAR 逐跑道核对：**全绿**；**门↔STAR 配对 0 处变化**（AGPUK→IKOMAE、TATSU→TATSU、KUE→MELAR/KARAH、HABOH→HONOKE/HONOKK 全部保住）。
+- **200 对回归：0 条航路变化**。原因查实——**2607 新增的两个门，我们早就从 `routes.csv` 学到了**：
+  `arr_tails[RJOK]` 含 `POPPY:2`、`arr_tails[RJFM]` 含 `JINGU:1`。
+  即：**官方 AIP 航路一直在用这两个门，VATJPN 的移管表这次才补上** —— 两个独立数据源互为佐证，也说明端点学习那条链是可靠的。
+
 ## v2.0.0_alpha2(✅ 2026-07-12)— 航路生成 · 进离场衔接：一轮实飞验收挖出的连锁修复
 
 > **主线**：用户实飞测试报了 4 个 bug（RJAH 默认选错 STAR / RJTT→RJNA 走了怪航路 / RJNO→RJAA 落在非门点 / RJOA→RJTH 绕远）。
