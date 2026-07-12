@@ -207,8 +207,16 @@ class ProcView:
                 cb_rwy.options = [ft.DropdownOption(key=it["rwy"], text=it["disp"]) for it in items]
                 cb_rwy.value = m.sel_rwy[side]
                 cb_rwy.hint_text = None if items else "（无可选程序）"
-                cb_proc.options = [ft.DropdownOption(key=p, text=p) for p in m.proc_labels[side]]
+                labels = m.proc_labels[side]
+                cb_proc.options = [ft.DropdownOption(key=p, text=p) for p in labels]
                 cb_proc.value = m.sel_proc[side] or None
+                # ⚠️ 可搜索下拉（editable=True）的 `text` 是【独立于 value 的字段】——它存的是「输入框里显示的文字」。
+                #    控件是 __init__ 建一次、跨多次规划复用的，只写 value 不写 text，上一次规划的 SID/STAR 名会一直
+                #    挂在框里：实测规划到 RJFE（该场【根本没有 STAR】）时，STAR 框里赫然显示着上一条航线的 REMENW，
+                #    而 model 里 sel_proc 是空的（摘要行显示「/ —」）——纯粹的显示残留。故必须一并回写。
+                cb_proc.text = m.sel_proc[side] or None
+                cb_proc.hint_text = None if labels else ("（该机场无 SID）" if side == "dep"
+                                                         else "（该机场无 STAR）")
                 ops.value = m.ops_label[side]
                 ops.visible = bool(m.ops_label[side])
             self.hint.value = m.hint_text()

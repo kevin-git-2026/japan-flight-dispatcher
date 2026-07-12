@@ -229,6 +229,67 @@ def enumerate_approaches(icao, dat_path=None):
     return out
 
 
+def _connect_points(d, is_dep):
+    """一条程序与航路的【合法衔接点】→ `(过渡衔接点 {trans名: ident}, 裸程序衔接点 {ident…})`。
+
+    口径：**接航路的是过渡的端点**——离场(SID)接过渡【末点】(=TRANS)、进场(STAR)接过渡【首点】(=TRANS)；
+    裸程序则接过渡的**另一端**（本场交付点：雷达引导直接切进程序机体），无过渡时用 body 端点。
+
+    抽成函数是因为它是**唯一真源**：`matching_choices`（面板据以匹配）与 `star_connect_points`
+    （router 据以判断「航路该在哪儿收手交给程序」）必须用同一套判据。两边各写一份 = RJAH 那个 bug 的病根本身。"""
+    trans = {t: (tt if is_dep else tf) for t, (tf, tt) in d["trans"].items()}
+    if d["trans"]:
+        bare = {(tf if is_dep else tt) for tf, tt in d["trans"].values()}
+    else:
+        bare = set(d["body_term"] if is_dep else d["body_first"])
+    return trans, bare
+
+
+def star_connect_points(icao, dat_path=None):
+    """该机场 STAR 能与航路衔接的【全部点】ident 集合——「航路飞到这儿，剩下的交给 STAR」的那些点。
+    与 `matching_choices(kind='arr')` 判据**完全同源**（同一个 `_connect_points`），
+    故「enroute 收在这些点之一」⟺「面板一定能匹配到 STAR」，这个等价关系正是 router 需要的保证。
+
+    router 用它做**分支判断**：官方 AIP / VATJPN 移管表里那些直飞点列，到底是
+    ①【无 SID/STAR 时的真·直飞径路】（该照抄进 enroute，如 RJFM `KUE ESKAP KROMA ENBEN MZE`），还是
+    ②【有 STAR、只是把 transition 展开写成了点列】（不该抄进 enroute，那是程序的活，如 RJAH `TATSU NAKAH`
+       其实就是 STAR「TATSU」的机体 TATSU→NAKAH）。见 `router._arrival_tail_keys`。"""
+    out = set()
+    for d in enumerate_procedures(icao, dat_path)["STAR"].values():
+        t, b = _connect_points(d, False)
+        out |= set(t.values()) | b
+    return out
+
+
+_ORDER_NEAR_FIXES = 6      # 排序只看靠端点这一段航路（加密后的航点），够表达来向、又不会被航路远端带偏
+
+
+def _label_order(icao, route_fixes, conn, dat_path):
+    """回退列全部程序时的排序键：**按该程序的接入点离「航路靠本端的那一段」多近**由近及远（同距再按字母）。
+
+    为什么不能用字母序：面板默认选中的就是第一条（viewmodel `labels[0]`）。RJAH 有 GOT1 与 TATSU 两条 STAR，
+    字母序把**反方向**的 GOT1 排在前面 → 从关西飞来的航班默认套了个往北绕出去、再折回本场的进场。
+    为什么不是「离端点最近」：官方航路常收在**本场 VOR**（`… V18 HCE`、`… Y312 ODE`——AIP 表原文如此），
+    而本场 VOR 到各条 STAR 起点的距离并不编码来向；编码来向的是**航路本身**——落在来向航路上的接入点距离≈0。
+    端点未命中任何程序接入点时只能这样几何猜，是决策支持、不是替用户拍板（用户随时可改选）。
+    坐标解析不到 → 退回字母序。"""
+    near = [f for f in (route_fixes or [])[:_ORDER_NEAR_FIXES] if f]
+    pts = [p for p in (_resolve_fix(f, None, icao, dat_path) for f in near) if p]
+    if not conn or not pts:
+        return lambda lbl: (0.0, lbl)
+
+    def _dist(lbl):
+        best = float("inf")
+        for ident in conn.get(lbl) or ():
+            c = _resolve_fix(ident, None, icao, dat_path)
+            if c:
+                best = min(best, min(haversine_nm(p[0], p[1], c[0], c[1]) for p in pts))
+        return best
+
+    cache = {}
+    return lambda lbl: (cache.setdefault(lbl, _dist(lbl)), lbl)
+
+
 def matching_choices(icao, dat_path, route_fixes, kind):
     """按航路端点预筛该机场可用跑道 + SID.TRANS / STAR(.TRANS)。
     route_fixes: 朝端点方向的航点 ident 有序列表 —— 离场(kind='dep')传航路【正序】(首点在前)，
@@ -253,29 +314,29 @@ def matching_choices(icao, dat_path, route_fixes, kind):
     matched = False
     if endpoint:
         for name, d in procs.items():
-            labels = set()
-            for t, (tf, tt) in d["trans"].items():         # SID 接过渡末点 tt / STAR 接过渡首点 tf
-                if (tt if is_dep else tf) == endpoint:
-                    labels.add("%s.%s" % (name, t))
-            if not labels:                                 # 未命中过渡端 → 裸程序（本场交付点：过渡另一端；无过渡则 body 端点）
-                if d["trans"]:
-                    bare = {(tf if is_dep else tt) for tf, tt in d["trans"].values()}
-                else:
-                    bare = d["body_term"] if is_dep else d["body_first"]
-                if endpoint in bare:
-                    labels.add(name)
+            tconn, bconn = _connect_points(d, is_dep)      # ← 判据唯一真源（router 用的是同一个）
+            labels = {"%s.%s" % (name, t) for t, f in tconn.items() if f == endpoint}
+            if not labels and endpoint in bconn:           # 未命中过渡端 → 裸程序（本场交付点）
+                labels = {name}
             if labels:
                 matched = True
                 for rw in (d["runways"] or all_rw):
                     rw_labels.setdefault(rw, set()).update(labels)
 
+    conn = {}                                               # label -> 该标签的衔接点 idents（回退时按【离来向航路的远近】排序用）
     if not matched:                                         # 回退：列全部程序（所有 SID.TRANS / 裸名）
         for name, d in procs.items():
+            tconn, bconn = _connect_points(d, is_dep)
+            for t, f in tconn.items():
+                conn["%s.%s" % (name, t)] = {f}
+            if not tconn:
+                conn[name] = set(bconn)
             labels = {"%s.%s" % (name, t) for t in d["trans"]} or {name}
             for rw in (d["runways"] or all_rw):
                 rw_labels.setdefault(rw, set()).update(labels)
 
-    rows = [(rw, runway_length_ft(rw, runways), sorted(rw_labels[rw]))
+    order = _label_order(icao, route_fixes, conn, dat_path)  # 命中时=字母序（conn 空）；回退时=接入点离来向航路由近及远
+    rows = [(rw, runway_length_ft(rw, runways), sorted(rw_labels[rw], key=order))
             for rw in sorted(rw_labels, key=_rw_sort_key)]
     if not rows:                                            # 无任何 SID/STAR（很多机场无 STAR，靠 IAP/雷达引导进近）→
         rows = [(rw, runway_length_ft(rw, runways), [])     # 仍列物理跑道（标签空），让用户能选跑道，别因无程序就弃选

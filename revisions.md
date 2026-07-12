@@ -16,6 +16,87 @@
 
 ---
 
+## v2.0.0_alpha2(✅ 2026-07-12)— 航路生成 · 进离场衔接：一轮实飞验收挖出的连锁修复
+
+> **主线**：用户实飞测试报了 4 个 bug（RJAH 默认选错 STAR / RJTT→RJNA 走了怪航路 / RJNO→RJAA 落在非门点 / RJOA→RJTH 绕远）。
+> 顺着查下去，它们**是同一个病的四种表现**——我们把 VATJPN 移管表里的信息**只取了三分之一**（只抽了门名，丢掉了「来向」与「门后展开的 STAR」），
+> 于是 router 与面板对「STAR 从哪儿接管」各写了一套口径，必然打架。
+
+### 一、数据层：把 VATJPN 丢掉的两样补回来（`transfer_points.json` +`arr_gates`）
+
+VATJPN「到着」栏的一行 `…KOHWA Y546 AGPUK MIRAI ABENO IKOMA` 里其实有**三段信息**：
+
+| 段 | 含义 | 我们原来的处理 |
+| --- | --- | --- |
+| `KOHWA Y546` | **上游走廊 = 来向** | ❌ 丢弃 |
+| `AGPUK` | 移管点（enroute 交接点） | ✅ 只取了这个 |
+| `MIRAI ABENO IKOMA` | **被逐点展开的 STAR 机体** | ❌ 丢弃（还被当成「门后直飞点」硬拼进了 enroute） |
+
+**自动推导 + `routes.csv` 实证校验**（脚本 `derive_gates2.py`/`merge_gates.py`，56 机场 / 206 条径路）→ 新增
+`arr_gates: {门: [{via_fix, via_awy, dct, star, cond}, …]}`。
+
+**「门后展开点能否反查到 CIFP 的 STAR」正是【官方直飞径路】与【被展开的 STAR】的判据**（用户点破的关键）：
+
+- 反查得到 → 那是**程序**的活，不该进 enroute：`AGPUK MIRAI ABENO IKOMA` → STAR **IKOMAE**；`TATSU NAKAH` → STAR **TATSU**。
+- 反查不到 → **真·无程序直飞径路**，照抄进 enroute：RJFK `KUE ESLIL HIGOH KGE`（该场这些点上根本没有 STAR）。
+- 混合 → 先直飞、再接 STAR：RJFF `HABOH` 之后 `FUGEN OMUTA OSTEP` 是直飞，`HONOK` 起是 STAR（HONOKE/HONOKK）。
+
+统计：唯一 STAR **11** · 多义 **4**（同门多条，靠跑道再分）· 真直飞 **30**。
+`arr_dct` 一并在**数据层**修正（剔除混入的 STAR 机体点，7 个机场）——**修复搬回数据侧**，代码层截断只作兜底。
+
+### 二、口径统一：`procedures._connect_points` 成为唯一真源
+
+**病根**：router 的 `_cifp_endpoints` 把过渡**沿途每个点**都算进场点（宽），`matching_choices` 只认过渡**首点**（窄）。
+两套口径 → router 把 enroute 拼过了 STAR 的入口 → `matching_choices` 一条也匹配不上 → 回退「列出全部 STAR」→
+面板按 `labels[0]` 拍板 → **按字母序选中了反方向的 GOT1**（RJAH 实测；正解 TATSU）。
+
+- 抽出 `_connect_points(d, is_dep)` → `(过渡衔接点, 裸程序衔接点)`；`matching_choices` 与新的
+  `star_connect_points(icao)`（router 用）**同吃一份**。
+- **回归不变式**：69 机场 / 183 个衔接点，`star_connect_points` 里每一个都必须被 `matching_choices` 匹配到 → 全过。
+- 新增 `_label_order`：回退列全部程序时按**接入点离来向航路的远近**排序（`_ORDER_NEAR_FIXES`=6），**不再按字母序**。
+  自证：RJCC→RJOK 的航路本身穿过 POPPY → 默认选 POPPY 起点的 YOSAKN；RJFF→RJOK 从西边来 → YOSAKW。
+- `viewmodel._default_proc`：到达侧**优先用 VATJPN 的「门↔STAR 配对」**（`router.gate_stars`），没有配对才回退。
+  多义由跑道再分——RJFM/KUE 给 `[MELAR, KARAH]` → RW09 选 MELAR、RW27 选 KARAH；RJFF/HABOH → RW16 选 HONOKE、RW34 选 HONOKK。
+
+### 三、`router.py` 六处修复
+
+| # | 修复 | 病灶 |
+| --- | --- | --- |
+| 1 | **A\* 转弯代价**（状态 `key` → `(prev, key)`，`_TURN_FREE_DEG`=30 / `_TURN_NM_PER_DEG`=0.30） | 节点态 A\* 里**掉头是免费的** → RJOA→RJTH 100° 发夹弯 |
+| 2 | **`_enroute_entry` 两端判据反向**（离场看**出**边 / 进场看**入**边）+ `skip=_arr_dct_only` | 进场门常是航路**终端**（成田 RUTAS/SUPOK/LUBLA 出边=0）→ 旧代码整段跳过、退到上游过境点 **UTIBO**，**34 条官方航路用的 RUTAS 一条没学到**。修后 **79/79 机场**官方末点全部学到 |
+| 3 | **走廊守卫 `_min_seg_pop`** + 平滑器不再越权改航路名 | 拿在飞的走廊换从没人飞的平行航路 |
+| 4 | **`_prefer_star_handoff`**（`_STAR_HANDOFF_TOL`=1.20） | A\* 的代价含「落点→机场」直线段 → **本场 VOR**（代价≈0）结构性压过一切真进场门。RJNA 的 KCC 离场 **0.8 NM**，从任何方向来都赢——而 RJNA 的 5 条 STAR **没有一条从 KCC 起** |
+| 5 | **`_via_dir_ok`/`_via_anchors`/`_radj`**（`_VIA_DIR_TOL_DEG`=90 / `_VIA_DIR_MIN_NM`=100） | 按 VATJPN 的**官方上游走廊**筛门（门本身的位置**不编码来向**）。⚠️ 100 NM 航程门槛是实测逼出来的：32/47 NM 的航段全程在终端区，夹角 124°/92°，会**误剔官方门**并绕出锐角 |
+| 6 | **`_maybe_dct` 短程直飞降级**（`_DCT_MAX_NM`=250 / `_DCT_GIVEUP_RATIO`=1.5，**结果卡明确标注**） | 短程上端点候选**退化**：离场门把你往反方向拽、进场门却贴在出发机场旁边 → A\* 只能「先飞出去再飞回来」。RJDU→RJDO 大圆 **45 NM** 却飞 **174 NM**（+284%）；RJSR→RJCB 在 UWE **174° 掉头**。官方 AIP 对短途航段本就用直飞写法（61 条纯 DCT 行全是这类） |
+
+### 四、UI
+
+- `ui_flet/proc_view.py`：可搜索下拉（`editable=True`）的 **`text` 是独立于 `value` 的字段**，跨规划复用控件时不回写就会残留——
+  实测规划到 **RJFE（该场根本没有 STAR）**，STAR 框里赫然挂着上一条航线的 `REMENW`。`sync()` 一并回写 `text` + 「（该机场无 STAR）」提示。
+- warn 通道理顺：**router 出完整成句的提示**（①含大角度转弯 ②短程已降级为直飞），controller 只要有 warn 就上报，viewmodel 只负责画、不再拼后缀。
+
+### 五、验证
+
+- **7 套 headless 冒烟**全绿；两个新验证套件（交接不变式 69 机场/183 点、门↔STAR 逐跑道核对）全绿。
+- **200 对随机航路回归**（排除有直连 AIP 的）：
+
+| | 开工前 | 本轮后 |
+| --- | --- | --- |
+| 总距（较大圆） | 104901 NM (+8.0%) | **104281 NM (+7.4%)** |
+| 可疑航路（>100° 锐角） | 9 条 | **4 条** |
+| STAR 交接成功（有 STAR 的机场） | 54 | **84 / 99** |
+| 短程直飞降级 | — | 8 条（全部带标注） |
+
+### 六、已知残留（**未修，留底**）
+
+1. **4 条可疑航路**：`RODE→RJOW`(144°) / `RJDA→RJTF`(117°) / `RJBD→RJAK`(113°) / `RJER→RJTU`(100°)。
+   都是**无官方端点的军用/小场**：`_nearest_nodes` 的 `_MAX_ENTRY_NM`=120 偏大，会把 **100+ NM 外**的网点当「进场点」
+   （RJAK 取到 104 NM 外海上的 ELNIS、RJTF 取到 119 NM 外的 MORIZ）。
+   **收紧半径试过，是净亏**：修好 RJBD→RJAK / RJDA→RJTF 两条，却把 RJAN→RJKA(+160 NM) / RJOI→RJTA(+90 NM) 打坏，总距 +388 NM。
+   **根因在 A\* 的代价把「端点→机场」当直线 DCT 白算**（长直飞段不受罚）——单靠收半径治不了，要改代价函数。
+2. `_format_route` 的「覆盖最长航段优先」标名规则可能让**传统航路赢过 RNAV**（如 V28 赢 Y28，而官方 Y28 用 96 次、V28 只 23 次）。
+   当前被端点修复顺带绕开，但规则本身还在。可考虑加「官方实证过的航路」作更高优先级判据。
+
 ## v2.0.0_alpha1(✅ 2026-07-12)— F26 羽田实测运用状况（国土交通省 ntrack）
 
 **用户发现的数据源。** 日本国土交通省的「羽田空港飛行コースホームページ」(`ntrack.mlit.go.jp`) **全公开**羽田的实测运用状况——当前实际在用的**进近方式 + 落地跑道 + 离场跑道**，每 30 分钟一条、覆盖过去 72 小时。**这正是 F24 规则引擎费劲去【推断】的东西，而它是权威实测值** → 定为进离场预选的**首选依据**，规则引擎退为其余机场与回退路径。

@@ -14,7 +14,7 @@
 import copy
 import math
 
-from . import ntrack, operations, procedures, timed, weather
+from . import ntrack, operations, procedures, router, timed, weather
 from .aircraft import aircraft_choices
 from .planner import simbrief_url as _planner_simbrief_url
 
@@ -106,7 +106,8 @@ def result_spans(plan, has_map=True):
         _map_link(plan.gen_map)
         ins("  ⚠️ 起讫点取自 SID/STAR 衔接点、中间为 A* 连出的 enroute 航路；仅供参考，未含具体 SID/STAR 程序段。\n", "warn")
         if plan.generated_route_warn:
-            ins("  ⚠️ " + plan.generated_route_warn + "——存在大角度转弯，可能非最优/有问题，请自行检查斟酌。\n", "warn")
+            # router 出的是完整成句的提示（大角度转弯 / 短程降级为直飞），这里只负责画，不再拼后缀
+            ins("  ⚠️ " + plan.generated_route_warn + "\n", "warn")
 
     if (not dep.has_scenery_for(active)) or (not arr.has_scenery_for(active)):
         ins("  ⚠️ 地景提醒: [⚠️无…地景] = 未在所选模拟器的地景文件夹中检测到该机场插件地景\n", "warn")
@@ -601,7 +602,26 @@ class ProcPanelModel:
     def _fill_proc(self, side, item):
         labels = (item or {}).get("labels") or []
         self.proc_labels[side] = list(labels)
-        self.sel_proc[side] = labels[0] if labels else ""
+        self.sel_proc[side] = self._default_proc(side, labels)
+
+    def _default_proc(self, side, labels):
+        """默认选哪条程序。
+
+        到达侧优先用 **VATJPN 到着栏给的「门↔STAR 配对」**：官方把门后的 STAR 机体逐点展开写了出来
+        （`…AGPUK MIRAI ABENO IKOMA` = STAR「IKOMAE」；`…TATSU NAKAH` = STAR「TATSU」），
+        拿它反查即可**直接读出**该门配哪条 STAR——RJOO 的 AGPUK 上同时挂着 STAR「AGPUK」与「IKOMAE」，
+        端点匹配两条都给，只有官方配对分得清。
+        VATJPN 没给配对（没展开门后径路 / 该门无 STAR）→ 退回端点预筛的首个候选
+        （其排序已由 procedures._label_order 按来向排过，不是字母序）。"""
+        if not labels:
+            return ""
+        if side == "arr" and self.candidates:
+            gate = (self.candidates[self.sel_idx] or {}).get("arr_gate")
+            want = router.gate_stars(self._icao("arr"), gate) if gate else []
+            hit = [l for l in labels if l.split(".")[0] in want]
+            if hit:
+                return hit[0]
+        return labels[0]
 
     def _apply_ops(self):
         """v1.6.0：按 operation.json 运行规则预选跑道/SID·STAR（覆盖按风默认）。

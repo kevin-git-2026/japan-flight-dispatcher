@@ -1,852 +1,2766 @@
 {
- "RJCM": {
-  "region": "日高進入管制区",
-  "arr": [
-   "OZORA"
-  ],
-  "dep": [
-   "MENIB",
-   "OLDUS"
-  ]
- },
- "RJEC": {
-  "region": "日高進入管制区",
-  "arr": [
-   "AWE"
-  ],
-  "dep": [
-   "KAGRA"
-  ]
- },
- "RJCN": {
-  "region": "日高進入管制区",
-  "arr": [
-   "MASHU"
-  ],
-  "dep": []
- },
- "RJCK": {
-  "region": "日高進入管制区",
-  "arr": [
-   "CRANE"
-  ],
-  "dep": []
- },
- "RJCB": {
-  "region": "日高進入管制区",
-  "arr": [
-   "OBE"
-  ],
-  "dep": [
-   "RACKO"
-  ]
- },
- "RJCO": {
-  "region": "札幌進入管制区",
-  "arr": [
-   "RUMOI",
-   "KURIS",
-   "MOIWA"
-  ],
-  "dep": [
-   "RUMOI",
-   "KURIS",
-   "MOIWA",
-   "SPE"
-  ],
-  "arr_dct": {
-   "RUMOI": [
-    "SPE"
-   ]
-  }
- },
- "RJCJ": {
-  "region": "千歳進入管制区",
-  "arr": [
-   "NAVER"
-  ],
-  "dep": []
- },
- "RJCC": {
-  "region": "千歳進入管制区",
-  "arr": [
-   "CHE",
-   "NAVER"
-  ],
-  "dep": []
- },
- "RJCH": {
-  "region": "白神進入管制区",
-  "arr": [
-   "UPLOK",
-   "TAXIR",
-   "HWE"
-  ],
-  "dep": [
-   "HWE"
-  ]
- },
- "RJSA": {
-  "region": "白神進入管制区",
-  "arr": [
-   "BYOBU",
-   "MRE"
-  ],
-  "dep": [
-   "OHMAR",
-   "UWE",
-   "GONOU"
-  ]
- },
- "RJSR": {
-  "region": "白神進入管制区",
-  "arr": [
-   "ODE",
-   "UWE"
-  ],
-  "dep": [],
-  "arr_dct": {
-   "UWE": [
-    "BONJI",
-    "ODE"
-   ]
-  }
- },
- "RJSK": {
-  "region": "白神進入管制区",
-  "arr": [
-   "MAGGY",
-   "CHOKA",
-   "YAYOI"
-  ],
-  "dep": []
- },
- "RJSI": {
-  "region": "白神進入管制区",
-  "arr": [
-   "ENBIM",
-   "SIOMO"
-  ],
-  "dep": [
-   "HANKA"
-  ]
- },
- "RJSM": {
-  "region": "三沢進入管制区",
-  "arr": [
-   "HWE",
-   "MIS"
-  ],
-  "dep": [
-   "JYONA",
-   "HPE"
-  ],
-  "arr_dct": {
-   "HWE": [
-    "OHMAR",
-    "MIS"
-   ]
-  }
- },
- "RJSS": {
-  "region": "仙台進入管制区",
-  "arr": [
-   "SDE",
-   "OWLET",
-   "LANCE"
-  ],
-  "dep": [
-   "SAMBO"
-  ]
- },
- "RJSN": {
-  "region": "新潟進入管制区",
-  "arr": [
-   "INAHO",
-   "GTC",
-   "MAGNA",
-   "TERAD"
-  ],
-  "dep": [
-   "KENSI",
-   "GTC",
-   "MOKBA",
-   "NAEBA",
-   "HAKBA"
-  ]
- },
- "RJAH": {
-  "region": "百里進入管制区",
-  "arr": [
-   "TATSU"
-  ],
-  "dep": [
-   "OGITU"
-  ],
-  "arr_dct": {
-   "TATSU": [
-    "NAKAH"
-   ]
-  }
- },
- "RJTT": {
-  "region": "東京進入管制区",
-  "arr": [
-   "GODIN",
-   "POLIX",
-   "AROSA",
-   "AKSEL",
-   "XAC",
-   "MESSE"
-  ],
-  "dep": [
-   "SPOON",
-   "BRUCE",
-   "INUBO",
-   "VAMOS",
-   "LAXAS",
-   "NINOX",
-   "GUSRO",
-   "LAYER",
-   "TIARA",
-   "BEKLA",
-   "OPPAR"
-  ]
- },
- "RJTL": {
-  "region": "東京進入管制区",
-  "arr": [
-   "HAGAR",
-   "MERED",
-   "TOSKO"
-  ],
-  "dep": [],
-  "arr_dct": {
-   "HAGAR": [
-    "KIDOR",
-    "ASEKI"
-   ],
-   "MERED": [
-    "KAMOG",
-    "OJT",
-    "TSUGA",
-    "SHT",
-    "TOHNE"
-   ],
-   "TOSKO": [
-    "OMIYA",
-    "SYE",
-    "TOHNE"
-   ]
-  }
- },
- "RJTO": {
-  "region": "東京進入管制区",
-  "arr": [
-   "XAC"
-  ],
-  "dep": [],
-  "arr_dct": {
-   "XAC": [
-    "OSE"
-   ]
-  }
- },
- "RJAA": {
-  "region": "東京進入管制区",
-  "arr": [
-   "SWAMP",
-   "SUPOK",
-   "LUBLA",
-   "RUTAS"
-  ],
-  "dep": [
-   "AGRIS",
-   "KIMIN",
-   "GULBO",
-   "BORLO",
-   "OLVAN",
-   "SAMUS",
-   "PIGOK",
-   "REDEK",
-   "ENPAR"
-  ]
- },
- "RJTY": {
-  "region": "横田進入管制空域",
-  "arr": [
-   "HAILY",
-   "KOSKA",
-   "SWING"
-  ],
-  "dep": [
-   "KOGAR",
-   "KOSKA",
-   "BUSYU"
-  ],
-  "arr_dct": {
-   "SWING": [
-    "ALPUS",
-    "BONTI",
-    "TOSKO"
-   ]
-  }
- },
- "RJNK": {
-  "region": "小松進入管制区",
-  "arr": [
-   "HIMMY",
-   "IMIZU",
-   "KMC",
-   "SONBU"
-  ],
-  "dep": [
-   "SUMVU",
-   "OHNNO",
-   "SONBU"
-  ]
- },
- "RJNA": {
-  "region": "中部進入管制区",
-  "arr": [
-   "SWING",
-   "KCC",
-   "SHIMA"
-  ],
-  "dep": []
- },
- "RJGG": {
-  "region": "中部進入管制区",
-  "arr": [
-   "SWING",
-   "SLIDE",
-   "OLTOM",
-   "CARDS",
-   "BIWWA",
-   "CHESS"
-  ],
-  "dep": [
-   "BOGON",
-   "MODEL",
-   "ESPAN",
-   "FTAMI"
-  ]
- },
- "RJBB": {
-  "region": "関西進入管制区",
-  "arr": [
-   "DUBKA",
-   "EVERT",
-   "CANDY",
-   "NIXOV",
-   "IGLEV",
-   "ATMUG"
-  ],
-  "dep": [
-   "NANKO",
-   "SOVRI",
-   "TOMOH",
-   "UPMIN",
-   "OMGOR",
-   "OBLUR",
-   "LINDA",
-   "MAIKO"
-  ],
-  "arr_dct": {
-   "EVERT": [
-    "CANDY"
-   ]
-  }
- },
- "RJBE": {
-  "region": "関西進入管制区",
-  "arr": [
-   "AVKUL",
-   "OMBIP",
-   "TRACY"
-  ],
-  "dep": [
-   "MUKRI",
-   "MAIKO"
-  ]
- },
- "RJOO": {
-  "region": "関西進入管制区",
-  "arr": [
-   "AGPUK",
-   "IZUMI",
-   "ROKKO"
-  ],
-  "dep": [
-   "PANAS",
-   "MINAC",
-   "ASUKA",
-   "TIGER"
-  ],
-  "arr_dct": {
-   "AGPUK": [
-    "MIRAI",
-    "ABENO",
-    "IKOMA"
-   ],
-   "ROKKO": [
-    "KAMEO",
-    "OTABE",
-    "ABENO",
-    "IKOMA"
-   ]
-  }
- },
- "RJOT": {
-  "region": "関西進入管制区",
-  "arr": [
-   "WIMPY",
-   "TAKMA",
-   "OYE"
-  ],
-  "dep": [
-   "OLIVE",
-   "WASYU",
-   "TAROH"
-  ],
-  "arr_dct": {
-   "TAKMA": [
-    "KTE"
-   ],
-   "OYE": [
-    "KTE"
-   ]
-  }
- },
- "RJOB": {
-  "region": "関西進入管制区",
-  "arr": [
-   "OYE",
-   "INOOK"
-  ],
-  "dep": [
-   "OYE",
-   "OLIVE",
-   "CHIZU",
-   "WASYU"
-  ],
-  "arr_dct": {
-   "INOOK": [
-    "OYE"
-   ]
-  }
- },
- "RJOK": {
-  "region": "関西進入管制区",
-  "arr": [
-   "PANCH",
-   "JAKAL",
-   "KRE",
-   "MYE"
-  ],
-  "dep": [
-   "MUROT",
-   "SUC",
-   "OMOGO",
-   "KRE"
-  ],
-  "arr_dct": {
-   "JAKAL": [
-    "PANCH",
-    "KRE"
-   ],
-   "MYE": [
-    "BOTAN",
-    "KABIL"
-   ]
-  }
- },
- "RJOS": {
-  "region": "徳島進入管制区",
-  "arr": [
-   "DATIS",
-   "TOSAR",
-   "TSC"
-  ],
-  "dep": [
-   "HONMA",
-   "TOSAR",
-   "KTE"
-  ]
- },
- "RJOH": {
-  "region": "美保進入管制区",
-  "arr": [
-   "RAKDA",
-   "KYOKA",
-   "XZE",
-   "PEPOS"
-  ],
-  "dep": [
-   "YAPPA",
-   "STAGE",
-   "MIHOU"
-  ],
-  "arr_dct": {
-   "KYOKA": [
-    "YGE"
-   ]
-  }
- },
- "RJOC": {
-  "region": "美保進入管制区",
-  "arr": [
-   "RAKDA",
-   "XZE"
-  ],
-  "dep": [
-   "TSUNO",
-   "MIHOU",
-   "CARPS"
-  ]
- },
- "RJOA": {
-  "region": "広島進入管制区",
-  "arr": [
-   "AMURO",
-   "SUNFL",
-   "OPERA",
-   "HGE"
-  ],
-  "dep": [
-   "BOLIG",
-   "KIJYY",
-   "MARCO",
-   "SINFO"
-  ],
-  "arr_dct": {
-   "SUNFL": [
-    "MISEN",
-    "HGE"
-   ],
-   "OPERA": [
-    "AKANA",
-    "MIYOS",
-    "HGE"
-   ]
-  }
- },
- "RJOI": {
-  "region": "岩国進入管制空域",
-  "arr": [
-   "MARCO",
-   "MYE"
-  ],
-  "dep": [
-   "MALTA",
-   "MYE"
-  ],
-  "arr_dct": {
-   "MARCO": [
-    "NEU"
-   ]
-  }
- },
- "RJOM": {
-  "region": "岩国進入管制空域",
-  "arr": [
-   "ITUKI",
-   "BAMBO",
-   "MYE",
-   "MARCO"
-  ],
-  "dep": [],
-  "arr_dct": {
-   "BAMBO": [
-    "KINOE",
-    "ITUKI",
-    "MYE"
-   ]
-  }
- },
- "RJDC": {
-  "region": "築城進入管制区",
-  "arr": [
-   "UBE"
-  ],
-  "dep": [
-   "KOHEI",
-   "FIATO",
-   "UBE"
-  ]
- },
- "RJFR": {
-  "region": "築城進入管制区",
-  "arr": [
-   "ASARI",
-   "SWE"
-  ],
-  "dep": [
-   "ONGHA",
-   "FIATO",
-   "KOHEI"
-  ]
- },
- "RJFF": {
-  "region": "福岡進入管制区",
-  "arr": [
-   "KIRIN",
-   "DGC",
-   "HABOH",
-   "ISKUP",
-   "ATSAG",
-   "IKE",
-   "SARUP"
-  ],
-  "dep": [
-   "DGC",
-   "ENGID",
-   "BUTUR",
-   "IPRIR",
-   "CARSE",
-   "YAMGA",
-   "SGE"
-  ],
-  "arr_dct": {
-   "HABOH": [
-    "FUGEN",
-    "OMUTA",
-    "OSTEP",
-    "HONOK"
-   ]
-  }
- },
- "RJFS": {
-  "region": "福岡進入管制区",
-  "arr": [
-   "MILEP",
-   "OLE"
-  ],
-  "dep": [
-   "SGE",
-   "OOITA"
-  ],
-  "arr_dct": {
-   "MILEP": [
-    "UGAMU",
-    "SGE"
-   ],
-   "OLE": [
-    "MILEP",
-    "UGAMU",
-    "SGE"
-   ]
-  }
- },
- "RJFT": {
-  "region": "福岡進入管制区",
-  "arr": [
-   "KAZMA",
-   "HINAG",
-   "KUE"
-  ],
-  "dep": [
-   "MYE",
-   "SALTY",
-   "SPIDE",
-   "DONAR",
-   "TFE",
-   "HKC",
-   "KUE"
-  ]
- },
- "RJFU": {
-  "region": "福岡進入管制区",
-  "arr": [
-   "OHGIE",
-   "OLE",
-   "HONDO"
-  ],
-  "dep": [
-   "AKNAG",
-   "DGC",
-   "OOITA",
-   "CARCO"
-  ],
-  "arr_dct": {
-   "HONDO": [
-    "OLE"
-   ]
-  }
- },
- "RJFO": {
-  "region": "大分進入管制区",
-  "arr": [
-   "YANAI",
-   "OOITA"
-  ],
-  "dep": [],
-  "arr_dct": {
-   "YANAI": [
-    "BAIEN",
-    "TFE"
-   ]
-  }
- },
- "RJFK": {
-  "region": "鹿児島進入管制区",
-  "arr": [
-   "KUE",
-   "HKC",
-   "SPICA",
-   "KINKO"
-  ],
-  "dep": [
-   "MIDAI",
-   "HKC",
-   "SASIK"
-  ],
-  "arr_dct": {
-   "KUE": [
-    "ESLIL",
-    "HIGOH",
-    "KGE"
-   ]
-  }
- },
- "RJFM": {
-  "region": "鹿児島進入管制区",
-  "arr": [
-   "TFE",
-   "RYUGU",
-   "JACKY",
-   "SASIK",
-   "KUE"
-  ],
-  "dep": [
-   "MADOG",
-   "JACKY",
-   "LALAG"
-  ],
-  "arr_dct": {
-   "TFE": [
-    "ABUMI",
-    "SIIBA",
-    "MZE"
-   ],
-   "JACKY": [
-    "MZE"
-   ],
-   "SASIK": [
-    "LALAG",
-    "MZE"
-   ],
-   "KUE": [
-    "ESKAP",
-    "KROMA",
-    "ENBEN",
-    "MZE"
-   ]
-  }
- },
- "ROAH": {
-  "region": "那覇進入管制区",
-  "arr": [
-   "IHEYA",
-   "NHC",
-   "VELNO",
-   "OLVAL"
-  ],
-  "dep": [
-   "ONC",
-   "AMAMI",
-   "GANJU",
-   "OLVAL"
-  ],
-  "arr_dct": {
-   "NHC": [
-    "LAVON"
-   ]
-  }
- },
- "ROKJ": {
-  "region": "那覇進入管制区",
-  "arr": [
-   "NHC"
-  ],
-  "dep": [],
-  "arr_dct": {
-   "NHC": [
-    "LAVON",
-    "GURUX",
-    "DORIS"
-   ]
-  }
- },
- "RJKA": {
-  "region": "那覇進入管制区",
-  "arr": [
-   "KANAH",
-   "TUMGI"
-  ],
-  "dep": []
- },
- "RJKI": {
-  "region": "那覇進入管制区",
-  "arr": [
-   "POMAS"
-  ],
-  "dep": []
- },
- "RJKN": {
-  "region": "那覇進入管制区",
-  "arr": [
-   "ANOXA"
-  ],
-  "dep": []
- },
- "RJKB": {
-  "region": "那覇進入管制区",
-  "arr": [
-   "ANOXA"
-  ],
-  "dep": []
- },
- "RORY": {
-  "region": "那覇進入管制区",
-  "arr": [
-   "ONC"
-  ],
-  "dep": [],
-  "arr_dct": {
-   "ONC": [
-    "ASATO",
-    "YRE"
-   ]
-  }
- },
- "RORS": {
-  "region": "先島進入管制区",
-  "arr": [
-   "DIANA"
-  ],
-  "dep": [
-   "FREED"
-  ]
- },
- "ROMY": {
-  "region": "先島進入管制区",
-  "arr": [
-   "YUTAH"
-  ],
-  "dep": [
-   "FREED",
-   "PAYAO"
-  ]
- },
- "ROIG": {
-  "region": "先島進入管制区",
-  "arr": [
-   "DIANA"
-  ],
-  "dep": [
-   "MJC",
-   "GUSUK"
-  ]
- }
+  "RJCM": {
+    "region": "日高進入管制区",
+    "arr": [
+      "OZORA"
+    ],
+    "dep": [
+      "MENIB",
+      "OLDUS"
+    ],
+    "arr_gates": {
+      "OZORA": [
+        {
+          "via_fix": null,
+          "via_awy": "Y111",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJEC": {
+    "region": "日高進入管制区",
+    "arr": [
+      "AWE"
+    ],
+    "dep": [
+      "KAGRA"
+    ],
+    "arr_gates": {
+      "AWE": [
+        {
+          "via_fix": "ASIBE",
+          "via_awy": "V7",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "CHE",
+          "via_awy": "V7",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJCN": {
+    "region": "日高進入管制区",
+    "arr": [
+      "MASHU"
+    ],
+    "dep": [],
+    "arr_gates": {
+      "MASHU": [
+        {
+          "via_fix": "TCE",
+          "via_awy": "V2",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJCK": {
+    "region": "日高進入管制区",
+    "arr": [
+      "CRANE"
+    ],
+    "dep": [],
+    "arr_gates": {
+      "CRANE": [
+        {
+          "via_fix": "MQE",
+          "via_awy": "Y111",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "AKESI",
+          "via_awy": "Y111",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJCB": {
+    "region": "日高進入管制区",
+    "arr": [
+      "OBE"
+    ],
+    "dep": [
+      "RACKO"
+    ],
+    "arr_gates": {
+      "OBE": [
+        {
+          "via_fix": null,
+          "via_awy": "Y110",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJCO": {
+    "region": "札幌進入管制区",
+    "arr": [
+      "RUMOI",
+      "KURIS",
+      "MOIWA"
+    ],
+    "dep": [
+      "RUMOI",
+      "KURIS",
+      "MOIWA",
+      "SPE"
+    ],
+    "arr_dct": {
+      "RUMOI": [
+        "SPE"
+      ]
+    },
+    "arr_gates": {
+      "RUMOI": [
+        {
+          "via_fix": null,
+          "via_awy": "V1",
+          "dct": [
+            "SPE"
+          ],
+          "star": [],
+          "cond": "South Bound"
+        }
+      ],
+      "KURIS": [
+        {
+          "via_fix": null,
+          "via_awy": "V2",
+          "dct": [],
+          "star": [],
+          "cond": "West Bound"
+        }
+      ],
+      "MOIWA": [
+        {
+          "via_fix": "HWE",
+          "via_awy": "V2",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "TEKKO",
+          "via_awy": "V2",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJCJ": {
+    "region": "千歳進入管制区",
+    "arr": [
+      "NAVER"
+    ],
+    "dep": [],
+    "arr_gates": {
+      "NAVER": [
+        {
+          "via_fix": "SIRAO",
+          "via_awy": "Y139",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJCC": {
+    "region": "千歳進入管制区",
+    "arr": [
+      "CHE",
+      "NAVER"
+    ],
+    "dep": [],
+    "arr_gates": {
+      "CHE": [
+        {
+          "via_fix": "RUMOI",
+          "via_awy": "V1",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "NAVER": [
+        {
+          "via_fix": "SIRAO",
+          "via_awy": "Y139",
+          "dct": [],
+          "star": [],
+          "cond": "JET"
+        },
+        {
+          "via_fix": "NONUT",
+          "via_awy": "Y11",
+          "dct": [],
+          "star": [],
+          "cond": "PROP"
+        }
+      ]
+    }
+  },
+  "RJCH": {
+    "region": "白神進入管制区",
+    "arr": [
+      "UPLOK",
+      "TAXIR",
+      "HWE"
+    ],
+    "dep": [
+      "HWE"
+    ],
+    "arr_gates": {
+      "UPLOK": [
+        {
+          "via_fix": null,
+          "via_awy": "V2",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "TAXIR": [
+        {
+          "via_fix": null,
+          "via_awy": "Y113",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "HWE": [
+        {
+          "via_fix": null,
+          "via_awy": "V31",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJSA": {
+    "region": "白神進入管制区",
+    "arr": [
+      "BYOBU",
+      "MRE"
+    ],
+    "dep": [
+      "OHMAR",
+      "UWE",
+      "GONOU"
+    ],
+    "arr_gates": {
+      "BYOBU": [
+        {
+          "via_fix": "HIBAR",
+          "via_awy": "Y113",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "MRE": [
+        {
+          "via_fix": "HINAI",
+          "via_awy": "Y113",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y113",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y19",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJSR": {
+    "region": "白神進入管制区",
+    "arr": [
+      "ODE",
+      "UWE"
+    ],
+    "dep": [],
+    "arr_dct": {
+      "UWE": [
+        "BONJI"
+      ]
+    },
+    "arr_gates": {
+      "UWE": [
+        {
+          "via_fix": null,
+          "via_awy": "Y32",
+          "dct": [
+            "ODE"
+          ],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "V32",
+          "dct": [
+            "BONJI"
+          ],
+          "star": [
+            "NOSSY"
+          ],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJSK": {
+    "region": "白神進入管制区",
+    "arr": [
+      "MAGGY",
+      "CHOKA",
+      "YAYOI"
+    ],
+    "dep": [],
+    "arr_gates": {
+      "MAGGY": [
+        {
+          "via_fix": null,
+          "via_awy": "Y144",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "CHOKA": [
+        {
+          "via_fix": null,
+          "via_awy": "Y32",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "YAYOI": [
+        {
+          "via_fix": null,
+          "via_awy": "Y312",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJSI": {
+    "region": "白神進入管制区",
+    "arr": [
+      "ENBIM",
+      "SIOMO"
+    ],
+    "dep": [
+      "HANKA"
+    ],
+    "arr_gates": {
+      "ENBIM": [
+        {
+          "via_fix": "MRE",
+          "via_awy": "Y100",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "SIOMO": [
+        {
+          "via_fix": null,
+          "via_awy": "Y153",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJSM": {
+    "region": "三沢進入管制区",
+    "arr": [
+      "HWE",
+      "MIS"
+    ],
+    "dep": [
+      "JYONA",
+      "HPE"
+    ],
+    "arr_dct": {
+      "HWE": [
+        "OHMAR",
+        "MIS"
+      ]
+    },
+    "arr_gates": {
+      "HWE": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "OHMAR",
+            "MIS"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "MIS": [
+        {
+          "via_fix": null,
+          "via_awy": "V10",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJSS": {
+    "region": "仙台進入管制区",
+    "arr": [
+      "SDE",
+      "OWLET",
+      "LANCE"
+    ],
+    "dep": [
+      "SAMBO"
+    ],
+    "arr_gates": {
+      "SDE": [
+        {
+          "via_fix": null,
+          "via_awy": "Y102",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "OWLET": [
+        {
+          "via_fix": null,
+          "via_awy": "Y15",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "LANCE": [
+        {
+          "via_fix": null,
+          "via_awy": "Y515",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJSN": {
+    "region": "新潟進入管制区",
+    "arr": [
+      "INAHO",
+      "GTC",
+      "MAGNA",
+      "TERAD"
+    ],
+    "dep": [
+      "KENSI",
+      "GTC",
+      "MOKBA",
+      "NAEBA",
+      "HAKBA"
+    ],
+    "arr_gates": {
+      "INAHO": [
+        {
+          "via_fix": null,
+          "via_awy": "Y122",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "GTC": [
+        {
+          "via_fix": null,
+          "via_awy": "V31",
+          "dct": [],
+          "star": [],
+          "cond": "South Bound"
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y142",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "IGROD",
+          "via_awy": "Y347",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "MAGNA": [
+        {
+          "via_fix": null,
+          "via_awy": "Y312",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "TERAD": [
+        {
+          "via_fix": null,
+          "via_awy": "Y45",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJAH": {
+    "region": "百里進入管制区",
+    "arr": [
+      "TATSU"
+    ],
+    "dep": [
+      "OGITU"
+    ],
+    "arr_gates": {
+      "TATSU": [
+        {
+          "via_fix": "DAIGO",
+          "via_awy": "Y887",
+          "dct": [],
+          "star": [
+            "TATSU"
+          ],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJTT": {
+    "region": "東京進入管制区",
+    "arr": [
+      "GODIN",
+      "POLIX",
+      "AROSA",
+      "AKSEL",
+      "XAC",
+      "MESSE"
+    ],
+    "dep": [
+      "SPOON",
+      "BRUCE",
+      "INUBO",
+      "VAMOS",
+      "LAXAS",
+      "NINOX",
+      "GUSRO",
+      "LAYER",
+      "TIARA",
+      "BEKLA",
+      "OPPAR"
+    ],
+    "arr_gates": {
+      "GODIN": [
+        {
+          "via_fix": null,
+          "via_awy": "Y10",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "POLIX": [
+        {
+          "via_fix": null,
+          "via_awy": "Y807",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "AROSA": [
+        {
+          "via_fix": null,
+          "via_awy": "Y824",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "TOPIT",
+          "via_awy": "Y875",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "AKSEL": [
+        {
+          "via_fix": null,
+          "via_awy": "Y21",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "XAC": [
+        {
+          "via_fix": null,
+          "via_awy": "Y71",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "MESSE": [
+        {
+          "via_fix": null,
+          "via_awy": "Y108",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJTL": {
+    "region": "東京進入管制区",
+    "arr": [
+      "HAGAR",
+      "MERED",
+      "TOSKO"
+    ],
+    "dep": [],
+    "arr_dct": {
+      "HAGAR": [
+        "KIDOR",
+        "ASEKI"
+      ],
+      "MERED": [
+        "KAMOG",
+        "OJT",
+        "TSUGA",
+        "SHT",
+        "TOHNE"
+      ],
+      "TOSKO": [
+        "OMIYA",
+        "SYE",
+        "TOHNE"
+      ]
+    },
+    "arr_gates": {
+      "HAGAR": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "KIDOR",
+            "ASEKI"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "MERED": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "KAMOG",
+            "OJT",
+            "TSUGA",
+            "SHT",
+            "TOHNE"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "TOSKO": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "OMIYA",
+            "SYE",
+            "TOHNE"
+          ],
+          "star": [],
+          "cond": "多分"
+        }
+      ]
+    }
+  },
+  "RJTO": {
+    "region": "東京進入管制区",
+    "arr": [
+      "XAC"
+    ],
+    "dep": [],
+    "arr_dct": {
+      "XAC": [
+        "OSE"
+      ]
+    },
+    "arr_gates": {
+      "XAC": [
+        {
+          "via_fix": null,
+          "via_awy": "Y71",
+          "dct": [
+            "OSE"
+          ],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "V17",
+          "dct": [
+            "OSE"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJAA": {
+    "region": "東京進入管制区",
+    "arr": [
+      "SWAMP",
+      "SUPOK",
+      "LUBLA",
+      "RUTAS"
+    ],
+    "dep": [
+      "AGRIS",
+      "KIMIN",
+      "GULBO",
+      "BORLO",
+      "OLVAN",
+      "SAMUS",
+      "PIGOK",
+      "REDEK",
+      "ENPAR"
+    ],
+    "arr_gates": {
+      "SWAMP": [
+        {
+          "via_fix": null,
+          "via_awy": "Y30",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "R211",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "SUPOK": [
+        {
+          "via_fix": null,
+          "via_awy": "Y809",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "LUBLA": [
+        {
+          "via_fix": null,
+          "via_awy": "Y813",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "RUTAS": [
+        {
+          "via_fix": null,
+          "via_awy": "Y81",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJTY": {
+    "region": "横田進入管制空域",
+    "arr": [
+      "HAILY",
+      "KOSKA",
+      "SWING"
+    ],
+    "dep": [
+      "KOGAR",
+      "KOSKA",
+      "BUSYU"
+    ],
+    "arr_dct": {
+      "SWING": [
+        "ALPUS",
+        "BONTI",
+        "TOSKO"
+      ]
+    },
+    "arr_gates": {
+      "HAILY": [
+        {
+          "via_fix": "NIKKO",
+          "via_awy": "Y90",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "KOSKA": [
+        {
+          "via_fix": "LIGNI",
+          "via_awy": "Y821",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "MERED",
+          "via_awy": "Y821",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "MOE",
+          "via_awy": "Y588",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "XAC",
+          "via_awy": "Y588",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y295",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "SWING": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "ALPUS",
+            "BONTI",
+            "TOSKO"
+          ],
+          "star": [],
+          "cond": "多分"
+        }
+      ]
+    }
+  },
+  "RJNK": {
+    "region": "小松進入管制区",
+    "arr": [
+      "HIMMY",
+      "IMIZU",
+      "KMC",
+      "SONBU"
+    ],
+    "dep": [
+      "SUMVU",
+      "OHNNO",
+      "SONBU"
+    ],
+    "arr_gates": {
+      "HIMMY": [
+        {
+          "via_fix": "GOLDO",
+          "via_awy": "Y381",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "IMIZU": [
+        {
+          "via_fix": null,
+          "via_awy": "Y45",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "V30",
+          "dct": [],
+          "star": [],
+          "cond": "West Bound"
+        }
+      ],
+      "KMC": [
+        {
+          "via_fix": null,
+          "via_awy": "Y384",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "SONBU": [
+        {
+          "via_fix": null,
+          "via_awy": "Y45",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJNA": {
+    "region": "中部進入管制区",
+    "arr": [
+      "SWING",
+      "KCC",
+      "SHIMA"
+    ],
+    "dep": [],
+    "arr_gates": {
+      "SWING": [
+        {
+          "via_fix": "MBE",
+          "via_awy": "Y121",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y88",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "KCC": [
+        {
+          "via_fix": null,
+          "via_awy": "Y88",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "MIDER",
+          "via_awy": "Y28",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "MIDER",
+          "via_awy": "V28",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "KMC",
+          "via_awy": "Y383",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "SHIMA": [
+        {
+          "via_fix": "KEC",
+          "via_awy": "Y12",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJGG": {
+    "region": "中部進入管制区",
+    "arr": [
+      "SWING",
+      "SLIDE",
+      "OLTOM",
+      "CARDS",
+      "BIWWA",
+      "CHESS"
+    ],
+    "dep": [
+      "BOGON",
+      "MODEL",
+      "ESPAN",
+      "FTAMI"
+    ],
+    "arr_gates": {
+      "SWING": [
+        {
+          "via_fix": "MBE",
+          "via_awy": "Y121",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "SLIDE": [
+        {
+          "via_fix": "SUGAL",
+          "via_awy": "Y881",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "OLTOM": [
+        {
+          "via_fix": null,
+          "via_awy": "Y50",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "CARDS": [
+        {
+          "via_fix": null,
+          "via_awy": "Y755",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "BIWWA": [
+        {
+          "via_fix": "MIDER",
+          "via_awy": "Y28",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "MIDER",
+          "via_awy": "V28",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "CHESS": [
+        {
+          "via_fix": null,
+          "via_awy": "Y511",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJBB": {
+    "region": "関西進入管制区",
+    "arr": [
+      "DUBKA",
+      "EVERT",
+      "CANDY",
+      "NIXOV",
+      "IGLEV",
+      "ATMUG"
+    ],
+    "dep": [
+      "NANKO",
+      "SOVRI",
+      "TOMOH",
+      "UPMIN",
+      "OMGOR",
+      "OBLUR",
+      "LINDA",
+      "MAIKO"
+    ],
+    "arr_dct": {
+      "EVERT": [
+        "CANDY"
+      ]
+    },
+    "arr_gates": {
+      "DUBKA": [
+        {
+          "via_fix": "KOHWA",
+          "via_awy": "Y544",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "EVERT": [
+        {
+          "via_fix": null,
+          "via_awy": "Y46",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y48",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y48",
+          "dct": [
+            "CANDY"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "CANDY": [
+        {
+          "via_fix": null,
+          "via_awy": "Y46",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "NIXOV": [
+        {
+          "via_fix": null,
+          "via_awy": "Y53",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "IGLEV": [
+        {
+          "via_fix": null,
+          "via_awy": "Y35",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "ATMUG": [
+        {
+          "via_fix": null,
+          "via_awy": "Y36",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJBE": {
+    "region": "関西進入管制区",
+    "arr": [
+      "AVKUL",
+      "OMBIP",
+      "TRACY"
+    ],
+    "dep": [
+      "MUKRI",
+      "MAIKO"
+    ],
+    "arr_gates": {
+      "AVKUL": [
+        {
+          "via_fix": "LOVGI",
+          "via_awy": "Y353",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "URDET",
+          "via_awy": "Y353",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "OMBIP": [
+        {
+          "via_fix": "OYE",
+          "via_awy": "V28",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "TRACY": [
+        {
+          "via_fix": "WAKIT",
+          "via_awy": "Y201",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJOO": {
+    "region": "関西進入管制区",
+    "arr": [
+      "AGPUK",
+      "IZUMI",
+      "ROKKO"
+    ],
+    "dep": [
+      "PANAS",
+      "MINAC",
+      "ASUKA",
+      "TIGER"
+    ],
+    "arr_gates": {
+      "AGPUK": [
+        {
+          "via_fix": "KOHWA",
+          "via_awy": "Y546",
+          "dct": [],
+          "star": [
+            "IKOMAE"
+          ],
+          "cond": null
+        }
+      ],
+      "IZUMI": [
+        {
+          "via_fix": null,
+          "via_awy": "Y753",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "KAINA",
+          "via_awy": "Y753",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "SANDA",
+          "via_awy": "V55",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "ROKKO": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [],
+          "star": [
+            "IKOMAN"
+          ],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJOT": {
+    "region": "関西進入管制区",
+    "arr": [
+      "WIMPY",
+      "TAKMA",
+      "OYE"
+    ],
+    "dep": [
+      "OLIVE",
+      "WASYU",
+      "TAROH"
+    ],
+    "arr_dct": {
+      "TAKMA": [
+        "KTE"
+      ],
+      "OYE": [
+        "KTE"
+      ]
+    },
+    "arr_gates": {
+      "WIMPY": [
+        {
+          "via_fix": "WAKIT",
+          "via_awy": "Y203",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "TAKMA": [
+        {
+          "via_fix": "KINOE",
+          "via_awy": "Y288",
+          "dct": [
+            "KTE"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "OYE": [
+        {
+          "via_fix": "MIHOU",
+          "via_awy": "Y39",
+          "dct": [
+            "KTE"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJOB": {
+    "region": "関西進入管制区",
+    "arr": [
+      "OYE",
+      "INOOK"
+    ],
+    "dep": [
+      "OYE",
+      "OLIVE",
+      "CHIZU",
+      "WASYU"
+    ],
+    "arr_dct": {
+      "INOOK": [
+        "OYE"
+      ]
+    },
+    "arr_gates": {
+      "OYE": [
+        {
+          "via_fix": "WAKIT",
+          "via_awy": "Y205",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "MIHOU",
+          "via_awy": "Y39",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "INOOK": [
+        {
+          "via_fix": "KINOE",
+          "via_awy": "Y288",
+          "dct": [
+            "OYE"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJOK": {
+    "region": "関西進入管制区",
+    "arr": [
+      "PANCH",
+      "JAKAL",
+      "KRE",
+      "MYE"
+    ],
+    "dep": [
+      "MUROT",
+      "SUC",
+      "OMOGO",
+      "KRE"
+    ],
+    "arr_dct": {
+      "JAKAL": [
+        "PANCH"
+      ],
+      "MYE": [
+        "BOTAN",
+        "KABIL"
+      ]
+    },
+    "arr_gates": {
+      "PANCH": [
+        {
+          "via_fix": "TURFY",
+          "via_awy": "Y242",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "JAKAL": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "PANCH"
+          ],
+          "star": [
+            "YOSAKE"
+          ],
+          "cond": null
+        }
+      ],
+      "KRE": [
+        {
+          "via_fix": "SUC",
+          "via_awy": "V53",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "MYE": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "BOTAN",
+            "KABIL"
+          ],
+          "star": [
+            "YOSAKW"
+          ],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJOS": {
+    "region": "徳島進入管制区",
+    "arr": [
+      "DATIS",
+      "TOSAR",
+      "TSC"
+    ],
+    "dep": [
+      "HONMA",
+      "TOSAR",
+      "KTE"
+    ],
+    "arr_gates": {
+      "DATIS": [
+        {
+          "via_fix": "SINGU",
+          "via_awy": "Y542",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "TOSAR": [
+        {
+          "via_fix": "KRE",
+          "via_awy": "V37",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "TSC": [
+        {
+          "via_fix": "KTE",
+          "via_awy": "Y331",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJOH": {
+    "region": "美保進入管制区",
+    "arr": [
+      "RAKDA",
+      "KYOKA",
+      "XZE",
+      "PEPOS"
+    ],
+    "dep": [
+      "YAPPA",
+      "STAGE",
+      "MIHOU"
+    ],
+    "arr_dct": {
+      "KYOKA": [
+        "YGE"
+      ]
+    },
+    "arr_gates": {
+      "RAKDA": [
+        {
+          "via_fix": null,
+          "via_awy": "Y18",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "KYOKA": [
+        {
+          "via_fix": null,
+          "via_awy": "Y45",
+          "dct": [
+            "YGE"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "XZE": [
+        {
+          "via_fix": null,
+          "via_awy": "V29",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "PEPOS": [
+        {
+          "via_fix": null,
+          "via_awy": "Y597",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJOC": {
+    "region": "美保進入管制区",
+    "arr": [
+      "RAKDA",
+      "XZE"
+    ],
+    "dep": [
+      "TSUNO",
+      "MIHOU",
+      "CARPS"
+    ],
+    "arr_gates": {
+      "RAKDA": [
+        {
+          "via_fix": null,
+          "via_awy": "Y18",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y188",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "XZE": [
+        {
+          "via_fix": null,
+          "via_awy": "G597",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "KYOKA",
+          "via_awy": "V29",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "V29",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJOA": {
+    "region": "広島進入管制区",
+    "arr": [
+      "AMURO",
+      "SUNFL",
+      "OPERA",
+      "HGE"
+    ],
+    "dep": [
+      "BOLIG",
+      "KIJYY",
+      "MARCO",
+      "SINFO"
+    ],
+    "arr_dct": {
+      "SUNFL": [
+        "MISEN",
+        "HGE"
+      ],
+      "OPERA": [
+        "AKANA",
+        "MIYOS",
+        "HGE"
+      ]
+    },
+    "arr_gates": {
+      "AMURO": [
+        {
+          "via_fix": "KAMMY",
+          "via_awy": "Y202",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "SUNFL": [
+        {
+          "via_fix": null,
+          "via_awy": "Y453",
+          "dct": [
+            "MISEN",
+            "HGE"
+          ],
+          "star": [
+            "HGE"
+          ],
+          "cond": null
+        }
+      ],
+      "OPERA": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "AKANA",
+            "MIYOS",
+            "HGE"
+          ],
+          "star": [
+            "HGE"
+          ],
+          "cond": null
+        }
+      ],
+      "HGE": [
+        {
+          "via_fix": null,
+          "via_awy": "V29",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJOI": {
+    "region": "岩国進入管制空域",
+    "arr": [
+      "MARCO",
+      "MYE"
+    ],
+    "dep": [
+      "MALTA",
+      "MYE"
+    ],
+    "arr_dct": {
+      "MARCO": [
+        "NEU"
+      ]
+    },
+    "arr_gates": {
+      "MARCO": [
+        {
+          "via_fix": null,
+          "via_awy": "Y45",
+          "dct": [
+            "NEU"
+          ],
+          "star": [],
+          "cond": "South Bound"
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y28",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y45",
+          "dct": [
+            "NEU"
+          ],
+          "star": [],
+          "cond": "North Bound"
+        }
+      ],
+      "MYE": [
+        {
+          "via_fix": null,
+          "via_awy": "Y40",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJOM": {
+    "region": "岩国進入管制空域",
+    "arr": [
+      "ITUKI",
+      "BAMBO",
+      "MYE",
+      "MARCO"
+    ],
+    "dep": [],
+    "arr_dct": {
+      "BAMBO": [
+        "KINOE",
+        "ITUKI"
+      ]
+    },
+    "arr_gates": {
+      "BAMBO": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "ITUKI"
+          ],
+          "star": [
+            "ROBINE",
+            "MADON",
+            "KIKMA"
+          ],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "KINOE",
+            "ITUKI"
+          ],
+          "star": [
+            "ROBINE",
+            "MADON",
+            "KIKMA"
+          ],
+          "cond": null
+        }
+      ],
+      "MYE": [
+        {
+          "via_fix": null,
+          "via_awy": "Y40",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "ENGID",
+          "via_awy": "Y412",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "MARCO": [
+        {
+          "via_fix": null,
+          "via_awy": "V28",
+          "dct": [],
+          "star": [],
+          "cond": "East Bound"
+        }
+      ]
+    }
+  },
+  "RJDC": {
+    "region": "築城進入管制区",
+    "arr": [
+      "UBE"
+    ],
+    "dep": [
+      "KOHEI",
+      "FIATO",
+      "UBE"
+    ],
+    "arr_gates": {
+      "UBE": [
+        {
+          "via_fix": "MARCO",
+          "via_awy": "Y284",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "DGC",
+          "via_awy": "V28",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJFR": {
+    "region": "築城進入管制区",
+    "arr": [
+      "ASARI",
+      "SWE"
+    ],
+    "dep": [
+      "ONGHA",
+      "FIATO",
+      "KOHEI"
+    ],
+    "arr_gates": {
+      "ASARI": [
+        {
+          "via_fix": "MARCO",
+          "via_awy": "Y285",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "SWE": [
+        {
+          "via_fix": "DGC",
+          "via_awy": "V28",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJFF": {
+    "region": "福岡進入管制区",
+    "arr": [
+      "KIRIN",
+      "DGC",
+      "HABOH",
+      "ISKUP",
+      "ATSAG",
+      "IKE",
+      "SARUP"
+    ],
+    "dep": [
+      "DGC",
+      "ENGID",
+      "BUTUR",
+      "IPRIR",
+      "CARSE",
+      "YAMGA",
+      "SGE"
+    ],
+    "arr_dct": {
+      "HABOH": [
+        "FUGEN",
+        "OMUTA",
+        "OSTEP",
+        "HONOK"
+      ]
+    },
+    "arr_gates": {
+      "KIRIN": [
+        {
+          "via_fix": "STOUT",
+          "via_awy": "Y20",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y20",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "DGC": [
+        {
+          "via_fix": null,
+          "via_awy": "V28",
+          "dct": [],
+          "star": [],
+          "cond": "West Bound"
+        }
+      ],
+      "HABOH": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "FUGEN",
+            "OMUTA",
+            "OSTEP",
+            "HONOK"
+          ],
+          "star": [
+            "HONOKK",
+            "HONOKE"
+          ],
+          "cond": null
+        }
+      ],
+      "ISKUP": [
+        {
+          "via_fix": null,
+          "via_awy": "Y25",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "ATSAG": [
+        {
+          "via_fix": null,
+          "via_awy": "Y253",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "IKE": [
+        {
+          "via_fix": "SAMDO",
+          "via_awy": "A595",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "SARUP": [
+        {
+          "via_fix": null,
+          "via_awy": "Y209",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJFS": {
+    "region": "福岡進入管制区",
+    "arr": [
+      "MILEP",
+      "OLE"
+    ],
+    "dep": [
+      "SGE",
+      "OOITA"
+    ],
+    "arr_dct": {
+      "MILEP": [
+        "UGAMU",
+        "SGE"
+      ],
+      "OLE": [
+        "MILEP",
+        "UGAMU",
+        "SGE"
+      ]
+    },
+    "arr_gates": {
+      "MILEP": [
+        {
+          "via_fix": "TAIME",
+          "via_awy": "Y40",
+          "dct": [
+            "UGAMU",
+            "SGE"
+          ],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "FUE",
+          "via_awy": "Y40",
+          "dct": [
+            "UGAMU",
+            "SGE"
+          ],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y40",
+          "dct": [
+            "UGAMU",
+            "SGE"
+          ],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "V40",
+          "dct": [
+            "UGAMU",
+            "SGE"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "OLE": [
+        {
+          "via_fix": "FUE",
+          "via_awy": "Y40",
+          "dct": [
+            "SGE"
+          ],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "IKE",
+          "via_awy": "Y251",
+          "dct": [
+            "SGE"
+          ],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "IKE",
+          "via_awy": "Y251",
+          "dct": [
+            "MILEP",
+            "UGAMU",
+            "SGE"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJFT": {
+    "region": "福岡進入管制区",
+    "arr": [
+      "KAZMA",
+      "HINAG",
+      "KUE"
+    ],
+    "dep": [
+      "MYE",
+      "SALTY",
+      "SPIDE",
+      "DONAR",
+      "TFE",
+      "HKC",
+      "KUE"
+    ],
+    "arr_gates": {
+      "KAZMA": [
+        {
+          "via_fix": null,
+          "via_awy": "Y40",
+          "dct": [],
+          "star": [],
+          "cond": "West Bound"
+        }
+      ],
+      "HINAG": [
+        {
+          "via_fix": null,
+          "via_awy": "G339",
+          "dct": [],
+          "star": [],
+          "cond": "North Bound"
+        },
+        {
+          "via_fix": "SASIK",
+          "via_awy": "Y14",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "KUE": [
+        {
+          "via_fix": "OLE",
+          "via_awy": "Y40",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "TAIME",
+          "via_awy": "Y40",
+          "dct": [],
+          "star": [],
+          "cond": "South Bound"
+        }
+      ]
+    }
+  },
+  "RJFU": {
+    "region": "福岡進入管制区",
+    "arr": [
+      "OHGIE",
+      "OLE",
+      "HONDO"
+    ],
+    "dep": [
+      "AKNAG",
+      "DGC",
+      "OOITA",
+      "CARCO"
+    ],
+    "arr_dct": {
+      "HONDO": [
+        "OLE"
+      ]
+    },
+    "arr_gates": {
+      "OHGIE": [
+        {
+          "via_fix": null,
+          "via_awy": "Y204",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "OLE": [
+        {
+          "via_fix": "FUE",
+          "via_awy": "Y40",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "IKE",
+          "via_awy": "Y251",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "HONDO": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "OLE"
+          ],
+          "star": [],
+          "cond": "North Bound"
+        }
+      ]
+    }
+  },
+  "RJFO": {
+    "region": "大分進入管制区",
+    "arr": [
+      "YANAI",
+      "OOITA"
+    ],
+    "dep": [],
+    "arr_gates": {
+      "YANAI": [
+        {
+          "via_fix": null,
+          "via_awy": "Y45",
+          "dct": [],
+          "star": [
+            "BAIEN"
+          ],
+          "cond": "South Bound"
+        }
+      ],
+      "OOITA": [
+        {
+          "via_fix": null,
+          "via_awy": "Y40",
+          "dct": [],
+          "star": [],
+          "cond": "East Bound"
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y45",
+          "dct": [],
+          "star": [],
+          "cond": "North Bound"
+        }
+      ]
+    }
+  },
+  "RJFK": {
+    "region": "鹿児島進入管制区",
+    "arr": [
+      "KUE",
+      "HKC",
+      "SPICA",
+      "KINKO"
+    ],
+    "dep": [
+      "MIDAI",
+      "HKC",
+      "SASIK"
+    ],
+    "arr_dct": {
+      "KUE": [
+        "ESLIL",
+        "HIGOH",
+        "KGE"
+      ]
+    },
+    "arr_gates": {
+      "KUE": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "ESLIL",
+            "HIGOH",
+            "KGE"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "HKC": [
+        {
+          "via_fix": null,
+          "via_awy": "Y45",
+          "dct": [],
+          "star": [],
+          "cond": "South Bound"
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y45",
+          "dct": [],
+          "star": [],
+          "cond": "North Bound"
+        },
+        {
+          "via_fix": null,
+          "via_awy": "A582",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y14",
+          "dct": [],
+          "star": [],
+          "cond": "South Bound"
+        },
+        {
+          "via_fix": null,
+          "via_awy": "G339",
+          "dct": [],
+          "star": [],
+          "cond": "South Bound"
+        }
+      ],
+      "SPICA": [
+        {
+          "via_fix": null,
+          "via_awy": "Y757",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "KINKO": [
+        {
+          "via_fix": null,
+          "via_awy": "Y455",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y14",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJFM": {
+    "region": "鹿児島進入管制区",
+    "arr": [
+      "TFE",
+      "RYUGU",
+      "JACKY",
+      "SASIK",
+      "KUE"
+    ],
+    "dep": [
+      "MADOG",
+      "JACKY",
+      "LALAG"
+    ],
+    "arr_dct": {
+      "TFE": [
+        "ABUMI",
+        "SIIBA",
+        "MZE"
+      ],
+      "JACKY": [
+        "MZE"
+      ],
+      "SASIK": [
+        "LALAG",
+        "MZE"
+      ],
+      "KUE": [
+        "ESKAP",
+        "KROMA",
+        "ENBEN"
+      ]
+    },
+    "arr_gates": {
+      "TFE": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "ABUMI",
+            "SIIBA",
+            "MZE"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "RYUGU": [
+        {
+          "via_fix": null,
+          "via_awy": "Y402",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "JACKY": [
+        {
+          "via_fix": null,
+          "via_awy": "B597",
+          "dct": [
+            "MZE"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "SASIK": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "LALAG",
+            "MZE"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "KUE": [
+        {
+          "via_fix": null,
+          "via_awy": null,
+          "dct": [
+            "ESKAP",
+            "KROMA",
+            "ENBEN"
+          ],
+          "star": [
+            "MELAR",
+            "KARAH"
+          ],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "ROAH": {
+    "region": "那覇進入管制区",
+    "arr": [
+      "IHEYA",
+      "NHC",
+      "VELNO",
+      "OLVAL"
+    ],
+    "dep": [
+      "ONC",
+      "AMAMI",
+      "GANJU",
+      "OLVAL"
+    ],
+    "arr_dct": {
+      "NHC": [
+        "LAVON"
+      ]
+    },
+    "arr_gates": {
+      "IHEYA": [
+        {
+          "via_fix": null,
+          "via_awy": "Y525",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "NHC": [
+        {
+          "via_fix": null,
+          "via_awy": "V75",
+          "dct": [
+            "LAVON"
+          ],
+          "star": [
+            "LAVON"
+          ],
+          "cond": null
+        }
+      ],
+      "VELNO": [
+        {
+          "via_fix": "MJC",
+          "via_awy": "Y57",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "Y57",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "OLVAL": [
+        {
+          "via_fix": null,
+          "via_awy": "V91",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "ROKJ": {
+    "region": "那覇進入管制区",
+    "arr": [
+      "NHC"
+    ],
+    "dep": [],
+    "arr_dct": {
+      "NHC": [
+        "LAVON",
+        "GURUX",
+        "DORIS"
+      ]
+    },
+    "arr_gates": {
+      "NHC": [
+        {
+          "via_fix": null,
+          "via_awy": "A582",
+          "dct": [
+            "LAVON",
+            "GURUX",
+            "DORIS"
+          ],
+          "star": [],
+          "cond": "South Bound"
+        }
+      ]
+    }
+  },
+  "RJKA": {
+    "region": "那覇進入管制区",
+    "arr": [
+      "KANAH",
+      "TUMGI"
+    ],
+    "dep": [],
+    "arr_gates": {
+      "KANAH": [
+        {
+          "via_fix": "BOMAP",
+          "via_awy": "Y25",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "TUMGI": [
+        {
+          "via_fix": "ALTAI",
+          "via_awy": "Y758",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": null,
+          "via_awy": "B597",
+          "dct": [],
+          "star": [],
+          "cond": null
+        },
+        {
+          "via_fix": "TONAR",
+          "via_awy": "Y521",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJKI": {
+    "region": "那覇進入管制区",
+    "arr": [
+      "POMAS"
+    ],
+    "dep": [],
+    "arr_gates": {
+      "POMAS": [
+        {
+          "via_fix": null,
+          "via_awy": "Y456",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "RJKN": {
+    "region": "那覇進入管制区",
+    "arr": [
+      "ANOXA"
+    ],
+    "dep": [],
+    "arr_gates": {
+      "ANOXA": [
+        {
+          "via_fix": null,
+          "via_awy": "Y45",
+          "dct": [],
+          "star": [],
+          "cond": "South Bound"
+        }
+      ]
+    }
+  },
+  "RJKB": {
+    "region": "那覇進入管制区",
+    "arr": [
+      "ANOXA"
+    ],
+    "dep": [],
+    "arr_gates": {
+      "ANOXA": [
+        {
+          "via_fix": null,
+          "via_awy": "Y45",
+          "dct": [],
+          "star": [],
+          "cond": "South Bound"
+        }
+      ]
+    }
+  },
+  "RORY": {
+    "region": "那覇進入管制区",
+    "arr": [
+      "ONC"
+    ],
+    "dep": [],
+    "arr_dct": {
+      "ONC": [
+        "ASATO",
+        "YRE"
+      ]
+    },
+    "arr_gates": {
+      "ONC": [
+        {
+          "via_fix": null,
+          "via_awy": "Y45",
+          "dct": [
+            "ASATO",
+            "YRE"
+          ],
+          "star": [],
+          "cond": "South Bound"
+        }
+      ]
+    }
+  },
+  "RORS": {
+    "region": "先島進入管制区",
+    "arr": [
+      "DIANA"
+    ],
+    "dep": [
+      "FREED"
+    ],
+    "arr_gates": {
+      "DIANA": [
+        {
+          "via_fix": "GANAS",
+          "via_awy": "Y576",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "ROMY": {
+    "region": "先島進入管制区",
+    "arr": [
+      "YUTAH"
+    ],
+    "dep": [
+      "FREED",
+      "PAYAO"
+    ],
+    "arr_gates": {
+      "YUTAH": [
+        {
+          "via_fix": "GANAS",
+          "via_awy": "Y576",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "ROIG": {
+    "region": "先島進入管制区",
+    "arr": [
+      "DIANA"
+    ],
+    "dep": [
+      "MJC",
+      "GUSUK"
+    ],
+    "arr_gates": {
+      "DIANA": [
+        {
+          "via_fix": "GANAS",
+          "via_awy": "Y576",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ]
+    }
+  },
+  "_comment": " | arr_gates(门→[{via_fix,via_awy: VATJPN 到着栏的上游走廊=来向; dct: 门后【真·直飞段】; star: 门后展开点反查出的 STAR(空=该门无 STAR、走真直飞/雷达引导); cond: 方向/机型/跑道限定}])"
 }

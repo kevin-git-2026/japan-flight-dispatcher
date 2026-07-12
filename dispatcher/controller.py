@@ -179,8 +179,11 @@ def plan(state, f):
             if gr:
                 generated = gr["route_str"]
                 generated_dist = gr["dist_nm"]
-                generated_warn = gr["warn"] if gr.get("suspect") else None
-                print("🧭 无 AIP 航路，已用本地导航数据生成参考航路。")
+                # warn 有就显示 —— 两种：① 含大角度转弯（suspect）② 短程已降级为直飞（source='direct'）。
+                # router 出的是【完整成句】的提示，UI 只负责画，不再自己拼后缀。
+                generated_warn = gr.get("warn") or None
+                print("🧭 无 AIP 航路，已用本地导航数据生成参考航路"
+                      + ("（短程降级为直飞）。" if gr.get("source") == "direct" else "。"))
             else:
                 print("ℹ️ 本地导航数据未能连通该航线，跳过航路生成。")
         except Exception as e:
@@ -241,24 +244,27 @@ def compute_proc(state, dep_obj, arr_obj, generated, matched=None,
             ar, am = procedures.matching_choices(arr_obj.code, state.dat_path, list(reversed(route_fixes)), "arr")
         except Exception:
             ar, am = [], False
-        return dr, dm, ar, am
+        # 航路末点 = 本次实际用的【进场门】。带上它，面板才能查 VATJPN 的「门↔STAR 配对」去预选 STAR
+        return dr, dm, ar, am, (route_fixes[-1] if route_fixes else None)
 
     candidates = []
     if matched:                                          # AIP 分支：逐条候选（含时段/高度/机型 + 端点预筛）
         for i, anno in enumerate(timed.annotate_routes(matched)):
             pts = aip_pts[i] if (aip_pts and i < len(aip_pts)) else None
             dist = aip_dists[i] if (aip_dists and i < len(aip_dists)) else None
-            dr, dm, ar, am = _prefilter(anno["route"], pts)
+            dr, dm, ar, am, gate = _prefilter(anno["route"], pts)
             candidates.append({**anno, "dist": dist, "pts": pts,   # pts 供全段航路预览复用 enroute 几何
-                               "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am})
+                               "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am,
+                               "arr_gate": gate})
     elif generated:                                      # 生成航路：单候选（无时段/机型/高度）
         try:
             gpts = route_geometry(dep_obj, arr_obj, generated, state.dat_path)
         except Exception:
             gpts = None
-        dr, dm, ar, am = _prefilter(generated, gpts)
+        dr, dm, ar, am, gate = _prefilter(generated, gpts)
         candidates.append({"route": generated, "restr": "", "alt": "", "aircraft": "", "dist": None, "pts": gpts,
-                           "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am})
+                           "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am,
+                           "arr_gate": gate})
 
     print("🌦️ 正在获取机场天气（METAR / 网格回退）…")
     # 实测运用状况（国土交通省 ntrack，目前仅羽田）：取到就是进离场预选的首选依据，取不到就走规则引擎
