@@ -498,6 +498,18 @@ def full_route_coords(dep, sid_label, dep_rwy, arr, star_label, arr_rwy, enroute
     sid_wp = procedure_coords(dep, sid_label, dep_rwy, "dep", dat_path)
     star_wp = procedure_coords(arr, star_label, arr_rwy, "arr", dat_path)
     mid = list(enroute_pts[1:-1]) if enroute_pts and len(enroute_pts) >= 2 else list(enroute_pts or [])
+    # ⚠️ AIP 航路串开头/结尾常把 SID/STAR 机体逐点展开（`MAIKO OSRIX GUMID SOUJA …`），
+    #    这些点与 SID/STAR 段坐标【重叠】——直接拼会画出「先到 SOUJA、又跳回 MAIKO、再走回 SOUJA」的折返线。
+    #    故把 enroute 裁到 [SID 末点 … STAR 首点]：SID 覆盖的前导点、STAR 覆盖的尾随点都交给程序段画。
+    ids = [it[0] for it in mid]
+    if sid_wp:
+        se = sid_wp[-1][0]                                # SID 交接点（末点，如 SOUJA）
+        if se in ids:
+            k = ids.index(se); mid = mid[k:]; ids = ids[k:]
+    if star_wp:
+        ss = star_wp[0][0]                               # STAR 交接点（首点，如 KIRIN）
+        if ss in ids:
+            mid = mid[:ids.index(ss) + 1]
     out = []
     for it in list(sid_wp) + mid + list(star_wp):
         if not out or out[-1][0] != it[0]:

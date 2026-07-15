@@ -13,12 +13,17 @@ class ResultView:
         self._on_open_url = on_open_url
         self._on_open_map = on_open_map
         self._text = ft.Text(spans=[], selectable=True)
-        # 【内部可滚动】：航路多、排班多时结果卡很长，而各人显示器分辨率不同——能滚就不会有内容被吃掉
-        self._body = ft.Column([self._text], scroll=ft.ScrollMode.AUTO, expand=True, spacing=0)
+        # 【内部可滚动】：航路多、排班多时结果卡很长，而各人显示器分辨率不同——能滚就不会有内容被吃掉。
+        # ⚠️ 必须 horizontal_alignment=STRETCH：Column 的横向(cross-axis)默认按最宽子项收窄，
+        #    于是滚动条贴在【文字右缘】而非面板右缘（看起来「滚动条跑到中间去了」）。STRETCH 让滚动区
+        #    撑满面板宽度，滚动条才回到最右侧。
+        self._body = ft.Column([self._text], scroll=ft.ScrollMode.AUTO, expand=True, spacing=0,
+                               horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
         self.control = panel(ft.Column([
             ft.Text("规划结果", size=11, color=ft.Colors.GREY),
             self._body,
-        ], spacing=6, expand=True), expand=5, padding=12)
+        ], spacing=6, expand=True, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
+            expand=5, padding=12)
 
     def render(self, spans):
         out = []

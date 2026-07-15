@@ -16,6 +16,27 @@
 
 ---
 
+## v2.0.1 hotfix_1(✅ 2026-07-15，release 后热更新)— SID 默认选择 + 全段航路折返 + 滚动条归位
+
+发布 v2.0.1 后用户实飞 RJBB→RJFF（route `MAIKO OSRIX GUMID SOUJA Y281 STOUT Y20 KIRIN`）又报三处（`__version__`→`2.0.1_hotfix1`，v2.0.1 的 release 资产原地 `--clobber` 更新）：
+
+### Bug A：多条 SID 共用同一过渡时，默认选了字母序第一条而非最优
+- **现象**：RJBB 的 FERRY7 / IWAYA3 / MAIKO1 / RINKU1 **都**是 `body=MAIKO · 过渡 .SOUJA`（对该航路完全等价），端点预筛四条都给，`_default_proc` 按 `labels[0]`（字母序）默认给了 **FERRY7.SOUJA**。但航路串开头是 `MAIKO`，日本 SID 常以航路开头的直飞点命名 → 应是 **MAIKO1**。
+- **修**：`viewmodel._default_proc` 的 dep 侧新增偏好——扫航路串开头的**前导直飞点**（第一个航路名之前：`MAIKO OSRIX GUMID SOUJA`），偏好**「SID 名去版本号 == 某前导直飞点」**的那条，且按其在航路里越靠前越优先（`MAIKO1` 的 `MAIKO` 是 lead[0] → 胜）。匹配不上（如 `YOKAT6.IPRIR` 首点是过渡 IPRIR、非 SID 名）→ 退回 `labels[0]`。回归 5 条：TIGER→TIGER2 / LAXAS→LAXAS4 / NANKO→NANKO3 / DALBI→DALBI2 全对。
+
+### Bug B：带 SID/STAR 的全段航路画出严重折返（重叠）
+- **根因**：`procedures.full_route_coords` 把 `SID 段坐标 + enroute(AIP 串几何) + STAR 段坐标` 直接拼。但 **AIP 串开头/结尾把 SID/STAR 机体逐点展开了**（`MAIKO OSRIX GUMID SOUJA…`），与 SID 段坐标（`24L…MAIKO OSRIX GUMID SOUJA`）**重叠** → 折线「到 SOUJA、跳回 MAIKO、再走回 SOUJA」。相邻去重救不了（SOUJA→MAIKO 不相邻相等）。
+- **修**：拼接前把 enroute 裁到 **[SID 末点 … STAR 首点]**——SID 覆盖的前导点、STAR 覆盖的尾随点都交给程序段画。实测全段变干净：`24L YOE27 MAIKO OSRIX GUMID SOUJA UKELI CARPS UNSOB ELNEB STOUT KIRIN … 16L`，**无一重复**，且 enroute 骨架（Y281/Y20 的航路点）仍在。
+
+### Bug C：结果卡滚动条跑到中间而非最右
+- **根因**：结果卡里可滚动的 `ft.Column` 横向(cross-axis)默认按**最宽子项**收窄，滚动条就贴在【文字右缘】而非面板右缘。
+- **修**：`result_view` 的可滚动区与外层 Column 都加 `horizontal_alignment=ft.CrossAxisAlignment.STRETCH`，撑满面板宽度，滚动条回到最右侧。
+
+### 验证
+- RJBB→RJFF：默认 SID `MAIKO1.SOUJA`、全段无折返；5 条回归全对；8 套冒烟全绿；滚动条归位（用户肉眼确认）。
+
+---
+
 ## v2.0.1 续修(✅ 2026-07-14)— 进离场面板三处 bug（实飞验收挖出）
 
 用户实飞 RJOO→RJFF 报了三处：

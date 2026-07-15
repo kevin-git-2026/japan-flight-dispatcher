@@ -623,6 +623,20 @@ class ProcPanelModel:
             hit = [l for l in labels if l.split(".")[0] in want]
             if hit:
                 return hit[0]
+        if side == "dep" and self.candidates:
+            # 日本 SID 常以航路开头的直飞点命名（`MAIKO OSRIX GUMID SOUJA…` ⇒ SID `MAIKO1`）。
+            # 多条 SID 共用同一过渡时（FERRY7/IWAYA3/MAIKO1/RINKU1 都是 .SOUJA），别按字母序默认给 FERRY7——
+            # 偏好【名字（去版本号）与前导直飞点相符】的那条，且按其在航路里出现得越靠前越优先。
+            route = (self.candidates[self.sel_idx] or {}).get("route", "")
+            lead = []
+            for t in route.split():
+                if any(c.isdigit() for c in t):          # 遇航路名即止（前导直飞点扫完了）
+                    break
+                lead.append(t)
+            stem = lambda l: l.split(".")[0].rstrip("0123456789")   # `MAIKO1.SOUJA` → `MAIKO`
+            hit = sorted((l for l in labels if stem(l) in lead), key=lambda l: lead.index(stem(l)))
+            if hit:
+                return hit[0]
         return labels[0]
 
     def _apply_ops(self):
