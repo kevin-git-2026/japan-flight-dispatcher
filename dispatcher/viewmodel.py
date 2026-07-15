@@ -506,7 +506,9 @@ class ProcPanelModel:
     def simbrief_url(self):
         if not self.sb_base:
             return None
-        return _planner_simbrief_url(self.sb_base, self.route_str(), eobt_utc_min(self.eobt))
+        rwy = lambda s: (self.sel_rwy[s] or "").replace("RW", "") or None   # 裸跑道号（SimBrief origrwy/destrwy）
+        return _planner_simbrief_url(self.sb_base, self.route_str(), eobt_utc_min(self.eobt),
+                                     origrwy=rwy("dep"), destrwy=rwy("arr"))
 
     def preview_coords(self):
         """当前选定的 SID + enroute + STAR 全段坐标（供地图预览）；失败/不足 → (None, 提示串)。"""

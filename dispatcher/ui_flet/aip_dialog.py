@@ -74,19 +74,26 @@ class AipDialog:
         self.page.show_dialog(self.dlg)
 
     # ---------- 内部 ----------
+    def _eobt_val(self):
+        """严格模式弹窗里填的 EOBT（继承回面板用）；非严格模式无此输入 → None。"""
+        return self.eobt.value if (self.model and self.model.strict) else None
+
     def _close(self):
+        # 确认关闭：把弹窗里最终的 EOBT 继承到面板（用户在此填的撤轮挡时刻，面板 EOBT / SimBrief 都该跟上）
+        if self._eobt_val() is not None:
+            self._on_select(self.model.sel_idx, self._eobt_val())
         self.page.pop_dialog()
 
     def _pick(self, idx):
         self.model.select(idx)
-        self._on_select(idx)                  # 面板同步换 base_route + 重筛跑道/程序
+        self._on_select(idx, self._eobt_val())  # 面板同步换 base_route + 重筛跑道/程序（并继承 EOBT）
         self._redraw()
         self.page.update()
 
     def _recompute(self):
         auto = self.model.set_inputs(eobt=self.eobt.value, cat=self.cat.value, fl=self.fl.value)
         if auto is not None:
-            self._on_select(auto)             # 唯一可用 → 自动选定（面板同步更新）
+            self._on_select(auto, self._eobt_val())  # 唯一可用 → 自动选定（面板同步更新 + 继承 EOBT）
         self._redraw()
         self.page.update()
 

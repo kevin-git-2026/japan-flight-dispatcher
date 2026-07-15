@@ -5,6 +5,9 @@
 import flet as ft
 
 from .theme import panel
+from ..regions import REGIONS
+
+_NO_REGION = "不限"       # 地域下拉的「不限定」哨兵（映射回空串）
 
 
 class FormView:
@@ -24,6 +27,21 @@ class FormView:
         self.dep = tf("出发 ICAO", tip="留空=随机")
         self.dest = tf("目的 ICAO", tip="留空=随机")
         self.airline = tf("执飞航司 ICAO", tip="留空=不限")
+
+        # v2.0.1：随机抽线的地域限定（各端单选；固定了该端 ICAO 时此限定对该端无效）
+        def region_dd(label):
+            return ft.Dropdown(
+                label=label, value=_NO_REGION, dense=True, text_size=13, label_style=_LS,
+                expand=True, options=[ft.DropdownOption(key=_NO_REGION, text=_NO_REGION)]
+                + [ft.DropdownOption(key=r, text=r) for r in REGIONS])
+        self.dep_region = region_dd("出发地域")
+        self.arr_region = region_dd("目的地域")
+
+        # v2.0.1：严格基于现实航班——随机抽线时用 FlightAware 逐条核实真实排班
+        self.real_flight = cb("严格基于现实航班",
+                              "仅在 AIP 已公布航路的机场对中抽取（现实在飞的航线必有官方航路），再用 FlightAware "
+                              "逐条核实真有航班在飞（可能较慢，最多核验 50 条）；填了执飞航司则要求该航司在飞。"
+                              "留空航程时按地域 + AIP 定池、不套默认航程窗。")
 
         # 机型：可搜索 + 可自由输入（0.85 的 Dropdown 有独立 text 字段存键入原文）
         self.aircraft = ft.Dropdown(
@@ -62,6 +80,8 @@ class FormView:
         self.control = panel(width=350, content=ft.Column([
                 sec("规划输入"),
                 self.dep, self.dest, self.airline,
+                ft.Row([self.dep_region, self.arr_region], spacing=6),
+                self.real_flight,
                 ft.Divider(height=14),
                 sec("高级筛选（可留空）"),
                 self.aircraft, self.time, self.runway,
@@ -84,6 +104,9 @@ class FormView:
             "dep": (self.dep.value or "").strip().upper(),
             "dest": (self.dest.value or "").strip().upper(),
             "airline": (self.airline.value or "").strip().upper(),
+            "dep_region": "" if self.dep_region.value == _NO_REGION else (self.dep_region.value or ""),
+            "arr_region": "" if self.arr_region.value == _NO_REGION else (self.arr_region.value or ""),
+            "real_flight": bool(self.real_flight.value),
             "aircraft": self.ac.resolve(raw_ac),
             "time": (self.time.value or "").strip(),
             "runway": self.runway.value or "",
@@ -97,7 +120,8 @@ class FormView:
 
     # ---- 写控件 ----
     def apply_enabled(self, en):
-        for c in (self.dep, self.dest, self.airline, self.aircraft, self.time, self.runway,
+        for c in (self.dep, self.dest, self.airline, self.dep_region, self.arr_region,
+                  self.real_flight, self.aircraft, self.time, self.runway,
                   self.dmin, self.dmax, self.strict, self.strict_ops, self.chk_auto):
             c.disabled = not en["form"]
         self.btn_plan.disabled = not en["plan"]

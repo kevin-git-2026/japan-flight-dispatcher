@@ -16,6 +16,76 @@
 
 ---
 
+## v2.0.1 续修(✅ 2026-07-14)— 进离场面板三处 bug（实飞验收挖出）
+
+用户实飞 RJOO→RJFF 报了三处：
+
+### Bug 2：选定 AIP 航路后 SID 没带过渡（transition）
+- **现象**：AIP 航路 `TIGER SUMAR AYAME SETOH SOUJA Y281 …`，面板 SID 只显示裸 `TIGER2`，没匹配到过渡。
+- **根因**：`controller._prefilter` 拿 `route_geometry` 展开后的 `route_fixes[0]`（=`SUMAR`）当 dep 端点喂 `matching_choices`。但航路串**开头 `TIGER SUMAR AYAME SETOH` 是 SID「TIGER2」机体被逐点展开**（终端区航点），真正的 SID 出口是它们之后、**第一个航路名 `Y281` 之前的 `SOUJA`**。拿 SUMAR 只能匹配到裸 SID。
+- **修**：新增 `procedures.sid_star_endpoints(route_str)` → 按**航路名结构**取端点（SID 出口=第一个航路名前的点、STAR 入口=最后一个航路名后的点；纯 DCT→首/末点）。`_prefilter` 据此把端点排到 `route_fixes[0]` 再预筛。结果 `TIGER2.SOUJA` ✅、STAR 端点即进场门 `KIRIN`（`arr_gate` 也改用它，比 `route_fixes[-1]` 更准）。对生成航路同样适用（其串首本就是 enroute 入口）。
+
+### Bug 3：选定跑道后 SimBrief 链接没带跑道
+- **修**：`planner._build_simbrief_url`/`simbrief_url` 加 `origrwy`/`destrwy`（SimBrief 官方参数，**裸跑道号、无 RW 前缀**）；`viewmodel.ProcPanelModel.simbrief_url()` 把 `sel_rwy` 去 `RW` 前缀传入。链接现含 `…&origrwy=14L&destrwy=16L`。
+
+### Bug 1：多 AIP 航路弹窗里填的 EOBT 没继承到面板
+- **现象**：F21 弹窗（严格模式）收 EOBT，但用户填的 EOBT 不回传到跑道/SID·STAR 面板（面板 EOBT / SimBrief 撤轮挡时刻都没跟上）。之前只有面板→弹窗预填这一向。
+- **修**：`AipDialog` 在**选行 / 自动定唯一 / 确认关闭**时把弹窗 EOBT 经 `on_select(idx, eobt)` 回传；`ProcView.select_candidate(idx, eobt=None)` 收到就先 `set_eobt` 再选（运行规则预选按新时段算）+ 回写 EOBT 输入框。非严格弹窗无 EOBT 输入 → `eobt=None`、行为不变。
+
+### 验证
+- 端到端（RJOO→RJFF）：SID `TIGER2.SOUJA`、SimBrief 含 `origrwy=14L/destrwy=16L`；`smoke_flet_aip` 加断言（自动选定/确认关闭都继承 EOBT）。8 套冒烟全绿。
+
+---
+
+## v2.0.1(✅ 2026-07-14)— 随机抽线两个新筛选：① 严格基于现实航班 ② 地域限定
+
+用户需求：随机抽线时能 ① 只抽**现实中真有航班在飞**的航线（不填航司=任一航司，填了=该航司必须在飞）；② 把出发/目的机场各**限定在某地理地域**内抽（如 出发=四国、目的=东北）。两者天然叠加（AND），且都**只作用于随机端**（固定了 ICAO 的端不受影响）。
+
+### 决策要点（本轮问答定的，与我最初设想不同，记下来）
+- **功能① 不建「航司→机场」静态表**——那种表会过期。改用**权威实时源**：反复抽候选、逐条用 FlightAware 核实真实排班，命中即返回（上限 50 条）。
+- **功能② 用经纬度 bounding box，不用 ICAO 前缀**——RJO 前缀同含中国+四国分不开，且前缀本身有错（RJDC 山口宇部→按前缀误判九州）。经纬度能干净分出**四国（独立岛屿）**。
+- 探索时先试了**最近中心点**分类器：~10 处濑户内海/关门海峡越界误分，**不够**。改**bounding box + 优先级顺序**：实测全 129 机场 0 未归类、61 边界机场 0 误分——反而更干净、无需逐机场 override。
+
+### 新增 `dispatcher/regions.py`（纯 stdlib，零 GUI，零 import 依赖）
+- `REGIONS`（9 简体地域名，UI 下拉序）+ `_REGION_BOXES`（`[(名, [盒…])]`，按优先级排序）+ `region_of(lat, lon)`。
+- 三个让盒法成立的关键：① **九州东/西两盒**——关门海峡按纬度 33.9° 把北九州(33.85)→九州、山口/小月(33.9+)→中国 分开（两岸相隔 1km，非此不可分）；② **优先级顺序**判定（岛屿/受限地域排前，重叠区先赢：沖縄→北海道→東北→四国→九州→中国→近畿→中部→関東）；③ 边界按都道府县实测微调（近畿东界 136.75°：三重进/名古屋出；中部东界 139.0°：静冈进/伊豆大島出）。
+- 文档化的边界取舍：新潟归東北、佐渡归中部（139.0° 经度界穿过新潟县）；奄美群島归琉球（南西諸島岛链，故该地域用「琉球」而非「冲绳」——含奄美/冲绳，更精确）。
+
+### 改 `dispatcher/routing.py::get_random_route`
+- 签名加 `dep_region`/`arr_region`（简体地域名，None=不限）+ `accept_fn(dep,arr)->bool` + `on_verify`/`on_giveup`。
+- **地域预过滤**：建 `pool_dep`/`pool_dest` 时按 `_in_region`（`regions.region_of`）过滤随机端；空池→`RuntimeError` 点名该地域。
+- **accept 循环**：把原「航路长校验」的加权无放回抽样骨架**推广**——一个候选须**同时**满足 航路长窗口（若有 `route_len_fn`）与 现实核验（若有 `accept_fn`）；有 `accept_fn` 时上限用 `_ACCEPT_TRIES`=50（每次是 FlightAware 网络调用；12 常不足，实测后调到 50）；全灭 → `on_giveup` + best-effort 回退（航路长最接近的，或抽到的第一条）。
+- **铁律守住**：网络 I/O **不进** routing（纯计算）——`accept_fn` 是 controller 注入的闭包。
+
+### 改 `dispatcher/controller.py::plan`
+- import `flightaware.fetch_real_flights_with_filter`。
+- 取 `dep_region`/`arr_region`/`real_flight`/`airline`；定义 `_has_real_flight(d,a)`＝`bool(fetch_real_flights_with_filter(d.code,a.code,airline)[1])`（填了航司→该航司必须在飞；未填→任一直飞航班；抓取异常→False 继续换）。
+- 随机分支：`real_flight` 为真时组 `accept_fn`/`on_verify`（打印「🔎 核实…第 N/cap 条」）/`on_giveup`（打印诚实警示），连同 `dep_region`/`arr_region` 传入 `get_random_route`。
+- 固定双端分支：`real_flight` 为真且无真实航班→**仅打印警示**（不改端、不抛）。
+### 候选池收敛（用户提出的更优思路，实飞回归挖出后改进）
+最初 `real_flight` 是在**距离枚举的全部机场对**里逐条 FlightAware 核验，慢且命中率低，还踩了「真实航路长静默剔除」的坑（见下）。用户点破了关键：**现实中在飞的航线必然是 AIP 已公布航路**。于是改为：
+- **`pick_strict = strict or (real_flight and 有AIP数据)`**——`real_flight` 模式**强制 AIP 限定**候选池（复用现成的 `strict_aip`/`aip_index` 机制），即「地域 → AIP 表里两端都在该地域的机场对 → 逐对 FlightAware 核实」。实测**关东→琉球**：AIP 限定后 **11 对**（全是 ANA/JAL 干线、含 RJTT→ROAH），而距离枚举要 40 对（还混入大島→那霸这类没人飞的）。池子小、几乎全真航线、命中快。无 AIP 数据（下载失败）才退回距离枚举。
+- **空航程 → 不套默认 200-450 窗**（`dmin,dmax = 0, 1e9`）：现实航班的口径是「地域 + AIP + FlightAware」本不含航程；否则关东→琉球（全 >590 NM）会被默认窗全卡掉、池子清空。用户显式填了航程才按其筛。
+- **`route_len_fn = None if real_flight else _route_len`**（不再叠加真实航路长窗口）：病根是候选按**大圆**入窗（枚举阶段），循环里却又拿**真实航路长**复核一遍——「大圆入窗、真实航路长略超窗上沿」的干线会被**静默 `continue` 在 FlightAware 核验之前**、连查都没查。实测 RJTT→ROAH 大圆 840 进窗、真实航路长 876 超窗 → 根本没被核验、程序误报「查不到」，而 ANA 天天飞（ANA995/467/463）。现实排班是硬判据，航路长精修不该否决它（大圆已把航程管住，真实长 +5~15% 完全合理）。
+- **机型也强化匹配（用户提出）**：选了真实航班模式的人通常也想飞**该航司真实执飞的机型**（航司↔机型要自洽，如 **JAL 不飞 A320**）。故 `rf_actype = f["aircraft"] if real_flight else ""`，`_has_real_flight` 把机型透传 FlightAware 的 `filter_aircraft`，并**要求返回的 `matched`（航司+机型都中）**而非仅 `flights` 非空。`is_aircraft_match` 是**机型族**粒度（A320↔A321 算中，A320✗A359/B738、B767↔B763、B787↔B788、B777↔B773）。实网 RJTT→ROAH：JAL+A320→matched=False（现实 JAL 飞 A359/B763，不飞 A320）被拒、JAL+B767/A350→True、ANA+B787→True。未填机型则退回「任一真实航班」。
+- **实网端到端**：关东→琉球 + ANA，留空航程 → 「🎯 仅在 AIP 已公布航路的机场对中抽取」→ 11 对里第 2 条命中 RJTT→ROMY（ANA1079/87）；填窗 500-1200 → 第 4 条命中 RJTT→ROAH（ANA995/467）。
+
+### 改 `dispatcher/ui_flet/form_view.py`
+- 新增 `self.dep_region`/`self.arr_region`（`ft.Dropdown` 单选，选项＝`不限`+`REGIONS`，默认「不限」）+ `self.real_flight`（`ft.Checkbox`「严格基于现实航班」）。
+- 布局：两地域下拉一行插在起降 ICAO 之下、`real_flight` 紧随；`values()` 加三键（`不限`→空串）；`apply_enabled()` 禁用元组纳入三控件。
+
+### 验证
+- `regions.py` 单测：129 机场 0 未归类、61 边界机场对照 ground-truth 0 误分。
+- `get_random_route` 单测：四国→东北 20 次全部落区；`accept_fn` 打桩验证「首个通过即返回」「全灭 `on_giveup`+回退」「与 `route_len_fn` AND」「固定端无视地域」。
+- `smoke_v201.py`：FormView 读值/启停、controller.plan 接线（打桩 `get_random_route` 捕获 kwargs）、accept_fn 命中/未中/异常、固定双端警示。7 套既有冒烟全绿。
+- **实网端到端**：FlightAware 谓词对 RJTT→RJOO 干线（任一/ANA/JAL 均有航班、航司过滤生效）；关东→近畿+ANA 抽线**跳过百里/大島、落到 RJTT→RJBB**（ANA 实飞、两端落区）。
+
+### 涉及文件
+- 新增 `dispatcher/regions.py`；改 `dispatcher/routing.py`/`dispatcher/controller.py`/`dispatcher/ui_flet/form_view.py`/`dispatcher/__init__.py`(→2.0.1)/`CLAUDE.md`/`PRD.md`/`README.md`。
+- 不改 `airlines.py`（8 地域体系与 `pick_sim_airline` 照旧——默认航司无一引用 `CHUGOKU_SHIKOKU`，新 9 地域分类器独立、零 blast radius）、`viewmodel.py`（进度/警示走 `print` 到日志，最小改动）、`planner.py`。
+
+---
+
 ## v2.0.0_alpha2 数据更新(✅ 2026-07-12)— VATJPN 移管点表升级到 **AIRAC 2607**
 
 用户提供了 VATJPN 刚更新的「空港別移管高度表」（Google Sheets，含 AIRAC 2601 / 2604 / **2607** 三个标签页）。

@@ -158,10 +158,14 @@ class ProcView:
         self.sync_derived()
 
     # ---------- 对外 ----------
-    def select_candidate(self, idx):
-        """选定第 idx 条 AIP 候选（AIP 下拉 / F21 弹窗共用）。"""
+    def select_candidate(self, idx, eobt=None):
+        """选定第 idx 条 AIP 候选（AIP 下拉 / F21 弹窗共用）。
+        eobt 非空＝把 F21 弹窗里填的 EOBT【继承到面板】（先设 EOBT 再选，运行规则预选才按新时段算）。"""
         if not self.model:
             return
+        if eobt is not None:
+            self.eobt.value = eobt
+            self.model.set_eobt(eobt)
         self.model.select_candidate(idx)
         self.sync()
 

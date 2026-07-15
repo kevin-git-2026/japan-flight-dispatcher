@@ -290,6 +290,28 @@ def _label_order(icao, route_fixes, conn, dat_path):
     return lambda lbl: (cache.setdefault(lbl, _dist(lbl)), lbl)
 
 
+def sid_star_endpoints(route_str):
+    """AIP/生成航路串 → (SID 出口, STAR 入口)，供端点预筛用真实的程序衔接点。
+      SID 出口 = 第一个【航路名】之前的那个航点（离场程序在这儿接 enroute）；
+      STAR 入口 = 最后一个【航路名】之后的那个航点（enroute 在这儿交给进场程序）；
+      纯 DCT（无航路名）→ (首点, 末点)；航路名打头/结尾（罕见）→ 该端 None（退回调用方原有兜底）。
+
+    ⚠️ 为什么不能直接取航路串首/末点：官方串开头常把 **SID 机体逐点展开**（终端区航点），
+       如 RJOO→RJFF 的 `TIGER SUMAR AYAME SETOH SOUJA Y281 …`——`TIGER SUMAR AYAME SETOH` 都是
+       SID「TIGER2」的机体，真正的 SID 出口是它们之后、第一个航路名 `Y281` 之【前】的 **SOUJA**。
+       拿首点 SUMAR 去预筛只会匹配到裸 `TIGER2`（无过渡），拿 SOUJA 才得到正解 `TIGER2.SOUJA`。"""
+    toks = [t for t in (route_str or "").split() if t]
+    if not toks:
+        return None, None
+    is_awy = lambda t: any(c.isdigit() for c in t)                    # 航路名含数字，航点不含
+    awy = [i for i, t in enumerate(toks) if is_awy(t)]
+    if not awy:
+        return toks[0], toks[-1]                                      # 纯 DCT
+    dep_exit = toks[awy[0] - 1] if awy[0] >= 1 else None              # 第一个航路名前的点
+    arr_entry = toks[awy[-1] + 1] if awy[-1] + 1 < len(toks) else None  # 最后一个航路名后的点
+    return dep_exit, arr_entry
+
+
 def matching_choices(icao, dat_path, route_fixes, kind):
     """按航路端点预筛该机场可用跑道 + SID.TRANS / STAR(.TRANS)。
     route_fixes: 朝端点方向的航点 ident 有序列表 —— 离场(kind='dep')传航路【正序】(首点在前)，

@@ -16,6 +16,7 @@ from .volanta import (
     try_fetch_volanta_json_via_session, _open_volanta_in_browser,
 )
 from .routing import calculate_distance_nm, find_aip_route, get_random_route
+from .flightaware import fetch_real_flights_with_filter
 from .planner import build_flight_plan, parse_runway_ft, parse_dist
 from .router import generate_route, route_geometry, route_length_nm
 from . import procedures, weather, timed, ntrack
@@ -127,6 +128,30 @@ def plan(state, f):
         strict = False
     active = {f["sim"]} if f.get("sim") in ("XP", "MSFS") else None    # 问题1：所用模拟器(单选)
 
+    # v2.0.1：地域限定 + 严格基于现实航班（FlightAware 逐候选核验）
+    dep_region = f.get("dep_region") or None
+    arr_region = f.get("arr_region") or None
+    real_flight = bool(f.get("real_flight"))
+    airline = f.get("airline") or ""
+    rf_actype = (f.get("aircraft") or "") if real_flight else ""   # 现实航班模式且填了机型 → 机型也须匹配真实排班
+    rf_who = "、".join(x for x in (f"航司 {airline}" if airline else "",
+                                   f"机型 {rf_actype}" if rf_actype else "") if x)  # 日志用的「航司/机型」描述
+    # 现实航班模式的口径是「地域 + AIP 已公布航路 + FlightAware」，本不含航程限制。
+    # 若用户没填航程，就【不套默认 200-450 窗】（否则关东→琉球这类长途地域对全被卡掉、池子清空）；
+    # 用户显式填了航程才按其筛。
+    if real_flight and not ((f.get("dmin") or "").strip() or (f.get("dmax") or "").strip()):
+        dmin, dmax = 0.0, 1e9
+
+    def _has_real_flight(d_obj, a_obj):
+        """该航线现实中是否真有【符合条件】的航班：填了航司→该航司必须在飞；填了机型→须有该机型的真实排班
+        （这样航司↔机型才现实自洽，如 JAL 不飞 A320）；都没填→任一直飞航班。机型匹配走 FlightAware 的
+        filter_aircraft（is_aircraft_match 模糊到机型族），返回值 matched=同时满足航司+机型。"""
+        try:
+            matched, flights = fetch_real_flights_with_filter(d_obj.code, a_obj.code, airline, rf_actype)
+            return bool(matched) if rf_actype else bool(flights)   # 填了机型→须 matched(航司+机型都中)；否则任一真实航班
+        except Exception:
+            return False                                # 网络/抓取失败按「未核实到」处理，继续换候选
+
     if f["dep"] and f["dest"]:
         dep_obj = next((a for a in all_airports if a.code == f["dep"]), None)
         arr_obj = next((a for a in all_airports if a.code == f["dest"]), None)
@@ -137,6 +162,10 @@ def plan(state, f):
         if strict and not route:
             raise RuntimeError("未查到该航线的 AIP 航路。")
         flown_count = state.flown_counts.get((f["dep"], f["dest"]), 0)
+        if real_flight and not _has_real_flight(dep_obj, arr_obj):   # 两端固定→不改端，仅提示
+            who = (rf_who + " ") if rf_who else ""
+            print(f"⚠️ 严格基于现实航班：未在 FlightAware 查到 {who}执飞 {dep_obj.code}→{arr_obj.code} 的直飞航班"
+                  "（该航线可能无真实排班/机型不符，或 FlightAware 无覆盖）。已照常规划，请自行核对。")
     else:
         def _route_len(d_obj, a_obj):
             """候选航线的真实航路长(NM)：优先官方 AIP(取最短变体)，否则本地生成航路；都没有→None。"""
@@ -165,10 +194,34 @@ def plan(state, f):
                 return g["dist_nm"] if g else None
             except Exception:
                 return None
+        accept_fn = on_verify = on_giveup = None
+        if real_flight:
+            def on_verify(dc, ac, i, cap):
+                who = (rf_who + " ") if rf_who else ""
+                print(f"🔎 严格基于现实航班：核实 {dc}→{ac} 是否有 {who}真实航班…（第 {i}/{cap} 条）")
+            def on_giveup(cap):
+                who = (rf_who + " 的") if rf_who else ""
+                print(f"⚠️ 已核验 {cap} 条候选，均未在 FlightAware 查到{who}真实直飞航班"
+                      "（现实无此排班/机型不符，或部分小机场·时段 FlightAware 无覆盖）。已返回一条候选，请自行核对。")
+            accept_fn = _has_real_flight
+        # ⚠️ real_flight 模式的候选池收敛（用户提出的更优思路）：**现实中在飞的航线必然是 AIP 已公布航路**，
+        #    所以直接【只在 AIP 表里两端都在所选地域的机场对中抽】，再逐对 FlightAware 核实——
+        #    池子小、几乎全是真航线(命中率高)、还快。等价于强制 strict_aip 过滤（复用现成的 aip_index 机制）。
+        #    实测 关东→琉球：AIP 限定后 11 对(全是 ANA/JAL 干线、含 RJTT→ROAH)，而枚举距离要 40 对(混入大島→那霸等没人飞的)。
+        #    有 AIP 数据才强制；下载失败则退回距离枚举(仍 FlightAware 核实)，不至于把池子清空。
+        pick_strict = strict or (real_flight and bool(state.aip_index or state.aip_data))
+        # real_flight 模式【不再叠加真实航路长窗口校验】——只按大圆距离入窗(枚举阶段) + AIP 限定 + FlightAware 现实核验。
+        #    否则「大圆入窗、真实航路长略超窗上沿」的干线会被【静默剔除在 FlightAware 核验之前】：
+        #    RJTT→ROAH 大圆 840(进 200-850 窗)、真实航路长 876(超窗)→ 压根没被核验、程序误报「查不到」，而 ANA 天天飞。
+        route_len_fn = None if real_flight else _route_len
+        if real_flight and pick_strict and not strict:
+            print("🎯 严格基于现实航班：仅在 AIP 已公布航路的机场对中抽取（现实在飞的航线必有官方航路）。")
         dep_obj, arr_obj, dist, route, flown_count = get_random_route(
-            all_airports, dmin, dmax, state.aip_data, strict, f["dep"], f["dest"],
+            all_airports, dmin, dmax, state.aip_data, pick_strict, f["dep"], f["dest"],
             state.flown_counts, state.aip_index, require_both_scenery=f["scenery_only"],
-            active_sims=active, route_len_fn=_route_len)
+            active_sims=active, route_len_fn=route_len_fn,
+            dep_region=dep_region, arr_region=arr_region,
+            accept_fn=accept_fn, on_verify=on_verify, on_giveup=on_giveup)
 
     # F15：无 AIP 航路且非严格模式 → 用本地导航数据 A* 生成一条参考航路（两分支统一在此处理）
     generated = generated_warn = generated_dist = gr = None
@@ -227,25 +280,36 @@ def compute_proc(state, dep_obj, arr_obj, generated, matched=None,
     matched=该航线全部 AIP 原始行（>1 条→用户在弹窗按 EOBT/机型/高度选或定唯一）；aip_pts/aip_dists 与之同序
     （复用 plan() 已算几何、免重算）。任一步失败都不影响主规划（返回空/None，UI 优雅降级）。"""
     def _prefilter(base_route, pts):
-        """一条航路串 → (dep_rows, dep_matched, arr_rows, arr_matched)。pts 有则复用其航点、否则现算。"""
+        """一条航路串 → (dep_rows, dep_matched, arr_rows, arr_matched, arr_gate)。pts 有则复用其航点、否则现算。"""
         route_fixes = []
         try:
             if pts is None and base_route:
                 pts = route_geometry(dep_obj, arr_obj, base_route, state.dat_path)
             if pts:
-                route_fixes = [p[0] for p in pts[1:-1]]  # 去首尾机场，留 enroute（首=离场点、末=进场点）
+                route_fixes = [p[0] for p in pts[1:-1]]  # 去首尾机场，留 enroute
         except Exception:
             route_fixes = []
+        # 端点从航路串的【航路名结构】定：SID 出口=第一个航路名前的点、STAR 入口=最后一个航路名后的点。
+        # 不能拿 route_fixes[0]/[-1]——串开头的 SID 机体被逐点展开(TIGER SUMAR AYAME SETOH)会让
+        # 预筛只匹配到裸 SID(无过渡)；真正的 SID 出口是它们之后、第一个航路名前的那个点(SOUJA)。
+        dep_exit, arr_entry = procedures.sid_star_endpoints(base_route)
+
+        def _order(fixes, end):                          # 把端点排到 [0]（在则切片去掉端点前的终端区点，不在则前插）
+            if end and end in fixes:
+                return fixes[fixes.index(end):]
+            return ([end] if end else []) + fixes
         try:
-            dr, dm = procedures.matching_choices(dep_obj.code, state.dat_path, route_fixes, "dep")
+            dr, dm = procedures.matching_choices(dep_obj.code, state.dat_path, _order(route_fixes, dep_exit), "dep")
         except Exception:
             dr, dm = [], False
         try:
-            ar, am = procedures.matching_choices(arr_obj.code, state.dat_path, list(reversed(route_fixes)), "arr")
+            ar, am = procedures.matching_choices(arr_obj.code, state.dat_path,
+                                                 _order(list(reversed(route_fixes)), arr_entry), "arr")
         except Exception:
             ar, am = [], False
-        # 航路末点 = 本次实际用的【进场门】。带上它，面板才能查 VATJPN 的「门↔STAR 配对」去预选 STAR
-        return dr, dm, ar, am, (route_fixes[-1] if route_fixes else None)
+        # STAR 入口 = 本次实际用的【进场门】。带上它，面板才能查 VATJPN 的「门↔STAR 配对」去预选 STAR
+        gate = arr_entry or (route_fixes[-1] if route_fixes else None)
+        return dr, dm, ar, am, gate
 
     candidates = []
     if matched:                                          # AIP 分支：逐条候选（含时段/高度/机型 + 端点预筛）
