@@ -155,6 +155,59 @@ def airport_region(icao):
     return None
 
 
+# ---- F29：挑一个【不与现实航班号重合】的模拟呼号 ----
+#
+# 为什么必须核验：模拟呼号原本是 `code + randint(11, 899)`，零核验。实测 11–899 这一段
+# 【几乎被真实航班号织满】（ANA 抽样约 90–100% 是真号），也就是说过去生成的呼号几乎每个都在
+# 冒充真实航班——连飞时会干扰到正挂着该号飞的人。而且【不存在"安全号段"】（连 9000–9999 都有
+# 50% 被占），纯离线的号段启发式解决不了，只能逐个联网核验。
+#
+# 为什么坚持短号：4 位号连飞时管制不好记、机组不好读，所以短号段要【搜够】再放宽（用户明确要求）。
+# 实测各航司短号空号率差异极大且方向相反（ANA 空在低位、JAL 空在高位），故【不做子号段偏置】
+# ——样本量不足以支撑，随机无放回撒 + 足够预算即可。
+#
+# 网络在调用方：本模块保持纯计算，谓词由 planner 注入（同 routing.get_random_route(accept_fn=…) 的范式）。
+
+_SHORT_LO, _SHORT_HI = 11, 899        # 2–3 位（优先，管制/机组友好）
+_WIDE_LO, _WIDE_HI = 1000, 9999       # 4 位（仅短号段搜尽后的兜底）
+_SHORT_TRIES = 18                     # 短号段预算：给足（实测 ANA 期望约 10 次）才谈得上"不轻易放宽"
+_WIDE_TRIES = 8
+_UNKNOWN_GIVEUP = 3                   # 连续这么多次"判不了"→ 认定限流/离线，立刻停手，别空转
+
+
+def pick_sim_callsign(code, exists_fn=None, on_try=None,
+                      short_tries=_SHORT_TRIES, wide_tries=_WIDE_TRIES):
+    """生成模拟呼号，尽量不与现实中真实存在的航班号重合。
+
+    exists_fn(callsign) -> True(真号,换) / False(空号,采用) / None(判不了)；不传 = 完全等同旧行为。
+    on_try(callsign, i, total) 可选进度回调（UI 打日志用）。
+    返回 (callsign, verified)：verified=True 仅当【确实核验过且确认是空号】——判不了/搜不到时
+    照样给号但 verified=False，由调用方如实标注，绝不假装核验过。"""
+    code = (code or "").upper()
+    if not exists_fn:                                   # 无谓词（离线/测试）→ 旧行为
+        return "%s%d" % (code, random.randint(_SHORT_LO, _SHORT_HI)), False
+
+    unknown = 0
+    for lo, hi, budget in ((_SHORT_LO, _SHORT_HI, short_tries), (_WIDE_LO, _WIDE_HI, wide_tries)):
+        pool = random.sample(range(lo, hi + 1), min(budget, hi - lo + 1))   # 无放回，不重复试同一个号
+        for i, n in enumerate(pool, 1):
+            cs = "%s%d" % (code, n)
+            if on_try:
+                on_try(cs, i, len(pool))
+            verdict = exists_fn(cs)
+            if verdict is False:
+                return cs, True                          # 空号 —— 采用
+            if verdict is None:
+                unknown += 1
+                if unknown >= _UNKNOWN_GIVEUP:           # 限流/断网 → 别空转，给号并如实标注未核验
+                    return cs, False
+            else:
+                unknown = 0
+        if lo == _SHORT_LO:                              # 短号段搜尽仍无空号 → 才放宽到 4 位
+            print("ℹ️ %s 的 2–3 位号段已被现实航班号占满，改用 4 位号（仍会避开真实航班号）。" % code)
+    return "%s%d" % (code, random.randint(_WIDE_LO, _WIDE_HI)), False
+
+
 def pick_sim_airline(dep_icao, arr_icao):
     """按航线两端所在大区，随机挑一个"网络同时覆盖两端"的航司，避免离谱组合。
     全国干线(regions 含 "ALL")始终是候选；任一端区域识别失败/无合适航司则回退到任一已知航司。"""

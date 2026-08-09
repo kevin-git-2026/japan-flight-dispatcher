@@ -1,10 +1,18 @@
 # ================= 智能匹配与解析辅助 + FlightAware 现实排班爬虫 =================
 # 机型模糊匹配、起飞时间区间解析，以及抓取并过滤 FlightAware findflight 页面排班。
 # （与拆分前版本保持完全一致；脆弱耦合点为 FA.findflight.resultsContent 正则）
+#
+# 本模块有两条【互相独立】的 FlightAware 抓取：
+#   ① fetch_real_flights_with_filter —— 按【航线】查排班（findflight 页，内嵌 JSON）
+#   ② flight_number_exists           —— 按【航班号】查该号现实中是否存在（ident 页，看 <title>）F29
 
 import re
 import json
+import time
 import urllib.request
+
+_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+_TIMEOUT = 6
 
 
 # ---- 智能匹配与解析辅助函数 ----
@@ -51,8 +59,8 @@ def parse_user_time_range(range_str):
 def fetch_real_flights_with_filter(dep_icao, arr_icao, target_airline, filter_aircraft=None, filter_time_range=None):
     try:
         url = f"https://flightaware.com/live/findflight?origin={dep_icao}&destination={arr_icao}"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-        with urllib.request.urlopen(req, timeout=6) as response:
+        req = urllib.request.Request(url, headers={'User-Agent': _UA})
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as response:
             html = response.read().decode('utf-8', errors='ignore')
 
         json_match = re.search(r'FA\.findflight\.resultsContent\s*=\s*(\[\{.*?\}\])\s*;', html, re.DOTALL)
@@ -114,3 +122,57 @@ def fetch_real_flights_with_filter(dep_icao, arr_icao, target_airline, filter_ai
         elif other_flights: return False, other_flights[:5]
         return False, []
     except Exception: return False, []
+
+
+# ---- F29：按航班号查「该号现实中是否存在」（供模拟呼号避开真实航班号）----
+#
+# 判据在 ident 页的 <title>，位于页面【最前 16KB】：
+#   真实存在 → '<title>NH995 (ANA995) All Nippon Flight Tracking and History - FlightAware</title>'
+#   查无此号 → '<title>Unknown Flight - FlightAware</title>'
+# 注意两件实测出来的事：
+#   ① 该页【不存在也返回 HTTP 200】，只能靠 title 区分，不能靠状态码。
+#   ② 整页 456–536KB，而 `Range` 头【无效】（服务器忽略、照样回整页）→ 必须用 read(N) 从 socket 主动截断，
+#      否则每核验一个号就白下 500KB。
+#
+# ⚠️ 三态返回、且「认不出的页面」必须是 None 而【不是】空号：
+#   实测并发抓取会被限流，限流页的 title 既不是 Unknown Flight、也不是正常航班页；
+#   若把它当成空号，就会把真实航班号当空号发给用户——正是本功能要修的 bug。
+#   反方向（把空号误判成占用）只是多试一个号，无害。故判定从严：只有明确认出才下结论。
+
+_IDENT_URL = "https://www.flightaware.com/live/flight/%s"
+_IDENT_HEAD_BYTES = 16384        # 只读页面前 16KB —— title 一定在里面
+_IDENT_TIMEOUT = 8
+_IDENT_TTL = 86400               # 「某航班号是否存在」变化极慢，缓存一天足够
+_IDENT_CACHE = {}                # ident -> (fetched_at, bool)；只缓存有结论的（None 不入缓存）
+
+_T_UNKNOWN = "Unknown Flight"                                   # 查无此号
+_T_REAL = re.compile(r"Flight\s+Tracking\s+and\s+History", re.I)  # 正常航班页的固定尾巴
+
+
+def flight_number_exists(ident):
+    """该航班号现实中是否存在（FlightAware 认不认得这个号）。
+    True=真实存在（别用） / False=查无此号（可用） / None=判不了（限流·断网·改版，绝不当成可用）。"""
+    key = (ident or "").strip().upper()
+    if not key:
+        return None
+    hit = _IDENT_CACHE.get(key)
+    if hit and time.time() - hit[0] < _IDENT_TTL:
+        return hit[1]
+    try:
+        req = urllib.request.Request(_IDENT_URL % key, headers={'User-Agent': _UA})
+        with urllib.request.urlopen(req, timeout=_IDENT_TIMEOUT) as r:
+            head = r.read(_IDENT_HEAD_BYTES).decode('utf-8', errors='ignore')
+    except Exception:
+        return None
+    m = re.search(r"<title>(.*?)</title>", head, re.S | re.I)
+    if not m:
+        return None                                  # 连 title 都没有 → 不是我们认识的页面
+    title = m.group(1).strip()
+    if _T_UNKNOWN.lower() in title.lower():
+        result = False
+    elif _T_REAL.search(title):
+        result = True
+    else:
+        return None                                  # 限流页/改版页 → 判不了，不缓存
+    _IDENT_CACHE[key] = (time.time(), result)
+    return result

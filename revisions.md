@@ -16,6 +16,46 @@
 
 ---
 
+## v2.0.1 hotfix_2(✅ 2026-07-15)— F29 模拟呼号避开现实航班号
+
+### 问题
+无真实排班时降级生成的「模拟呼号」是 `code + randint(11, 899)`，**零核验**。用户实测发现该号可能撞上现实中真实存在的航班号——**连飞（VATSIM）时会干扰到正挂着该真实航班号飞的人**。
+
+### 实测（本次为定方案而做，样本见下）
+读 FlightAware ident 页判定「该号是否真实存在」，抽样各号段：
+
+| 号段（ANA） | 是真实航班号的比例 |
+| --- | --- |
+| **11–899（旧代码用的就是这段）** | **≈90–100%** |
+| 3000–3999 | 25% |
+| 9000–9999 | 50% |
+
+⇒ **过去几乎每一个生成的模拟呼号都在冒充真实航班**，是常态不是偶发；且**不存在"安全号段"**（连 9000–9999 都有一半被占），纯离线的号段启发式解决不了 → **必须联网核验**。
+
+短号段空号率**按航司差异极大且方向相反**（ANA 空在低位、JAL 空在高位）：ANA ≈10%、JAL ≈34%（600–899 达 75%）、ADO 90%、SNJ 80%。⇒ **不做子号段偏置**（样本量不足以支撑），随机无放回撒 + 足够预算即可。
+
+### 两个实测踩到的坑（已写进实现）
+1. **`Range` 头无效** —— 服务器忽略、照样回整页（456–536KB）。判据 `<title>` 在最前 16KB，故用 `r.read(16384)` **从 socket 主动截断**，否则每核验一个号白下 500KB。
+2. **并发抓取会被限流，且限流会污染判定** —— 4 线程连打时 JAL 14 抽全判"真实"（真值约 34%）；限流页的 title 既不是 `Unknown Flight` 也不是正常航班页。串行 + 间隔复测则稳定复现，对照组 ANA995/JAL907/JAL15 全部判真。⇒ **串行 + 三态判定**：认不出的页面一律 `None`（判不了），**绝不当成空号**——把空号误判成占用只是多试一次；把真实号误判成空号就是把 bug 放回去了。
+
+### 实现
+- **`flightaware.py` +`flight_number_exists(ident)`**：`https://www.flightaware.com/live/flight/<IDENT>`（**不存在也返回 HTTP 200**，只能看 title）→ `Unknown Flight`=空号 / `… Flight Tracking and History`=真实 / 其余=`None`。只读前 16KB；`_IDENT_TTL=86400` 按 ident 缓存（仿 `weather.py` 的「只缓存成功」），`None` 不入缓存。顺手把原先内联的 UA/timeout 提成模块常量。
+- **`airlines.py` +`pick_sim_callsign(code, exists_fn=…, on_try=…)`**：纯计算 + **注入谓词**（同 `routing.get_random_route(accept_fn=…)` 范式，网络留在编排层）。短号段 11–899 **无放回**抽、预算 `_SHORT_TRIES=18`（用户要"不轻易放宽"故给足）；**连续 3 次 `None` 即停**（限流/离线时别空转）；短段搜尽**才**放宽到 4 位并打印原因。返回 `(callsign, verified)`。
+- **`planner.py`**：`FlightPlan` +`sim_callsign_verified`；注入 `flight_number_exists` + 逐个进度打印（沿用 F27 `on_verify` 手感）。`_split_callsign` 已支持 1–4 位，4 位回退时 SimBrief `fltnum` 自动正确，无需改。
+- **`viewmodel.py`**：结果卡如实标注 `✅ 已核验：该号不与现实航班号重合` / `⚠️ 未能核验…请自行核对`——**绝不把未核验的说成已核验**。
+
+### 用户已定的取舍
+① 只避开**现实航班号**，不引入 VATSIM 在线呼号检查（不动外部依赖清单）；② **优先 2–3 位短号、不轻易放宽到 4 位**——理由是运行侧的：*4 位号连飞时管制不好记、机组不好读*。
+
+### 验证
+- `pick_sim_callsign` 纯逻辑单测 7 组（前 N 占用→取第 N+1、短段占满→放宽 4 位、恒 `None`→3 次即停不打满预算、无谓词→等同旧行为、无放回不重复、首个即中、进度回调）全绿。
+- `flight_number_exists` 实网：`ANA995`/`JAL907`→True，`JAL705`/`ANA9987`/`XXX1234`→False，不可达主机→None，二次调用 0.0ms 走缓存。
+- **端到端实网**：`RJER→RJTO`→`SKY607`（2 次命中，1.0s）、`RJDB→RJCC`→`JJP768`（1 次，0.8s）、`RJFE→RJFF`+ANA→`ANA45`（8 次，3.6s）；**每条都用 `flight_number_exists` 独立复核确认确实是空号**。
+- F29 回归 22 条断言全绿，含**「有真实排班时零次核验」**（不给正常规划加任何延迟）与「假 plan 对象无该属性不崩」。
+- ⚠️ 会话临时目录被清理，此前 8 套 headless 冒烟脚本（不在仓库内，见 CLAUDE.md「headless smoke scripts live in the session scratchpad」）已丢失；本次新建 `smoke_callsign.py`/`smoke_f29.py` 覆盖改动面。
+
+---
+
 ## v2.0.1 hotfix_1(✅ 2026-07-15，release 后热更新)— SID 默认选择 + 全段航路折返 + 滚动条归位
 
 发布 v2.0.1 后用户实飞 RJBB→RJFF（route `MAIKO OSRIX GUMID SOUJA Y281 STOUT Y20 KIRIN`）又报三处（`__version__`→`2.0.1_hotfix1`，v2.0.1 的 release 资产原地 `--clobber` 更新）：

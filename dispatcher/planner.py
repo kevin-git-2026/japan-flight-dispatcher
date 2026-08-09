@@ -8,8 +8,8 @@ import random
 from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
-from .flightaware import fetch_real_flights_with_filter
-from .airlines import pick_sim_airline
+from .flightaware import fetch_real_flights_with_filter, flight_number_exists
+from .airlines import pick_sim_airline, pick_sim_callsign
 from .aircraft import find_aircraft_id
 
 
@@ -24,6 +24,7 @@ class FlightPlan:
     real_flights: list = field(default_factory=list)     # FlightAware 排班字符串(最多 5 条)
     is_exact: bool = False                               # True=完美匹配 / False=仅参考排班
     sim_callsign: str = None                             # 无排班时降级生成的模拟呼号(否则 None)
+    sim_callsign_verified: bool = False                  # F29：该呼号是否【已核验】不与现实航班号重合
     url: str = ""                                        # FlightAware 完整排班表链接
     generated_route: str = None                          # 无 AIP 时本地 A* 生成的航路串(否则 None)
     generated_route_warn: str = None                     # 生成航路若有大锐角转弯的提示(否则 None)
@@ -108,10 +109,21 @@ def build_flight_plan(dep_obj, arr_obj, route_dist, route_details,
         dep_obj.code, arr_obj.code, user_airline, user_aircraft, user_time_range)
     url = f"https://flightaware.com/live/findflight?origin={dep_obj.code}&destination={arr_obj.code}"
     sim_callsign = None
+    sim_verified = False
     if not real_flights:
         # 无真实排班时降级：按航线两端所在大区挑一个合理航司（用户指定则优先用户的）
         code = user_airline or pick_sim_airline(dep_obj.code, arr_obj.code)
-        sim_callsign = f"{code}{random.randint(11, 899)}"
+        # F29：逐个核验候选号，避开【现实中真实存在的航班号】——否则连飞时会干扰到正挂该号飞的人。
+        # 网络谓词在此注入，airlines.pick_sim_callsign 本身保持纯计算。
+        def _on_try(cs_try, i, total):
+            print(f"🔎 为模拟呼号避开现实航班号：核实 {cs_try}…（第 {i}/{total} 个）")
+        sim_callsign, sim_verified = pick_sim_callsign(
+            code, exists_fn=flight_number_exists, on_try=_on_try)
+        if sim_verified:
+            print(f"✅ 模拟呼号 {sim_callsign}：已核验，不与现实航班号重合。")
+        else:
+            print(f"⚠️ 模拟呼号 {sim_callsign}：未能核验是否与现实航班号重合"
+                  "（断网/限流），连飞前请自行核对。")
     # F16：SimBrief 一键派遣链接——航司/航班号取真实排班首条或模拟呼号，机型规范化为 ICAO
     cs = real_flights[0].split()[0] if real_flights else (sim_callsign or "")
     sb_airline, sb_fltnum = _split_callsign(cs)
@@ -125,7 +137,7 @@ def build_flight_plan(dep_obj, arr_obj, route_dist, route_details,
     return FlightPlan(
         dep=dep_obj, arr=arr_obj, dist_nm=route_dist, flown_count=flown_count or 0,
         aip_routes=route_details, real_flights=real_flights, is_exact=is_exact,
-        sim_callsign=sim_callsign, url=url,
+        sim_callsign=sim_callsign, sim_callsign_verified=sim_verified, url=url,
         generated_route=generated_route, generated_route_warn=generated_route_warn,
         simbrief_url=sb_url,
         generated_route_dist=generated_route_dist, aip_route_dists=aip_route_dists,

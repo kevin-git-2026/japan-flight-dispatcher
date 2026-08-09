@@ -126,6 +126,11 @@ def result_spans(plan, has_map=True):
     else:
         ins("  ❌ 未找到排班，已降级生成模拟呼号", "nomatch")
         ins("（⚠️未必符合现实运行）: ", "muted"); ins(f"{plan.sim_callsign}\n", "callsign")
+        # F29：核验与否必须如实说——把未核验的说成已核验，等于把「冒充真实航班号」的风险瞒下来
+        if getattr(plan, "sim_callsign_verified", False):
+            ins("     ✅ 已核验：该号不与现实航班号重合（连飞不会与真实航班撞号）\n", "success")
+        else:
+            ins("     ⚠️ 未能核验该号是否与现实航班号重合（断网/限流），连飞前请自行核对\n", "warn")
 
     ins("\n  🔗 查看 FlightAware 完整排班表:\n", "label")
     ins("  ", "label"); ins(plan.url + "\n", "link", ("url", plan.url))
