@@ -44,6 +44,7 @@
    - `aircrafts.json`（机型库）
    - `transfer_points.json`（进离场移管点）
    - `operation.json`（机场运行规则，**已附带一套完整的羽田 RJTT 规则作样例**；可用「⚙️ 编辑机场运行规则」照着改写其它机场，删掉该文件即为空规则）
+   - `flight_blocks.json`（真实航班号号段表，模拟呼号据此选号；缺了它程序照常运行，只是模拟呼号只按奇偶规律选号）
 3. 双击 `flight_dispatcher.exe` 即可打开窗口。
 
 > 💡 程序首次运行会在同目录自动生成 `installed_scenery.json`、`airlines.json`、`routes_cache.csv` 等缓存 / 配置文件，属正常现象。
