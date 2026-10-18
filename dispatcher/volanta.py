@@ -3,7 +3,9 @@
 # 主路径：用浏览器里 Volanta 的登录会话(本机 localStorage 里的 Orbx token)直接调 /api/v1/Flights，
 #   一次拿到全部航班，解析出起降对后并入【单一数据文件 volanta_data.json】——完整、准确、高效。
 #   （已移除早期"对 IndexedDB 全盘正则扫描提取航线"的脆弱做法：V8 去重 + 网页懒加载导致它常不完整。
-#     `_read_leveldb_text` 予以保留，现仅用于读 localStorage leveldb 以取出登录令牌。）
+#     v2.0.1_hotfix3 又移除了「把 localStorage 的原始字节当文本、正则扫令牌」的 `_read_leveldb_text`：
+#     令牌一被 LevelDB 压缩进 .ldb 就再也匹配不到，且会被别站数据带崩。现改由 localstorage.py
+#     按 LevelDB 格式真正解析，并且只读 Volanta 自己来源下的键值。）
 # 所有 Volanta 持久化数据(同步偏好 + 已飞累积库 + 最后拉取时间)统一存 volanta_data.json，
 #   取代早期分散的 volanta_config.txt / volanta_flown.json / volanta_flights.json(首次运行自动迁移合并)。
 # 纯标准库实现；任何环节失败都优雅降级为「不启用」，绝不影响主流程。
@@ -13,45 +15,11 @@ import re
 import csv
 import json
 import time
+import urllib.error
 import urllib.request
 
 from .config import get_real_run_path
-
-
-def _read_leveldb_text(db_dir):
-    """读取一个 LevelDB 目录下所有 .log/.ldb 文件，拼接为 latin1 字符串。
-    浏览器运行时文件可能被占用：优先共享读(Windows 上 CPython 默认允许)，
-    失败则复制到临时文件再读。"""
-    parts = []
-    try:
-        names = os.listdir(db_dir)
-    except Exception:
-        return ""
-    for name in names:
-        if not (name.endswith(".log") or name.endswith(".ldb")):
-            continue
-        path = os.path.join(db_dir, name)
-        data = None
-        try:
-            with open(path, "rb") as f:
-                data = f.read()
-        except Exception:
-            # 兜底：被独占锁定时，复制一份再读
-            try:
-                import tempfile, shutil
-                tmp = os.path.join(tempfile.gettempdir(), "volanta_tmp_" + name)
-                shutil.copyfile(path, tmp)
-                with open(tmp, "rb") as f:
-                    data = f.read()
-                try:
-                    os.remove(tmp)
-                except Exception:
-                    pass
-            except Exception:
-                data = None
-        if data:
-            parts.append(data.decode("latin1", errors="ignore"))
-    return "".join(parts)
+from .localstorage import read_origin
 
 
 # ---- 统一数据文件 volanta_data.json：偏好 + 已飞累积库 + 最后拉取时间，三合一 ----
@@ -311,26 +279,30 @@ def _load_volanta_json(path):
 
 # ---- 通过浏览器登录会话直接拉取完整航班(本机、token 不外传) ----
 # 原理：Volanta(母公司 Orbx)登录后，会把一个【Orbx 签发的 API token】(JWT, iss="Orbx")存进浏览器
-# localStorage(有效期约 14 天)。取出它，在本机带 Authorization: Bearer 调 Volanta 自家的
+# localStorage 的 `authToken` 键(有效期约 14 天)。取出它，在本机带 Authorization: Bearer 调 Volanta 自家的
 # /api/v1/Flights，一次拿到全部航班，解析出起降对后并入 volanta_data.json——无需开发者工具、无需滚动。
 #   （注：Firebase idToken(iss=securetoken.google.com)会被 API 以「issuer invalid」拒绝，故不用它。）
 # ⚠️ 安全边界：
-#   - localStorage 是全站共享的，但本模块【只提取 iss=="Orbx" 且就近出现在 fly.volanta.app 来源附近】
-#     的令牌，绝不取用/记录/发送任何其它网站的令牌；
-#   - 取到的 token 仅在内存中用于这一次请求：绝不落盘、绝不发往除 api.volanta.app 以外任何地方；
+#   - localStorage 是全站共享的一个 LevelDB，但本模块【只读 https://fly.volanta.app 这一个来源】下的键值
+#     （localstorage.read_origin 扫描时就按来源区间过滤）：其它网站的数据【从不解码】，更不取用/记录/发送；
+#   - 取到的 token 仅在内存中用于这一次请求：绝不落盘（也不复制浏览器的库文件）、绝不打印、
+#     绝不发往除 api.volanta.app 以外任何地方；
 #   - 这与 yt-dlp 的 --cookies-from-browser 同类：读用户【自己】浏览器里【自己】的会话、访问【自己】的数据。
 
 _VOLANTA_API_URL = "https://api.volanta.app/api/v1/Flights"
+_VOLANTA_ORIGIN = "https://fly.volanta.app"
+_TOKEN_KEY = "authToken"                      # Volanta 网页存 Orbx 令牌所用的 localStorage 键
 _JWT_PAT = re.compile(r'(eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,})')
 
 
 def _jwt_payload(jwt):
-    """本地解出 JWT payload(dict)，不验签；失败返回 None。"""
+    """本地解出 JWT payload(dict)，不验签；解码失败或 payload 不是 dict(例如 JSON 数组)都返回 None。"""
     try:
         import base64
         p = jwt.split(".")[1]
         p += "=" * (-len(p) % 4)
-        return json.loads(base64.urlsafe_b64decode(p))
+        pl = json.loads(base64.urlsafe_b64decode(p))
+        return pl if isinstance(pl, dict) else None
     except Exception:
         return None
 
@@ -355,84 +327,135 @@ def _localstorage_leveldb_dirs():
     return dirs
 
 
-def _extract_volanta_api_token(text):
-    """从 localStorage 文本里取出 Volanta(Orbx)签发的、未过期、最新的 API token(JWT)。找不到返回 None。
-    严格限定：iss=="Orbx"(Volanta 母公司专属) 且其前方就近(3000 字符内)出现 fly.volanta.app 来源标记，
-    以确保是 Volanta 的 localStorage 条目——绝不取用其它网站的任何令牌。"""
-    best, best_exp = None, 0.0
-    for m in _JWT_PAT.finditer(text or ""):
-        jwt = m.group(1)
+def _token_candidates(items):
+    """Volanta 来源的 localStorage {键: 值} → [(jwt, payload)]。
+    主路径：`authToken` 里的 JWT——来源 + 键名已确定它就是 Volanta 自己的登录令牌，不再按签发方筛
+      （旧代码要求 iss=="Orbx"，只因它扫的是全站共享的整个库、得靠 iss 认出哪个是 Volanta 的）；
+    兜底：没有 `authToken` 时（防 Volanta 改键名），取同来源其它值里 iss=="Orbx" 的 JWT——
+      Volanta 来源下还可能存着别家的令牌（如它的 Navigraph 集成），那些绝不拿去发给 api.volanta.app。"""
+    out = []
+    for jwt in _JWT_PAT.findall(items.get(_TOKEN_KEY) or ""):
         pl = _jwt_payload(jwt)
-        if not pl or str(pl.get("iss")) != "Orbx":      # 仅 Orbx(Volanta)签发的
+        if pl:
+            out.append((jwt, pl))
+    if out:
+        return out
+    for val in items.values():
+        for jwt in _JWT_PAT.findall(val or ""):
+            pl = _jwt_payload(jwt)
+            if pl and str(pl.get("iss")) == "Orbx":
+                out.append((jwt, pl))
+    return out
+
+
+def _exp_of(pl):
+    """JWT 的 exp(unix 秒)；缺失或不是数字 → 0(按已过期处理)。"""
+    try:
+        return float(pl.get("exp") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _volanta_session():
+    """扫各 Chromium 配置里 Volanta 来源(fly.volanta.app)的 localStorage → (类别, token 或 None)。
+    类别含义见 diagnose_volanta_session()。多个配置都有可用令牌时取 exp 最晚的那个。
+    token 只在内存里交给调用方用于这一次请求；本函数绝不打印/记录/落盘它。"""
+    dirs = _localstorage_leveldb_dirs()
+    if not dirs:
+        return "no_dirs", None
+    now = time.time()
+    best, best_exp = None, 0.0
+    seen = set()
+    for d in dirs:
+        items = read_origin(d, _VOLANTA_ORIGIN)
+        if items is None:                     # 有数据文件却一个都解析不了
+            seen.add("unreadable")
             continue
-        exp = pl.get("exp", 0) or 0
-        if exp <= time.time() + 30:                      # 已过期/即将过期跳过
+        if not items:                         # 这个配置里没有 Volanta 的数据
             continue
-        window = text[max(0, m.start() - 3000):m.start()].lower()
-        if "volanta" not in window:                      # 就近来源校验：确属 fly.volanta.app
+        cands = _token_candidates(items)
+        if not cands:                         # 有 Volanta 数据但没有令牌：未登录 / 已登出 / 刚登录尚未落盘
+            seen.add("logged_out")
             continue
-        if exp > best_exp:
-            best, best_exp = jwt, exp
-    return best
+        for jwt, pl in cands:
+            exp = _exp_of(pl)
+            if exp <= now + 30:               # 已过期 / 即将过期
+                seen.add("orbx_expired")
+            elif exp > best_exp:
+                best, best_exp = jwt, exp
+    if best:
+        return "token_ok", best
+    # 多个配置结论不一时，报「最接近成功」的那个（例：Edge 里令牌过期、Chrome 里没数据 → 报过期）
+    for cat in ("orbx_expired", "logged_out", "unreadable"):
+        if cat in seen:
+            return cat, None
+    return "no_volanta", None
 
 
 def _fetch_volanta_flights_json(token, timeout=15):
-    """用 Orbx API token 在本机调 /api/v1/Flights，返回完整航班 JSON 文本；失败返回 None。
+    """用 Orbx API token 在本机调 /api/v1/Flights → (完整航班 JSON 文本, None)；失败 → (None, 原因)：
+      "http_<状态码>"(401/403 = 令牌被拒) / "network:<异常类型名>" / "decode"(gzip 或文本解码失败)。
     请求 gzip(标准库可解)以避开 br(无 brotli 解码)。token 只放在本次请求的 Authorization 头。"""
     req = urllib.request.Request(_VOLANTA_API_URL, headers={
         "Authorization": "Bearer " + token,
         "Accept": "application/json",
         "Accept-Encoding": "gzip",
         "User-Agent": "Mozilla/5.0",
-        "Origin": "https://fly.volanta.app",
+        "Origin": _VOLANTA_ORIGIN,
     })
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read()
-            if (r.headers.get("Content-Encoding") or "").lower() == "gzip":
-                import gzip
-                raw = gzip.decompress(raw)
-            return raw.decode("utf-8", "ignore")
-    except Exception:
-        return None
+            gz = (r.headers.get("Content-Encoding") or "").lower() == "gzip"
+    except urllib.error.HTTPError as e:
+        return None, "http_%d" % e.code
+    except Exception as e:                    # noqa: BLE001 — 超时 / DNS / 连接被拒等
+        return None, "network:" + type(e).__name__
+    try:
+        if gz:
+            import gzip
+            raw = gzip.decompress(raw)
+        return raw.decode("utf-8", "ignore"), None
+    except Exception:                         # noqa: BLE001
+        return None, "decode"
 
 
 def diagnose_volanta_session():
-    """只读、隐私安全地判断「此刻为什么读不到 Orbx 令牌」，返回一个【类别字符串】（绝不含任何令牌/payload）：
-      "token_ok"     可用 Orbx 令牌已在磁盘上（此刻应能同步）
+    """只读、隐私安全地判断「此刻能否读到 Volanta 登录令牌、读不到是为什么」，返回一个【类别字符串】
+    （绝不含任何令牌/payload）：
+      "token_ok"     可用令牌已在磁盘上（此刻应能同步）
       "no_dirs"      没找到 Chromium(Edge/Chrome/Brave) 的本地存储目录
-      "empty"        读到的本地存储为空（浏览器没运行过 Volanta）
-      "orbx_expired" 有 Orbx 令牌但已过期（需重新登录）
-      "no_orbx"      有数据但无可用 Orbx 令牌（多为：刚登录、令牌还没从内存写到磁盘；或未登录）
-    用于在日志里给出可操作提示。只产出类别，绝不打印/返回令牌本身。"""
-    dirs = _localstorage_leveldb_dirs()
-    if not dirs:
-        return "no_dirs"
-    saw_text = False
-    saw_orbx_expired = False
-    now = time.time()
-    for d in dirs:
-        text = _read_leveldb_text(d)
-        if text:
-            saw_text = True
-        if _extract_volanta_api_token(text):
-            return "token_ok"
-        for m in _JWT_PAT.finditer(text or ""):          # 找有没有「已过期的 Orbx 令牌」
-            pl = _jwt_payload(m.group(1))
-            if pl and str(pl.get("iss")) == "Orbx" and (pl.get("exp", 0) or 0) <= now:
-                saw_orbx_expired = True
-    if saw_orbx_expired:
-        return "orbx_expired"
-    return "no_orbx" if saw_text else "empty"
+      "no_volanta"   各浏览器里都没有 Volanta 的数据（在 Firefox 等别的浏览器登录的 / 从没用过）
+      "logged_out"   有 Volanta 数据但没有令牌（未登录 / 已登出 / 刚登录、令牌还没从内存写到磁盘）
+      "orbx_expired" 有令牌但已过期（需重新登录）
+      "unreadable"   本地存储有数据文件却解析不了（浏览器的存储格式可能变了）
+    与真正取令牌走同一套读取(_volanta_session)，诊断与实际行为不会各说各话。"""
+    try:
+        return _volanta_session()[0]
+    except Exception:                         # noqa: BLE001 — 诊断本身绝不能把调用方带崩
+        return "unreadable"
 
 
 # 诊断类别 → 面向用户的固定中文提示（GUI 把 stdout 接到日志区）。只用固定串，不插值任何浏览器数据。
 _DIAG_MSGS = {
     "no_dirs": "ℹ️ Volanta：未找到 Chromium 浏览器(Edge/Chrome/Brave)的本地存储，无法读取登录令牌。",
-    "empty": "ℹ️ Volanta：浏览器本地存储为空，请先在浏览器中登录 Volanta。",
-    "no_orbx": "⏳ Volanta：尚未读到登录令牌。若刚登录，令牌约需 30 秒~1 分钟才写入磁盘——请稍候，或在 Volanta 页面上滚动/点几下以加速。",
+    "no_volanta": "ℹ️ Volanta：浏览器里没有找到 Volanta 的数据。请在 Edge / Chrome / Brave 中登录 Volanta（暂不支持 Firefox 等其它浏览器）。",
+    "logged_out": "ℹ️ Volanta：尚未读到登录令牌，请在浏览器中登录 Volanta。若您刚登录，令牌约 1 分钟后才写入磁盘，请稍候。",
     "orbx_expired": "ℹ️ Volanta：登录令牌已过期，请在浏览器重新登录 Volanta。",
+    "unreadable": "⚠️ Volanta：无法解析浏览器的本地存储（浏览器的存储格式可能已变动），暂时读不到登录令牌。",
 }
+
+
+def _api_fail_msg(err):
+    """API 失败原因 → 固定中文提示。只插值 HTTP 状态码数字或异常类型名，绝不含令牌 / 请求头 / 响应内容。"""
+    err = err or ""
+    if err in ("http_401", "http_403"):
+        return "⚠️ Volanta：服务器拒绝了登录令牌（HTTP %s），请在浏览器重新登录 Volanta 后再同步。" % err[5:]
+    if err.startswith("http_"):
+        return "⚠️ Volanta：接口返回错误（HTTP %s），可能是服务端临时故障或接口变动，请稍后重试。" % err[5:]
+    if err.startswith("network:"):
+        return "⚠️ Volanta：网络请求失败（%s），请检查网络后重试。" % err.split(":", 1)[1]
+    return "⚠️ Volanta：API 返回内容无法解码（接口可能变动）。"
 
 
 def try_fetch_volanta_json_via_session(timeout=15, skip_if_fresh=0, diag=False):
@@ -440,7 +463,8 @@ def try_fetch_volanta_json_via_session(timeout=15, skip_if_fresh=0, diag=False):
     全程本机：读自己浏览器里自己的 Volanta(Orbx)token → 调 Volanta 自家 API → 存自己的飞行数据；token 不落盘、不外传。
     只在解析出 ≥1 条航线时才提交(原子写)，避免拿坏响应污染累积库。
     skip_if_fresh>0 时：若上次成功拉取距今不到该秒数，则跳过联网、直接返回 True(省流量/减少 API 调用)。
-    diag=True：失败时按 diagnose_volanta_session() 的类别打一行【固定】中文提示（只在调用方需要解释时开，避免轮询刷屏）。"""
+    diag=True：失败时打一行【固定】中文提示说明原因（只在调用方需要解释时开，避免轮询刷屏）。
+      v2.0.1_hotfix3 起任何失败都留一行原因——旧版把异常静默吞掉，同步坏了三个月，日志里一个字都没有。"""
     data = _load_data()
     if skip_if_fresh and data.get("fetched_at"):
         try:
@@ -449,21 +473,18 @@ def try_fetch_volanta_json_via_session(timeout=15, skip_if_fresh=0, diag=False):
         except Exception:
             pass
     try:
-        token = None
-        for d in _localstorage_leveldb_dirs():
-            token = _extract_volanta_api_token(_read_leveldb_text(d))
-            if token:
-                break
+        cat, token = _volanta_session()
         if not token:
             if diag:
-                _m = _DIAG_MSGS.get(diagnose_volanta_session())
+                _m = _DIAG_MSGS.get(cat)
                 if _m:
                     print(_m)
             return None
-        js_text = _fetch_volanta_flights_json(token, timeout=timeout)
+        js_text, err = _fetch_volanta_flights_json(token, timeout=timeout)
+        token = None                           # 用完即弃：令牌只为这一次请求存在
         if not js_text:
             if diag:
-                print("⚠️ Volanta：已读到登录令牌，但拉取 API 失败（可能是网络问题或接口变动）。")
+                print(_api_fail_msg(err))
             return None
         try:
             obj = json.loads(js_text)          # 必须是合法 JSON
@@ -480,8 +501,12 @@ def try_fetch_volanta_json_via_session(timeout=15, skip_if_fresh=0, diag=False):
         data["fetched_at"] = time.time()
         if _save_data(data):                   # 原子写入，确认落盘成功才算拉取成功
             return True
-    except Exception:
-        pass
+        if diag:
+            print("⚠️ Volanta：已拉取到数据，但写入 volanta_data.json 失败（文件可能被占用或只读）。")
+    except Exception as e:                     # noqa: BLE001 — 兜底不让主流程崩，但必须留下原因
+        if diag:
+            # 只打异常类型名，绝不打异常内容（内容理论上可能夹带数据）
+            print("⚠️ Volanta：同步过程出错（%s），已跳过本次同步。" % type(e).__name__)
     return None
 
 

@@ -15,8 +15,11 @@
 import os
 import json
 import random
+from types import SimpleNamespace
 
+from . import regions
 from .config import get_real_run_path
+from .routing import calculate_distance_nm
 
 _DATA_FILENAME = "airlines.json"
 _NATIONWIDE_TAG = "ALL"          # regions 含此标签 = 全国干线网络，处处可飞
@@ -175,12 +178,182 @@ _WIDE_TRIES = 8
 _UNKNOWN_GIVEUP = 3                   # 连续这么多次"判不了"→ 认定限流/离线，立刻停手，别空转
 
 
+# ---- F30（v2.0.1_hotfix3）：模拟呼号「像真的」——按日本航司的航班号范式排候选 ----
+#
+# 实测范式（1,628 个真实航班，详见 .claude/skills/route_planning/reference/flight_numbering.md）：
+#   ① 奇偶 = 走向：从「上位城市」出发为奇数（下り）、飞往上位城市为偶数（上り），跨航司几乎 100% 成立。
+#      上位 = 四个始发枢纽 东京 > 大阪 > 名古屋 > 福冈；其余机场（含札幌、那霸）按离东京远近，远端为「下」。
+#      航司例外：Peach 以大本营关西为上位；天马的神户不按枢纽算。全量 1,978 个号校验见 tools/build_flight_blocks.py。
+#   ② 每条航线占一个号段、按起飞时刻递增；JAL 等的百位数还编码地区（5xx 北海道、9xx 冲绳…）。
+#   ③ 空号藏在号段之间、甚至号段内部的空洞里：ANA 宫崎段 602–618 内的 606/607/611/615/616 都是空号。
+# 做法（用户提出的「锁定百位，十位个位自由变、个位奇偶由走向定」）：锁定该航司该类航线的「对口百位」，
+#   奇偶按走向，再【精确】扣掉 flight_blocks.json 里实测出现过的号码——不能按区间扣，否则③里的空洞会被一并扔掉。
+#   剩下的小集合（通常 9–20 个）在 18 次预算内几乎能穷举：ANA 6xx 奇数剩 9 个、其中 3 个空号（33%，盲抽约 5%）。
+# 这里只决定【先查哪些号】：是否「已核验」仍只认 exists_fn（FlightAware）的结论——可信点只有一个。
+
+_BLOCKS_FILENAME = "flight_blocks.json"
+# 奇偶用的「上位」等级：只有四个始发枢纽城市（从它们出发 = 奇数）；其余机场——【含札幌、那霸】——一律按
+# 离东京远近：远的一端是「下」，飞往它为奇数（实测仙台/广岛/松山→札幌、熊本/松山→那霸都是奇数，
+# 札幌、那霸是线路的远端而不是枢纽；把它们排进上位表曾让全量校验掉到 94.9%）。
+_CITY_RANK = {"RJTT": 0, "RJAA": 0, "RJAH": 0,          # 东京（羽田 / 成田 / 茨城——天马把茨城当东京）
+              "RJOO": 1, "RJBB": 1, "RJBE": 1,          # 大阪（伊丹 / 关西 / 神户）
+              "RJGG": 2, "RJNA": 2,                     # 名古屋（中部 / 小牧）
+              "RJFF": 3}                                # 福冈
+_OTHER_RANK = 9
+_AIRLINE_RANK_OVERRIDE = {"APJ": {"RJBB": -1},          # Peach 以大本营关西为上位（关西→成田为奇数）
+                          "SKY": {"RJBE": _OTHER_RANK}}  # 天马的神户不按枢纽算（仙台→神户为奇数）
+# 城市类别：供「对口百位」按（上位端城市, 下位端地区）匹配同类航线用，与奇偶等级无关——札幌、那霸仍各成一类
+_CITY_CLASS_OF = {"RJTT": "TYO", "RJAA": "TYO", "RJAH": "TYO", "RJOO": "OSA", "RJBB": "OSA", "RJBE": "OSA",
+                  "RJGG": "NGO", "RJNA": "NGO", "RJFF": "FUK", "RJCC": "SPK", "ROAH": "OKA"}
+_CLASS_ZH = {"TYO": "东京", "OSA": "大阪", "NGO": "名古屋", "FUK": "福冈", "SPK": "札幌", "OKA": "那霸"}
+_TOKYO = SimpleNamespace(lat_dd=35.5523, lon_dd=139.7798)   # 羽田：等级相同时按离东京远近定上下位
+_STYLE_LO, _STYLE_HI = 10, 999                          # 按范式选号时用全部 2–3 位号（9xx 冲绳线等也是真实惯用段）
+_MIN_HUNDRED_USE, _MIN_HUNDRED_SHARE = 3, 0.10          # 同类航线在某百位里至少用了这么多号，才算「对口百位」
+# 在一个锁定百位里连续撞上这么多个真号 → 换下一段。取 5 不取 3（用户定）：3 太容易漏掉小段里的空号——
+# ANA 6xx 奇数 9 个候选里有 3 个空号，前 3 个全是真号的概率 24%、前 5 个才 4.8%；真塞满的段最多白查 5 次就离开。
+_GROUP_GIVEUP = 5
+_BLOCKS = None                                          # flight_blocks.json 懒加载缓存
+
+
+def _rank(code, icao):
+    over = _AIRLINE_RANK_OVERRIDE.get((code or "").upper(), {})
+    icao = (icao or "").upper()
+    return over.get(icao, _CITY_RANK.get(icao, _OTHER_RANK))
+
+
+def _city_class(icao):
+    """机场所在城市类别（TYO/OSA/NGO/FUK/SPK/OKA，其它 None）。按机场本身定，不受航司覆盖影响
+    （Peach 把关西排到东京之上，但关西仍属大阪）。"""
+    return _CITY_CLASS_OF.get((icao or "").upper())
+
+
+def senior_junior(code, dep, arr):
+    """→ (上位端, 下位端)：城市等级高者为上位；等级相同按离东京远近（近者为上位）；仍分不出 → None。
+    dep/arr 需有 code / lat_dd / lon_dd（即 model.Airport）。"""
+    rd, ra = _rank(code, dep.code), _rank(code, arr.code)
+    if rd != ra:
+        return (dep, arr) if rd < ra else (arr, dep)
+    try:
+        dd, da = calculate_distance_nm(_TOKYO, dep), calculate_distance_nm(_TOKYO, arr)
+    except Exception:                                   # noqa: BLE001
+        return None
+    if abs(dd - da) < 1:
+        return None
+    return (dep, arr) if dd < da else (arr, dep)
+
+
+def direction_parity(code, dep, arr):
+    """走向 → 航班号奇偶：从上位城市出发 = 1（奇数，下り），飞往上位城市 = 0（偶数，上り），判不了 = None。"""
+    sj = senior_junior(code, dep, arr)
+    return None if sj is None else (1 if sj[0] is dep else 0)
+
+
+def _blocks():
+    """读运行目录的 flight_blocks.json（随包静态数据，tools/build_flight_blocks.py 生成）→
+    {航司: {"numbers": 全部实测号码, "routes": [(上位端类别, 下位端地区, 该航线号码), …]}}。缺失 / 损坏 → {}。"""
+    global _BLOCKS
+    if _BLOCKS is None:
+        out = {}
+        try:
+            with open(os.path.join(get_real_run_path(), _BLOCKS_FILENAME), "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            for r in raw.get("routes") or []:
+                code = str(r.get("airline") or "").upper()
+                raw_nums = (r.get("down") or []) + (r.get("up") or []) + (r.get("numbers") or [])  # 新格式分方向
+                nums = frozenset(n for n in raw_nums
+                                 if isinstance(n, int) and not isinstance(n, bool) and 0 < n < 10000)
+                if code and nums:
+                    a = out.setdefault(code, {"numbers": set(), "routes": []})
+                    a["numbers"] |= nums
+                    a["routes"].append((r.get("senior_class"), r.get("junior_region"), nums))
+        except Exception:                               # noqa: BLE001
+            out = {}
+        _BLOCKS = out
+    return _BLOCKS
+
+
+def _hundreds_label(h):
+    return "10–99" if h == 0 else "%dxx" % (h // 100)
+
+
+def callsign_style(code, dep, arr):
+    """按日本航司的航班号范式，给模拟呼号排好候选顺序（纯计算，不联网，绝不抛异常）。
+    → None（无从判断，调用方走旧的均匀抽号）或
+      {"parity": 1/0/None, "short": [候选组…], "wide": [候选组…], "why": 一行依据}
+    每个候选组由 pick_sim_callsign 组内打乱、按组的先后依次查：
+      先是「对口百位」各一组（同类航线用得最多的百位在前），最后一组是该号段里其余号；
+      所有组都只含奇偶正确、且不在实测真号里的号——已知的真号一个都不去查。"""
+    try:
+        return _callsign_style(code, dep, arr)
+    except Exception:                                   # noqa: BLE001
+        return None
+
+
+def _callsign_style(code, dep, arr):
+    code = (code or "").upper()
+    parity = direction_parity(code, dep, arr)
+    data = _blocks().get(code)
+    if parity is None and not data:
+        return None
+    known = data["numbers"] if data else frozenset()
+    sj = senior_junior(code, dep, arr)
+    s_cls = _city_class(sj[0].code) if sj else None
+    j_reg = regions.region_of(sj[1].lat_dd, sj[1].lon_dd) if sj else None
+
+    def ok(n):
+        return n not in known and (parity is None or n % 2 == parity)
+
+    def groups(lo, hi):
+        """→ (候选组列表, 对口百位, 匹配到的层级)。依次放宽：(类别,地区) → (任意,地区) → (类别,任意)。"""
+        usage, level = {}, None                         # 百位 → 同类航线在这个百位里用了几个号
+        if data:
+            for want_s, want_r, lv in ((s_cls, j_reg, "exact"), (None, j_reg, "region"), (s_cls, None, "class")):
+                if lv != "exact" and want_s is None and want_r is None:
+                    continue
+                for rs, rr, nums in data["routes"]:
+                    if (want_s is None or rs == want_s) and (want_r is None or rr == want_r):
+                        for n in nums:
+                            if lo <= n <= hi:
+                                usage[n // 100 * 100] = usage.get(n // 100 * 100, 0) + 1
+                if usage:
+                    level = lv
+                    break
+        # 用得最多的百位最像真的，排最前；只沾到零星几个号的百位不锁——多半是邻段的尾巴（如 ANA 九州线里
+        # 山口宇部段末尾的 700），锁了反而把一整段没把握的号排到真正对口的 6xx 前面。
+        top = max(usage.values()) if usage else 0
+        locked = []
+        for h, cnt in sorted(usage.items(), key=lambda hc: (-hc[1], hc[0])):
+            if cnt < max(_MIN_HUNDRED_USE, top * _MIN_HUNDRED_SHARE):
+                continue
+            cand = [n for n in range(max(h, lo), min(h + 99, hi) + 1) if ok(n)]
+            if cand:
+                locked.append((h, cand))
+        used = {n for _, cand in locked for n in cand}
+        rest = [n for n in range(lo, hi + 1) if ok(n) and n not in used]
+        return [cand for _, cand in locked] + ([rest] if rest else []), [h for h, _ in locked], level
+
+    short, short_h, level = groups(_STYLE_LO, _STYLE_HI)
+    wide, _wide_h, _ = groups(_WIDE_LO, _WIDE_HI)
+
+    parts = []
+    if short_h:
+        where = {"exact": "%s线" % j_reg if j_reg else "同类航线", "region": "%s线" % j_reg,
+                 "class": "%s线" % _CLASS_ZH.get(s_cls, "")}.get(level, "同类航线")
+        parts.append("%s惯用 %s 段" % (where, "/".join(_hundreds_label(h) for h in sorted(short_h))))
+    if parity is not None:
+        parts.append("从上位城市出发用奇数（下り）" if parity else "飞往上位城市用偶数（上り）")
+    why = ("🎭 模拟呼号按 %s 编号规律生成：%s。" % (code, "；".join(parts))) if parts else ""
+    return {"parity": parity, "short": short, "wide": wide, "why": why}
+
+
 def pick_sim_callsign(code, exists_fn=None, on_try=None,
-                      short_tries=_SHORT_TRIES, wide_tries=_WIDE_TRIES):
+                      short_tries=_SHORT_TRIES, wide_tries=_WIDE_TRIES, style=None):
     """生成模拟呼号，尽量不与现实中真实存在的航班号重合。
 
     exists_fn(callsign) -> True(真号,换) / False(空号,采用) / None(判不了)；不传 = 完全等同旧行为。
     on_try(callsign, i, total) 可选进度回调（UI 打日志用）。
+    style（F30，callsign_style 的返回值）：按航班号范式决定【先查哪些号】——候选组依次查、组内打乱；
+      在一组里连续撞上 _GROUP_GIVEUP 个真号就换下一组（最后一组不放弃）。不传 = 旧的均匀随机抽号。
     返回 (callsign, verified)：verified=True 仅当【确实核验过且确认是空号】——判不了/搜不到时
     照样给号但 verified=False，由调用方如实标注，绝不假装核验过。"""
     code = (code or "").upper()
@@ -188,23 +361,46 @@ def pick_sim_callsign(code, exists_fn=None, on_try=None,
         return "%s%d" % (code, random.randint(_SHORT_LO, _SHORT_HI)), False
 
     unknown = 0
-    for lo, hi, budget in ((_SHORT_LO, _SHORT_HI, short_tries), (_WIDE_LO, _WIDE_HI, wide_tries)):
-        pool = random.sample(range(lo, hi + 1), min(budget, hi - lo + 1))   # 无放回，不重复试同一个号
-        for i, n in enumerate(pool, 1):
-            cs = "%s%d" % (code, n)
-            if on_try:
-                on_try(cs, i, len(pool))
-            verdict = exists_fn(cs)
-            if verdict is False:
-                return cs, True                          # 空号 —— 采用
-            if verdict is None:
-                unknown += 1
-                if unknown >= _UNKNOWN_GIVEUP:           # 限流/断网 → 别空转，给号并如实标注未核验
-                    return cs, False
-            else:
+    spare = None                                        # F30：预算用完时给出的「像真的」4 位号（未核验）
+    for lo, hi, budget, groups in ((_SHORT_LO, _SHORT_HI, short_tries, (style or {}).get("short")),
+                                   (_WIDE_LO, _WIDE_HI, wide_tries, (style or {}).get("wide"))):
+        if groups:                                      # F30：组间保序、组内打乱（组间不重叠，故无重复）
+            order = [random.sample(list(g), len(g)) for g in groups]
+        else:                                           # 无 style → 旧的均匀无放回抽号（随机序列与旧版一致）
+            order = [random.sample(range(lo, hi + 1), min(budget, hi - lo + 1))]
+        total = min(budget, sum(len(g) for g in order))
+        probed = []
+        for gi, group in enumerate(order):
+            streak = 0                                  # 本组连续撞上真号的次数
+            for n in group:
+                if len(probed) >= budget:
+                    break
+                probed.append(n)
+                cs = "%s%d" % (code, n)
+                if on_try:
+                    on_try(cs, len(probed), total)
+                verdict = exists_fn(cs)
+                if verdict is False:
+                    return cs, True                      # 空号 —— 采用
+                if verdict is None:                      # 判不了：既不算撞号、也不清零连撞
+                    unknown += 1
+                    if unknown >= _UNKNOWN_GIVEUP:       # 限流/断网 → 别空转，给号并如实标注未核验
+                        return cs, False
+                    continue
                 unknown = 0
+                streak += 1
+                if groups and streak >= _GROUP_GIVEUP and gi < len(order) - 1:
+                    break                                # F30：这一段多半塞满了 → 换下一段
+            if len(probed) >= budget:
+                break
+        if groups and lo == _WIDE_LO:                   # 备一个没查过的、最像真的 4 位号（取最前面那组）
+            seen = set(probed)
+            spare = next((random.choice(rest) for rest in ([n for n in g if n not in seen] for g in groups)
+                          if rest), None)
         if lo == _SHORT_LO:                              # 短号段搜尽仍无空号 → 才放宽到 4 位
             print("ℹ️ %s 的 2–3 位号段已被现实航班号占满，改用 4 位号（仍会避开真实航班号）。" % code)
+    if spare is not None:                               # F30：仍按范式给一个像真的 4 位号（未核验）
+        return "%s%d" % (code, spare), False
     return "%s%d" % (code, random.randint(_WIDE_LO, _WIDE_HI)), False
 
 

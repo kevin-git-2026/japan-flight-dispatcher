@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
 from .flightaware import fetch_real_flights_with_filter, flight_number_exists
-from .airlines import pick_sim_airline, pick_sim_callsign
+from .airlines import pick_sim_airline, pick_sim_callsign, callsign_style
 from .aircraft import find_aircraft_id
 
 
@@ -117,8 +117,12 @@ def build_flight_plan(dep_obj, arr_obj, route_dist, route_details,
         # 网络谓词在此注入，airlines.pick_sim_callsign 本身保持纯计算。
         def _on_try(cs_try, i, total):
             print(f"🔎 为模拟呼号避开现实航班号：核实 {cs_try}…（第 {i}/{total} 个）")
+        # F30：按日本航司的航班号范式排候选（奇偶按走向、锁定对口百位、精确避开已知真号），既像真的、核验次数也少
+        style = callsign_style(code, dep_obj, arr_obj)
+        if style and style.get("why"):
+            print(style["why"])
         sim_callsign, sim_verified = pick_sim_callsign(
-            code, exists_fn=flight_number_exists, on_try=_on_try)
+            code, exists_fn=flight_number_exists, on_try=_on_try, style=style)
         if sim_verified:
             print(f"✅ 模拟呼号 {sim_callsign}：已核验，不与现实航班号重合。")
         else:

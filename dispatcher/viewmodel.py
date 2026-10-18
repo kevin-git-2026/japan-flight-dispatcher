@@ -391,6 +391,24 @@ def eobt_zulu_text(text):
     return ("→ SimBrief %02d%02dZ" % (u // 60, u % 60)) if u is not None else ""
 
 
+# EOBT 默认＝此刻 + 30 分钟：启动模拟器 + 做航前一般要半小时左右，直接拿「此刻」当撤轮挡时刻不现实（用户反馈）。
+EOBT_PREP_MIN = 30
+
+
+def default_eobt_min():
+    """默认 EOBT（当日 JST 分钟）＝此刻 + EOBT_PREP_MIN；过了午夜就落到次日凌晨（取模）。"""
+    return (weather.now_jst()[0] + EOBT_PREP_MIN) % 1440
+
+
+def eobt_weekday(eobt_min, now_min, now_wd):
+    """EOBT 只有钟点、不带日期 → 它是星期几（运行规则的星期闸门要用）。
+    默认按「今天」；但若它刚过午夜、且就在此刻之后 EOBT_PREP_MIN 分钟内——默认 EOBT 在 23:30 后跨午夜时正是如此——
+    那是明天，星期 +1。其余（含用户手填的更早钟点）照旧按今天。"""
+    if eobt_min < now_min and eobt_min + 1440 - now_min <= EOBT_PREP_MIN:
+        return now_wd % 7 + 1
+    return now_wd
+
+
 def aip_label(i, c):
     """AIP 航路下拉紧凑标签：[序号] 时段 · 距离 · 航路首…尾。"""
     restr = c.get("restr") or "全时段"
@@ -455,7 +473,7 @@ class ProcPanelModel:
                 self.nt_iaps[icao] = []
 
         self.apply_ops = True
-        nm, _wd = weather.now_jst()                      # EOBT 默认＝当前 JST（可改）
+        nm = default_eobt_min()                          # EOBT 默认＝当前 JST + 30 分钟（可改）
         self.eobt = "%02d%02d" % (nm // 60, nm % 60)
 
         self.sel_idx = 0
@@ -653,16 +671,17 @@ class ProcPanelModel:
         c = self.candidates[self.sel_idx]
         j = eobt_jst_min(self.eobt)
         now_min, now_wd = weather.now_jst()
-        dep_jst = j if j is not None else now_min
+        dep_jst = j if j is not None else default_eobt_min()          # EOBT 被清空 → 同默认值
+        dep_wd = eobt_weekday(dep_jst, now_min, now_wd)              # 默认 EOBT 跨午夜 → 是明天
         try:
             dist = c.get("dist") or self.dist_nm or 0
             _eu, eta_utc = timed.plan_times_utc(dep_jst, dist)
             eta_jst = (eta_utc + 540) % 1440
         except Exception:
             eta_jst = dep_jst
-        arr_wd = now_wd if eta_jst >= dep_jst else (now_wd % 7 + 1)   # 到达跨午夜 → 星期 +1
+        arr_wd = dep_wd if eta_jst >= dep_jst else (dep_wd % 7 + 1)   # 到达跨午夜 → 星期 +1
         self._apply_ops_side("dep", self.dep_icao, c.get("dep_rows", []),
-                             {"jst_min": dep_jst, "weekday": now_wd, "wind": self.wind["dep"],
+                             {"jst_min": dep_jst, "weekday": dep_wd, "wind": self.wind["dep"],
                               "sky_layers": self.sky["dep"][0], "vis_m": self.sky["dep"][1]}, "SID")
         self._apply_ops_side("arr", self.arr_icao, c.get("arr_rows", []),
                              {"jst_min": eta_jst, "weekday": arr_wd, "wind": self.wind["arr"],

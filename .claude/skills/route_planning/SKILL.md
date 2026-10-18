@@ -34,6 +34,7 @@ description: >-
 | IAP（其 IAF/IF 供 enroute 用） | [reference/iap.md](reference/iap.md) |
 | **方向航路模板**（8 方向常见 AIP 走廊；选路/干线/方向参考） | [reference/route_templates.md](reference/route_templates.md) |
 | **进场/离场移交点**（各机场进场门/离场头，VATJPN SOP；进场端点权威源） | [reference/transfer_points.md](reference/transfer_points.md) |
+| **航班号命名范式**（奇偶 = 走向、一条航线一个号段、JAL 百位 = 地区；模拟呼号选号依据） | [reference/flight_numbering.md](reference/flight_numbering.md) |
 
 ## 二、enroute 决策树（核心，详见 enroute.md）
 
@@ -58,3 +59,4 @@ description: >-
 - **本场 VOR ≠ section==D 的任意 VOR**：本场 VOR 是场内/跑道旁、引导回场的 VOR（RJTT 是 TTE，不是 feeder VOR XAC）；按坐标取距机场最近的 VOR/DME 来定（见 cifp_format.md「本场 VOR 辨识」）。
 - **两个 "IF" 别混**：path&terminator 的 IF=Initial Fix（航段类型，SID/STAR/APPCH 首段都用）；描述码第4位的 I=IF=Intermediate Fix（进近中间定位点，**仅 IAP**）。
 - **分时段的 Aircraft/Altitude 列是脏自由文本**，机型/高度只能按时间过滤后留给用户自选，勿程序自动选唯一（见 enroute.md）。
+- **航班号先定奇偶**：离开东京方向用奇数（下り）、朝东京方向用偶数（上り）。先比四个始发枢纽（东京 > 大阪 > 名古屋 > 福冈）；其余机场——**含札幌、那霸**——按离东京远近，飞往远端为奇数。Peach 以关西为上位，天马把茨城当东京、不把神户当枢纽；全量实测 98.7%。号码再落进该航司同地区航线惯用的百位段才像真的。空号藏在号段内部的空洞里，避开真号要**按确切号码**扣、不能按区间扣（见 [flight_numbering.md](reference/flight_numbering.md)）。

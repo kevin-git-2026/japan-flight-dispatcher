@@ -384,7 +384,12 @@ def volanta_sync(cancel_evt, on_status, on_popup):
             if (not popup2_done) and waited >= 60:        # 约 1 分钟仍无 → 弹窗②升级引导
                 popup2_done = True
                 on_popup("slow")
-        return "cancelled" if cancel_evt.is_set() else "timeout"
+        if cancel_evt.is_set():
+            return "cancelled"
+        # 超时前最后再试一次并打开 diag：仍取不到就在日志里留一行原因（例如在别的浏览器登录了）
+        if try_fetch_volanta_json_via_session(diag=True):
+            return "synced"
+        return "timeout"
     except Exception as e:                                # noqa: BLE001
         return "error:%s" % e
 

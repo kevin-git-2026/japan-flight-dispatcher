@@ -239,7 +239,7 @@ class DispatcherApp:
         if not m or not m.show_aip_row:
             return
         tm = VM.AipTableModel(m.candidates, m.sel_idx, m.strict_ops)
-        tm.eobt = m.eobt                                 # 用面板的 EOBT（默认当前 JST）预填，省得重敲
+        tm.eobt = m.eobt                                 # 用面板的 EOBT（默认＝当前 JST + 30 分钟）预填，省得重敲
         self.aip_dialog.open(tm, m.dep_icao, m.arr_icao)
 
     # ---------- 地图 ----------

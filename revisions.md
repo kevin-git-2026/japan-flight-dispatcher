@@ -16,6 +16,138 @@
 
 ---
 
+## v2.0.1 hotfix_3(✅ 2026-10-17)— Volanta 同步失效修复：令牌读取改为真正解析 LevelDB · EOBT 默认 = 当前 + 30 分钟 · F30 模拟呼号按真实编号范式选号
+
+### 问题
+用户反馈「最近一段时间同步不上 Volanta 历史记录」，怀疑是 Orbx API 通信问题。在用户本机做只读诊断（全程不打印令牌，只看 iss/aud/exp、文件元数据与计数），结论：**Orbx API 完全正常，坏在本地读令牌**。两个 bug 任一都足以让同步失败，外加异常被静默吞掉、日志零提示。
+
+- **时间线**：`volanta_data.json` 的 `fetched_at` 停在 **2026-07-14**；用户 08-11、10-17 19:01 各登录过一次，都产生了有效令牌，此后都没同步成功。本地库停在 203 航线 / 258 次，而 API 实际已有 271 / 354。
+- **API 正常**：用正确的令牌 GET `/api/v1/Flights` → 200、gzip、361 条，结构未变（`flight.originIcao/destinationIcao`），`_counts_from_flights_obj` 原样可解析。
+
+### 根因（在用户的 Edge Default 配置上实证）
+1. **令牌被压缩后就看不见（主因）**。Volanta 把令牌存在 localStorage 的 `authToken` 键。浏览器的 Local Storage 是 LevelDB：新写入先进未压缩的 `.log`，浏览器重启 / 日志写满时并入 `.ldb` 表文件，数据块经 **Snappy 压缩**（用户的库 42.8 MB、25,216 个键，2866 个块里 2764 个是压缩的）。旧 `_read_leveldb_text` 把所有文件的原始字节按 latin1 拼成文本再正则扫 JWT——压缩后令牌被 copy 标签切碎，**永远匹配不到**。实测当天 19:01 签发的有效令牌就在 `072740.ldb` 的一个压缩块里，旧扫描找到的 Orbx 令牌数为 **0**。过去只有「刚登录、令牌还在 `.log`」那几分钟读得到；启动自动同步多发生在浏览器重启之后，那时令牌早已被压缩。
+2. **被别站数据带崩（让它彻底失效）**。旧代码解码库里**所有网站**长得像 JWT 的串。另一网站（非 Volanta）的一条真实记录（sequence 1922671，写于 08-11 之后）含一个 payload 解码为 **JSON 数组**的 JWT 形串 → `_jwt_payload` 原样返回 list → `pl.get("iss")` 抛 `AttributeError` → 被 `try_fetch_volanta_json_via_session` 的 `except Exception: pass` **静默吞掉**，且发生在打印诊断之前。启动同步、快路径、每 3 秒的轮询**次次失败、零日志**；`diagnose_volanta_session()` 本身也直接崩。
+3. **附带**：诊断类别 `no_orbx` 的提示让用户「稍候 / 在页面上滚动以加速落盘」——令牌已在压缩表里时，等多久都没用。
+
+### 实现
+- **文件**：`dispatcher/localstorage.py`（新模块，纯 stdlib、只读）
+  - **类型**：新增
+  - **源码**：
+    ```python
+    def read_origin(db_dir, origin):          # → {键名: 值}；{} = 能读但该来源无数据；None = 有数据文件却都解析不了
+        lo, hi = origin_range(origin)         # 键区间 [b"_<origin>\x00", b"_<origin>\x01")
+        for name in os.listdir(db_dir):       # .ldb/.sst → _table_records；.log → _log_records
+            ...                               # 所有文件按 sequence 取最大、删除墓碑生效；其它来源从不解码
+    ```
+  - **说明**：真正按 LevelDB 格式解析。`.log`：32 KiB 分块、FULL/FIRST/MIDDLE/LAST 重组 WriteBatch，残缺尾部与越块记录按 LevelDB 自己读取器的判据处理（后面还有块 → 只丢本块；已是最后一块 → 视为正在写、到此为止），未知 tag 放弃本批余下。`.ldb/.sst`：footer magic（顺带挡住写到一半的表）→ index 块 → 首个分隔键 ≥ 前缀的数据块 → **跨块**向后扫到前缀结束（同一键的多个版本可能横跨相邻块）；块尾压缩字节 0 原样 / 1 Snappy / 其它（如 zstd）只跳过该块。约 40 行的 Snappy 解压，重叠复制按周期延拓（与逐字节等价，冒烟对拍）。**不复制、不加锁、不写任何文件**。实测用户 42.8 MB 的库，6 个配置合计单次 0.40 秒，远低于预设的 1.5 秒门槛，故**没有加 index 缓存**。
+- **文件**：`dispatcher/volanta.py`
+  - **类型**：删除 + 新增 + 修改
+  - **源码**（取令牌）：
+    ```python
+    # before：全库原始字节 → 正则 → 就近 3000 字符内出现 "volanta" 且 iss=="Orbx"
+    for d in _localstorage_leveldb_dirs():
+        token = _extract_volanta_api_token(_read_leveldb_text(d))
+    # after：只读 fly.volanta.app 来源；类别与令牌一次给出，诊断与实际行为共用同一套读取
+    cat, token = _volanta_session()
+    ```
+  - **源码**（`_jwt_payload`）：`return json.loads(...)` → `pl = json.loads(...)`；`return pl if isinstance(pl, dict) else None`
+  - **源码**（兜底异常）：`except Exception: pass` → `except Exception as e:`，`diag` 时打印 `"⚠️ Volanta：同步过程出错（%s），已跳过本次同步。" % type(e).__name__`（只打类型名，不打内容）
+  - **说明**：
+    - 删除 `_read_leveldb_text`（连同「文件被锁就复制到 %TEMP% 再读」的兜底——复制会把明文令牌写到磁盘；实测 Edge 开着时直接共享读即可）、`_extract_volanta_api_token` 与 3000 字符就近启发式。
+    - 新增 `_token_candidates`：优先取 `authToken` 里的 JWT，**不再按签发方筛**——来源 + 键名已认定它是 Volanta 的，旧的 iss 筛只是全库扫描时用来认人的替代品；没有 `authToken` 时兜底取同来源里 `iss=="Orbx"` 的 JWT（防 Volanta 改键名；同来源下别家的令牌如 Navigraph 绝不取用）。多个配置取 exp 最晚的。
+    - `diagnose_volanta_session()` 类别改为 `token_ok / no_dirs / no_volanta / logged_out / orbx_expired / unreadable`；多个配置结论不一时取最接近成功者（过期 > 未登录 > 无法解析 > 无数据）。`_DIAG_MSGS` 同步改写（用「您」），`logged_out` 只保留一句「若刚登录，约 1 分钟后才写入磁盘」。
+    - `_fetch_volanta_flights_json` 改为返回 `(text, err)`：`http_<码>` / `network:<异常类型名>` / `decode`，由 `_api_fail_msg` 给出固定提示（401/403 = 令牌被拒，请重新登录）。落盘失败也打一行。
+- **文件**：`dispatcher/controller.py` → `volanta_sync`
+  - **类型**：修改
+  - **源码**：`return "cancelled" if cancel_evt.is_set() else "timeout"` → 取消照旧返回 `cancelled`；超时前**再带 diag 试一次**，成功即 `synced`，否则日志里留一行原因再返回 `timeout`。
+  - **说明**：两个弹窗不变——刚登录时「内存 → 磁盘」的落盘延迟依然真实存在，过时的只是那条误导性的诊断提示。
+- **文件**：`dispatcher/__init__.py` → `__version__ = "2.0.1_hotfix3"`（沿用「不升版本号」的约定）。
+
+### 已知局限
+- **不解析 MANIFEST**（哪些表文件仍有效），直接合并目录里现有的全部文件。极少数情况下，登出后的删除记录已被合并掉、而一个过时的旧表文件尚未从磁盘删除，诊断可能把旧令牌报成 `token_ok` / `orbx_expired`。拉取本身仍安全：有 exp 校验，被拒（401）会提示重新登录。
+- 多个浏览器配置里登录了不同 Volanta 账号时，取 exp 最晚的那个。
+- 仍只支持 Chromium 系浏览器（Firefox 等属下一轮跨平台）。若 Chromium 日后把块压缩换成 zstd 等，会降级为「无法解析」而不是崩溃。
+
+### 验证
+- **headless 冒烟 90/90**（`smoke_volanta_ls.py`，会话 scratchpad；夹具全由测试端的 LevelDB 写入器 + Snappy 压缩器生成，JWT 全是未签名假货）：
+  - Snappy：各种标签、长字面量 60–63、重叠复制与逐字节参考实现对拍、8 种非法输入。
+  - LevelDB：多版本分布在两张表、删除墓碑、来源区间跨块、同一键 41 个版本跨块、日志 FIRST/MIDDLE/LAST、零填充、零类型区、越块损坏记录、未知 tag、截断尾、未知压缩块、写到一半的表、UTF-16 的键与值、存储分区键不越界。
+  - volanta：6 个诊断类别、多配置优先级与取 exp 最晚、改键名兜底、不取 Navigraph 令牌、**别站数组 payload（Bug 2 复现）不崩**。
+  - 本地 HTTP 服务端到端：令牌确实进了请求头、合并正确、令牌没写进 `volanta_data.json`；401/403/500/坏 gzip/非 JSON/零航线/网络错误各有对应提示；意外异常只报类型名。
+  - controller：超时收尾再试一次（带 diag）、取消时不收尾。
+  - **全部诊断输出里查不到任何令牌或 payload 段**。
+- **实机只读**（Edge 开着）：`diagnose_volanta_session()` → `token_ok`；6 个配置合计单次 0.40 秒。
+- **实机同步**（先备份 `volanta_data.json`）：203 → **273** 航线、258 → **358** 次。比 API 当前的 271 / 354 多出的 2 条航线（4 次）是库里原有、API 当前结果里没有的——航线键取并集、只增不减，符合设计；旧键全部保留，无一条次数被下调。
+
+### 另：EOBT 默认改为「当前 JST + 30 分钟」（用户反馈）
+- **问题**：进离场面板的 EOBT 默认填「此刻」。但启动模拟器 + 做航前一般要半小时左右，直接拿此刻当撤轮挡时刻不现实。F21 AIP 航路选择弹窗沿用面板的 EOBT 预填，SimBrief 链接的 `deph/depm` 也取它，三处一起偏早。
+- **文件**：`dispatcher/viewmodel.py`
+  - **类型**：新增 + 修改
+  - **源码**：
+    ```python
+    # before（ProcPanelModel.__init__）
+    nm, _wd = weather.now_jst()                      # EOBT 默认＝当前 JST（可改）
+    # after
+    EOBT_PREP_MIN = 30
+    def default_eobt_min():
+        return (weather.now_jst()[0] + EOBT_PREP_MIN) % 1440
+    nm = default_eobt_min()                          # EOBT 默认＝当前 JST + 30 分钟（可改）
+    ```
+    ```python
+    # _apply_ops：EOBT 被清空时的兜底改用同一个默认值；离场星期改由 eobt_weekday 判定
+    dep_jst = j if j is not None else default_eobt_min()     # before: … else now_min
+    dep_wd = eobt_weekday(dep_jst, now_min, now_wd)          # before: 恒用 now_wd
+    arr_wd = dep_wd if eta_jst >= dep_jst else (dep_wd % 7 + 1)
+    ```
+  - **说明**：+30 分钟后可能**跨午夜**（23:30 起）。随包的羽田规则 52 条里有 27 条带星期闸门（深夜運用等），而旧逻辑恒按「今天」取星期，默认值 00:15 会被当成当天的 00:15 去匹配。`eobt_weekday` 只在「EOBT 刚过午夜、且就在此刻之后 30 分钟内」时把星期 +1——正是默认值跨午夜的情形；用户手填的其它钟点照旧按今天，不改原有语义。到达星期改为相对离场星期推算。
+- **文件**：`dispatcher/ui_flet/app.py` 只改注释（F21 弹窗预填的就是面板的 EOBT，逻辑不用动）。
+- **验证**：headless 冒烟 21/21（`smoke_eobt_default.py`，冻结时钟）：
+  - 默认值：10:00→10:30、07:45→08:15、23:29→23:59、23:30→00:00、23:45→00:15、23:59→00:29、00:00→00:30；
+  - 星期判定：默认值跨午夜进位到明天；手填更早的钟点、跨午夜但超出 30 分钟窗口的，仍按今天；
+  - 规则引擎实际拿到的 ctx：周日 23:45 → 离场 00:15 周一、到达也在周一；EOBT 被清空 → 按默认值；离场周六 23:50 且 ETA 过午夜 → 到达周日。
+  - SimBrief：默认 10:30 JST → `0130Z`。
+
+### 另：F30 模拟呼号按真实航班号范式选号（用户提出「锁定百位」）
+- **起因**：用户问能否按日本航司的航班号规律让模拟呼号更像真的，并借此缩小抽号范围。用 FlightAware findflight 实测归纳出范式（详见 `.claude/skills/route_planning/reference/flight_numbering.md`）：奇偶 = 走向；一条航线一个号段、按时刻递增；JAL 百位 = 地区。
+- **现状基线**（程序自己的 `pick_sim_airline` + `pick_sim_callsign` + 真实核验，20 组随机机场）：每抽一个号撞上真号 78%（ANA 92%、JAL 64%），平均核验 4.5 次 / 3.0 秒，2/20 降级到 4 位号；最终给出的号 20/20 都核验为空号。
+- **关键实测**：
+  - 整百位全扫：ANA 600–699 剩 6 个空号（600、606、607、611、615、616），JAL 500–599 剩 17 个——号段并没有满；
+  - **空号藏在号段内部的空洞里**（ANA 606–616 在宫崎段 602–618 之内），所以避开真号要按**确切号码**扣。最初按区间扣的「间隙」方案在 ANA 上只得 4%；
+  - 锁定对口百位 + 定奇偶 + 精确扣掉真号后：ANA 6xx 奇数剩 9 个候选、其中 3 个空号（33%）；JAL 5xx 奇数剩 16 个、其中 8 个空号（50%）。
+- **文件**：`dispatcher/airlines.py`
+  - **类型**：新增 + 修改
+  - **源码**：
+    ```python
+    # 新增：奇偶规则、按范式排好的候选
+    def direction_parity(code, dep, arr): …        # 1 奇 / 0 偶 / None
+    def callsign_style(code, dep, arr): …          # {parity, short: [候选组…], wide: [候选组…], why}
+    # 修改：pick_sim_callsign 多一个 style 参数
+    # before
+    pool = random.sample(range(lo, hi + 1), min(budget, hi - lo + 1))
+    # after（有 style 时）
+    order = [random.sample(list(g), len(g)) for g in groups]          # 组间保序、组内打乱
+    if groups and streak >= _GROUP_GIVEUP and gi < len(order) - 1:    # 连撞 5 个真号 → 换下一段
+        break
+    ```
+  - **说明**：
+    - 奇偶：四个始发枢纽（东京含茨城 > 大阪 > 名古屋 > 福冈）先比，其余机场——含札幌、那霸——按离东京远近，远端为「下」；Peach 以关西为上位，天马的神户不按枢纽算。最初把札幌、那霸排进上位表，全量校验只有 94.9%（仙台 / 广岛→札幌、熊本→那霸其实都是奇数），改后 98.7%。
+    - 对口百位：按（上位端城市类别, 下位端地区）找同类航线所用的百位，依次放宽；按用量排序，只沾到零星几个号的百位不锁。这是冒烟测试抓到的：ANA 九州线里山口宇部段的尾号 700，曾让整个 7xx 排到 6xx 前面。
+    - 连撞换段：用户定 5 而不是 3。9 选 3 的段被提前放弃的概率，取 3 时 24%、取 5 时 4.8%（冒烟统计找到率 95.2%，与理论一致）。
+    - `style=None` 时随机序列与旧版完全一致；是否「已核验」仍只认 FlightAware 的逐号结论。
+- **文件**：`dispatcher/flightaware.py` — findflight 解析抽成 `_findflight_data` / `_direct_legs` / `_ident_of`，`fetch_real_flights_with_filter` 改为调用它们（行为不变，冒烟对拍）；新增 `findflight_direct_idents`，供脚本复用同一套正则。
+- **文件**：`dispatcher/planner.py` — 算出 style 传给 `pick_sim_callsign`，并打印一行依据，例如「🎭 模拟呼号按 JAL 编号规律生成：北海道线惯用 5xx 段；从上位城市出发用奇数（下り）」。
+- **新增**：`tools/build_flight_blocks.py`（入库）+ `flight_blocks.json`（随包静态数据）。
+  - 采样 `routes_cache.csv` 里全部 311 对 AIP 航线（622 次请求、约 15 分钟）；号码按方向分存（down / up），改规则后 `--revalidate` 可离线重验。
+  - 第一版只采了 73 对，Peach 等航司大量航线漏采，锁定百位反而撞进未收录的真号（Peach 每抽撞号 29%→64%）——覆盖率是这套方法的前提。
+  - 当前表：279 条航线、1,978 个号，奇偶校验 98.7%。
+- **验证**：
+  - 逻辑冒烟（`smoke_f30.py`，合成号段表 + 假核验）：奇偶 23 例；对口百位与精确扣号；连撞换段（合成组精确验证，9 选 3 统计找到率 95.2%）；预算 / 放弃逻辑 / 只认 False 才算已核验；`style=None` 旧行为；`_direct_legs` 重构对拍。
+  - 实机：与基线完全相同的 20 组（航线, 航司）——每抽撞真号 78%→**64%**，平均核验 4.5→**2.8** 次，耗时 3.0→**1.9** 秒，降级 4 位 2/20→1/20；ANA 核验 11.8→6.0 次，JAL 2.8→1.9 次，Peach 1.4→1.6 次。
+  - 展示航线：羽田→中标津 JAL535 / ANA43、羽田→五岛福江 ANA607、羽田→仙台 SKY743 / ADO69。选出的 26 个号清空缓存后复核，全部仍是空号。
+- **已知局限**：号段表是某一天的快照，其它日子的航班、近期停用的号、国际线都不在表里——所以仍逐号核验，并在连撞 5 个后换段。ANA 的 2–3 位号确实接近饱和，部分航线仍会降级到 4 位号（降级时也按范式取 1xxx 等段）。
+
+---
+
 ## v2.0.1 hotfix_2(✅ 2026-07-15)— F29 模拟呼号避开现实航班号
 
 ### 问题

@@ -5,6 +5,7 @@
 # 本模块有两条【互相独立】的 FlightAware 抓取：
 #   ① fetch_real_flights_with_filter —— 按【航线】查排班（findflight 页，内嵌 JSON）
 #   ② flight_number_exists           —— 按【航班号】查该号现实中是否存在（ident 页，看 <title>）F29
+#   （①的解析另以 findflight_direct_idents 暴露，供 tools/build_flight_blocks.py 离线生成航班号表 F30）
 
 import re
 import json
@@ -55,55 +56,85 @@ def parse_user_time_range(range_str):
 
 
 # ---- 核心 JSON 过滤爬虫 ----
+# findflight 页的解析（脆弱耦合点：内嵌的 FA.findflight.resultsContent）只维护这一份：
+# 运行时的 fetch_real_flights_with_filter 与离线的 tools/build_flight_blocks.py（生成 flight_blocks.json）共用。
+
+_FINDFLIGHT_URL = "https://flightaware.com/live/findflight?origin=%s&destination=%s"
+_FINDFLIGHT_JSON = re.compile(r'FA\.findflight\.resultsContent\s*=\s*(\[\{.*?\}\])\s*;', re.DOTALL)
+
+
+def _findflight_data(dep_icao, arr_icao):
+    """抓 findflight 页、取出内嵌 JSON（每条 = 一个航段 leg）。页面里找不到 → None；网络异常照常抛出。"""
+    req = urllib.request.Request(_FINDFLIGHT_URL % (dep_icao, arr_icao), headers={'User-Agent': _UA})
+    with urllib.request.urlopen(req, timeout=_TIMEOUT) as response:
+        html = response.read().decode('utf-8', errors='ignore')
+    json_match = _FINDFLIGHT_JSON.search(html)
+    return json.loads(json_match.group(1)) if json_match else None
+
+
+def _direct_legs(flights_data):
+    """只留「直飞」：findflight 每条结果是一个航段(leg)，带 origin/destination(IATA)。中转联程被拆成多段——
+    首段 dep→中转城市(带 connectionCity)、后续段→到达(带 layoverDuration)。旧代码不看起止，把某一段误当直飞。
+    两端 IATA 直接从数据自身推：dep=首条结果的 origin；arr=第一条【行程】最后一段的 destination
+    （行程按段依次排列，下一条行程又从 dep 起，故 origin 再次==dep 即换了行程）。缺该字段(FA 改版)则不过滤、保持旧行为。"""
+    has_od = bool(flights_data) and "origin" in flights_data[0] and "destination" in flights_data[0]
+    if not has_od:
+        return list(flights_data or [])
+    dep_iata = flights_data[0].get("origin")
+    arr_iata = flights_data[0].get("destination")
+    for fl in flights_data[1:]:
+        if fl.get("origin") == dep_iata:                    # 下一条行程开始 → 第一条行程结束
+            break
+        arr_iata = fl.get("destination")                    # 续段：全程到达随之推进到本段目的地
+    return [fl for fl in flights_data                       # 跳过中转联程的分段（本段起止≠全程起止）
+            if fl.get("origin") == dep_iata and fl.get("destination") == arr_iata]
+
+
+def _clean_html(raw_html):
+    if not raw_html: return ""
+    return re.sub(r'<[^>]+>', '', raw_html.replace("&nbsp;", " ")).strip()
+
+
+def _ident_of(flight):
+    """航段 → 航班号（如 'JAL501'）：取 flightIdent 链接里的文字，没有链接就去掉 HTML 标签。"""
+    ident_raw = flight.get("flightIdent", "")
+    ident_match = re.search(r'>([A-Za-z0-9]+)</a>', ident_raw)
+    return ident_match.group(1).upper() if ident_match else _clean_html(ident_raw).upper()
+
+
+def findflight_direct_idents(dep_icao, arr_icao):
+    """按航线查真·直飞航班 → {航班号: 起飞时刻文本}（如 {'JAL501': '06:35AM JST'}）。
+    供 tools/build_flight_blocks.py 生成航班号表（F30）；运行时不调用。
+    页面里找不到排班 JSON（无航班 / 改版）→ None；网络异常照常抛出，调用方据此计失败。"""
+    flights_data = _findflight_data(dep_icao, arr_icao)
+    if flights_data is None:
+        return None
+    out = {}
+    for flight in _direct_legs(flights_data):
+        ident = _ident_of(flight)
+        if ident and ident not in out:
+            out[ident] = _clean_html(flight.get("flightDepartureTime", ""))
+    return out
+
 
 def fetch_real_flights_with_filter(dep_icao, arr_icao, target_airline, filter_aircraft=None, filter_time_range=None):
     try:
-        url = f"https://flightaware.com/live/findflight?origin={dep_icao}&destination={arr_icao}"
-        req = urllib.request.Request(url, headers={'User-Agent': _UA})
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as response:
-            html = response.read().decode('utf-8', errors='ignore')
-
-        json_match = re.search(r'FA\.findflight\.resultsContent\s*=\s*(\[\{.*?\}\])\s*;', html, re.DOTALL)
-        if not json_match: return False, []
-
-        flights_data = json.loads(json_match.group(1))
+        flights_data = _findflight_data(dep_icao, arr_icao)
+        if flights_data is None: return False, []
         matched_flights, other_flights, seen = [], [], set()
-
-        # 只认「直飞」：findflight 每条结果是一个航段(leg)，带 origin/destination(IATA)。中转联程被拆成多段——
-        # 首段 dep→中转城市(带 connectionCity)、后续段→到达(带 layoverDuration)。旧代码不看起止，把某一段误当直飞。
-        # 两端 IATA 直接从数据自身推：dep=首条结果的 origin；arr=第一条【行程】最后一段的 destination
-        # （行程按段依次排列，下一条行程又从 dep 起，故 origin 再次==dep 即换了行程）。缺该字段(FA 改版)则不过滤、保持旧行为。
-        has_od = bool(flights_data) and "origin" in flights_data[0] and "destination" in flights_data[0]
-        dep_iata = arr_iata = None
-        if has_od:
-            dep_iata = flights_data[0].get("origin")
-            arr_iata = flights_data[0].get("destination")
-            for fl in flights_data[1:]:
-                if fl.get("origin") == dep_iata:            # 下一条行程开始 → 第一条行程结束
-                    break
-                arr_iata = fl.get("destination")            # 续段：全程到达随之推进到本段目的地
-
-        def clean_html(raw_html):
-            if not raw_html: return ""
-            return re.sub(r'<[^>]+>', '', raw_html.replace("&nbsp;", " ")).strip()
 
         time_limits = parse_user_time_range(filter_time_range)
 
-        for flight in flights_data:
-            if has_od and not (flight.get("origin") == dep_iata
-                               and flight.get("destination") == arr_iata):
-                continue                                    # 跳过中转联程的分段（本段起止≠全程起止），只留真·直飞
-            ident_raw = flight.get("flightIdent", "")
-            ident_match = re.search(r'>([A-Za-z0-9]+)</a>', ident_raw)
-            flt = ident_match.group(1).upper() if ident_match else clean_html(ident_raw).upper()
+        for flight in _direct_legs(flights_data):           # 只留真·直飞（见 _direct_legs）
+            flt = _ident_of(flight)
 
             if not flt: continue
             if target_airline and not flt.startswith(target_airline): continue
             if flt in seen: continue
 
             ac_type = flight.get("aircraftType", "").strip() or "未公布"
-            dep_time_clean = clean_html(flight.get("flightDepartureTime", ""))
-            arr_time_clean = clean_html(flight.get("flightArrivalTime", ""))
+            dep_time_clean = _clean_html(flight.get("flightDepartureTime", ""))
+            arr_time_clean = _clean_html(flight.get("flightArrivalTime", ""))
             times = f"{dep_time_clean} -> {arr_time_clean}" if dep_time_clean else "起降时间暂缺"
             flight_str = f"{flt} (机型: {ac_type} | 时间: {times})"
             seen.add(flt)
