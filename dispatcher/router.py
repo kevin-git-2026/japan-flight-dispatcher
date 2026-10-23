@@ -605,22 +605,27 @@ def _onfield_vor(airport, graph, vors):
     return {best} if best else set()
 
 
-def _departure_candidates(dep, graph, dat_path, toward, use_gates=True):
+def _departure_candidates(dep, graph, dat_path, toward, use_gates=True, vor=True):
     """离场端候选 [(key, 机场→该点直飞NM)]：把【官方航路学到的真实离场过渡点】∪【VATJPN 移管表官方离场头】∪【CIFP SID 出口/本场 VOR】
     并集（须有出边），按航向过滤后交给 A* 自选最优。学到端点是「AIP 桥接 × 走廊」融合核心（直接取官方航路真实接入点，
     如 RJGG 北向 KCC，不借邻场程序）；但用并集而非优先级——保证不会因学到端点不全/反向而漏掉更优 CIFP 出口（A* 取最短自然选对）。全空 → 几何兜底。
-    use_gates=False 时只用 CIFP（弃学到端点与移管门，退「本场台离场 + VOR 程序」），供质量门控回退。"""
-    sid, _st, _iaf, vor = _cifp_endpoints(dep.code, dat_path)
-    cifp = [k for k in (sid | _onfield_vor(dep, graph, vor)) if k in graph.outset]   # 本场VOR 只取最近的一个，排除中途点/feeder VOR
+    use_gates=False 时只用 CIFP（弃学到端点与移管门，退「本场台离场 + VOR 程序」），供质量门控回退。
+    vor=False 时剔除本场 VOR（不论它是从 CIFP 还是从移管门来的），只留 RNAV 离场出口——供「本场台离场只作后备」
+    （见 _direct_route / `_VOR_DEP_TOL`）；剔完为空就返回空，不走几何兜底（那多半又落回本场台）。"""
+    sid, _st, _iaf, vors = _cifp_endpoints(dep.code, dat_path)
+    ofv = _onfield_vor(dep, graph, vors)                # 本场VOR 只取最近的一个，排除中途点/feeder VOR
+    cifp = [k for k in (sid | ofv) if k in graph.outset]
     pool = cifp
     if use_gates:
         learned = [k for k in _learned_heads(graph, dep.code) if k in graph.outset]
         gates = [k for k in (graph.by_ident.get(g) for g in _transfer_points().get(dep.code, {}).get("dep", []))
                  if k and k in graph.outset]
         pool = list(dict.fromkeys(learned + gates + cifp))
+    if not vor:
+        pool = [k for k in pool if k not in ofv]
     ek = _dir_filter(pool, dep.lat_dd, dep.lon_dd, toward, graph)
     cands = [(k, haversine_nm(dep.lat_dd, dep.lon_dd, graph.nodes[k][0], graph.nodes[k][1])) for k in ek]
-    if not cands:
+    if not cands and vor:
         cands = _nearest_nodes(dep.lat_dd, dep.lon_dd, graph, require_outbound=True, toward=toward)
     return cands
 
@@ -1104,6 +1109,14 @@ def _prefer_star_handoff(dep, arr, graph, best, exit_dct, run, dat_path):
     return best
 
 
+_VOR_DEP_EXTRA_NM = 25.0    # 本场台离场只作后备：不用本场 VOR 的离场，整条航路最多多飞这么多海里就用它。
+                            # 为什么：A* 的代价含「机场→起点」那段直线，本场 VOR 就在场内（≈0 NM），结构性地压过一切 RNAV 离场出口——
+                            # RJCH→RJSN 从 HWE 起飞 244 NM、从 TAPPI（TSUGA2 的出口，也是 RJCH 官方航路的离场头）起飞 245 NM，
+                            # 只差 1 NM 却选了 HWE。本场台离场应当是 RNAV 离场走不通 / 明显绕远时的后备，不是首选。
+                            # 用绝对海里而非倍数：多出来的是离场端的局部绕行，不随航程变长（按倍数，800 NM 的航路能白绕 100 NM）。
+                            # 实测 301 对：差 ≤4 NM 的 9 对、10–23 NM 的多是改走官方离场头 + 官方走廊（RJSA→RJAA 改走
+                            # UWE Y32 YTE Y304 GUGBI Y30 SWAMP，与 RJCH→RJAA 的官方航路同一走廊）；≥28 NM 的多是明显绕路，保留本场台。
+                            # 例外：本场台本身就是官方航路的离场头（官方航路从它起飞）时不降级。
 _DCT_MAX_NM = 250.0         # 直飞降级上限：大圆超此距离就不考虑降级（长途本就该走航路网）
 _DCT_GIVEUP_RATIO = 1.5     # 航路网结果 > 此倍×大圆 → 视为「航路网帮了倒忙」
 
@@ -1158,31 +1171,44 @@ def _direct_route(dep, arr, graph, dat_path):
     离场门质量门控：用官方离场头算出的航路若含大锐角(suspect) 或 >_GATE_GIVEUP_RATIO×大圆 → 弃门重算
     （退回 SID/本场 VOR/几何，即允许「本场台离场 + VOR 程序」），取更优者。
     进场走廊奖励：A* 纯最短的落点换成真实 AIP 最常用的方向合规进场门（容差内）。
-    进场交接偏好：再把落点换成能交接给 STAR 的点（容差内）——否则本场 VOR 会因代价≈0 恒胜。无解 → None。"""
+    进场交接偏好：再把落点换成能交接给 STAR 的点（容差内）——否则本场 VOR 会因代价≈0 恒胜。
+    本场台离场只作后备：最终航路从本场 VOR 起飞时，把上面整套流程在【不用本场台】下重跑一遍，满足三条就改用它——
+    不可疑、全程不再经过本场台（否则是「飞出去又绕回场上空」）、最多多飞 `_VOR_DEP_EXTRA_NM`。
+    要比整套流程的【最终】结果：只比首轮会看走眼（RJNK→RJFK 首轮两边打平，走完进场偏好后不用本场台的反而多 68 NM）。无解 → None。"""
     arr_cands = _arrival_candidates(arr, graph, dat_path, toward=(dep.lat_dd, dep.lon_dd))
     if not arr_cands:
         return None
     exit_dct = {k: d for k, d in arr_cands}
 
-    def _run(use_dep_gate, exits=exit_dct):
-        dep_cands = _departure_candidates(dep, graph, dat_path, toward=(arr.lat_dd, arr.lon_dd), use_gates=use_dep_gate)
-        if not dep_cands:
-            return None
-        res = _astar(graph, {k: d for k, d in dep_cands}, exits, arr.lat_dd, arr.lon_dd)
-        if not res:
-            return None
-        sp, sn = _smooth_airway_continuity(graph, res[0], res[1])   # 收编「离开又接回同一/平行航路」的绕行
-        return _finish(graph, dep, arr, sp, sn, source="generated")
+    def _plan(vor):
+        def run(use_dep_gate, exits=exit_dct):
+            dep_cands = _departure_candidates(dep, graph, dat_path, toward=(arr.lat_dd, arr.lon_dd),
+                                              use_gates=use_dep_gate, vor=vor)
+            if not dep_cands:
+                return None
+            res = _astar(graph, {k: d for k, d in dep_cands}, exits, arr.lat_dd, arr.lon_dd)
+            if not res:
+                return None
+            sp, sn = _smooth_airway_continuity(graph, res[0], res[1])   # 收编「离开又接回同一/平行航路」的绕行
+            return _finish(graph, dep, arr, sp, sn, source="generated")
 
-    best = _run(True)
-    if best:
-        gc = haversine_nm(dep.lat_dd, dep.lon_dd, arr.lat_dd, arr.lon_dd)
-        if best["suspect"] or best["dist_nm"] > gc * _GATE_GIVEUP_RATIO:    # 离场门导致坏航路 → 弃门重算
-            alt = _run(False)
-            if alt and ((best["suspect"] and not alt["suspect"]) or alt["dist_nm"] < best["dist_nm"]):
-                best = alt
-    best = _prefer_corridor_arrival(dep, arr, graph, best, exit_dct, _run, dat_path)  # 进场走廊奖励（常用门 ≤1.15×最短则优先）
-    best = _prefer_star_handoff(dep, arr, graph, best, exit_dct, _run, dat_path)      # 进场交接偏好（收在 STAR 起点，≤1.20×最短）
+        best = run(True)
+        if best:
+            gc = haversine_nm(dep.lat_dd, dep.lon_dd, arr.lat_dd, arr.lon_dd)
+            if best["suspect"] or best["dist_nm"] > gc * _GATE_GIVEUP_RATIO:    # 离场门导致坏航路 → 弃门重算
+                alt = run(False)
+                if alt and ((best["suspect"] and not alt["suspect"]) or alt["dist_nm"] < best["dist_nm"]):
+                    best = alt
+        best = _prefer_corridor_arrival(dep, arr, graph, best, exit_dct, run, dat_path)  # 进场走廊奖励（常用门 ≤1.15×最短则优先）
+        return _prefer_star_handoff(dep, arr, graph, best, exit_dct, run, dat_path)      # 进场交接偏好（收在 STAR 起点，≤1.20×最短）
+
+    best = _plan(vor=True)
+    ofv = _onfield_vor(dep, graph, _cifp_endpoints(dep.code, dat_path)[3])
+    if best and best["fixes"][0] in ofv and not (ofv & set(_learned_heads(graph, dep.code))):   # 官方航路不从本场台起飞
+        alt = _plan(vor=False)
+        if (alt and not alt["suspect"] and ofv.isdisjoint(alt["fixes"])
+                and alt["dist_nm"] <= best["dist_nm"] + _VOR_DEP_EXTRA_NM):
+            best = alt
     best = _append_arrival_tail(graph, dep, arr, best, dat_path)   # 补 VATJPN 到着尾段（进场门后 DCT 直飞点），方便管制引导
     return _maybe_dct(dep, arr, graph, dat_path, exit_dct, best)   # 短程降级：航路网反而绕远 → 给直飞（并标注）
 
@@ -1244,3 +1270,14 @@ def route_length_nm(pts):
     """带坐标航点序列 [(ident,lat,lon),...] 的累计大圆长度(NM)。"""
     return sum(haversine_nm(pts[i][1], pts[i][2], pts[i + 1][1], pts[i + 1][2])
                for i in range(len(pts) - 1))
+
+
+def nav_kind(ident, lat, lon):
+    """这个点是不是导航台 → 'VOR' / 'NDB'；普通航点（含终端区航点）→ None。供地图选符号。
+    只查【已建好】的航路图（规划时就建了），不触发建图；再按坐标核对（≤3 NM），防同名的点张冠李戴。"""
+    g = _GRAPH
+    key = g.by_ident.get(ident) if g else None
+    n = g.nodes.get(key) if key else None
+    if not n or n[2] == "fix" or haversine_nm(lat, lon, n[0], n[1]) > 3.0:
+        return None
+    return n[2]

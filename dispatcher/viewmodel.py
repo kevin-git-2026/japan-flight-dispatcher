@@ -4,7 +4,7 @@
 #
 # 每个界面 = 一个纯数据 Model（可 headless 单测） + 一层薄渲染：
 #   ResultModel      结果卡 → span 列表（tk 画成 tag / flet 画成 TextSpan）
-#   MapModel         航路坐标 → 折线 + 三档 marker + bounds
+#   MapModel         航路坐标 → 分段折线 + 符号 / 标签（含按缩放避让）+ bounds
 #   AircraftModel    机型库 → 过滤 / 显示串↔SimBrief id
 #   ProcPanelModel   F20/F21/F23：跑道·SID/STAR·天气·EOBT·运行规则 的完整状态机
 #   AipTableModel    F21 多 AIP 航路选择表
@@ -13,6 +13,7 @@
 
 import copy
 import math
+import re
 
 from . import ntrack, operations, procedures, router, timed, weather
 from .aircraft import aircraft_choices
@@ -146,10 +147,40 @@ def error_spans(msg):
 
 
 # ================= 地图（MapModel）=================
+# 画法仿 Navigraph Charts：航段按 SID / enroute / STAR 分色，航点按 机场 / 导航台 / 航点 / 程序内的点 分符号，
+# 航路名沿线写在线上。图元一多就互相压住 → 每个标签 / 符号都算好「放大到第几级起才不和更要紧的图元重叠」
+# （min zoom，见 _declutter），UI 随缩放显隐。图元的像素尺寸定在这里（避让要按它算），map_view 照着画——两边必须一致。
+
+MAP_APT_D = 22              # 机场符号直径（逻辑像素）
+MAP_SYM_D = 18              # 航点 / 导航台符号直径
+MAP_DOT_D = 13              # SID/STAR 程序里的终端区点（ITE16 这类，不在航路串里）：只画圆点
+MAP_LBL_H = 18              # 航点名标签高
+MAP_LBL_GAP = 3             # 标签与符号外沿的间隙
+MAP_LBL_FONT = 11
+MAP_LEG_H = 14              # 航路名标签高（压在航路线上）
+MAP_LEG_FONT = 9
+MAP_LETTER_SP = 0.8         # 标签字距（Navigraph 的标签字距很开）
+
+# 微软雅黑 UI 粗体的字宽（em，PIL 实测）；数字一律 0.62，其它少见字符按 0.75 估
+_GLYPH_EM = dict(zip("ABCDEFGHIJKLMNOPQRSTUVWXYZ -.",
+                     (.75, .68, .67, .79, .57, .56, .77, .82, .34, .47, .69, .55, 1.03,
+                      .85, .82, .66, .82, .70, .60, .63, .78, .71, 1.08, .70, .65, .65, .30, .44, .29)))
+
+
+def map_label_w(text, font=MAP_LBL_FONT):
+    """标签外框宽（逻辑像素）= 字宽 + 字距 + 左右各 6（含 1 像素边框）。map_view 按它定框宽，_declutter 按它算重叠。"""
+    em = sum(_GLYPH_EM.get(c, .62 if c.isdigit() else .75) for c in text)
+    return math.ceil(em * font + MAP_LETTER_SP * len(text)) + 12
+
+
+def map_sym_d(sym):
+    """符号直径：机场 / 程序里的点 / 其余（航点、VOR、NDB）。"""
+    return MAP_APT_D if sym == "apt" else (MAP_DOT_D if sym == "dot" else MAP_SYM_D)
+
 
 def plan_maps(plan):
     """本次规划里所有【可看地图】的航路：[(coords, title)] —— 各 AIP 行 + 生成航路，跳过没几何的。
-    Flet 无多窗口，故不再「一条航路开一个窗口」，而是把它们做成同一个地图视图里的标签页。"""
+    它们做成同一个地图窗口里的标签页（每点一次 🗺️ 开一个新的地图窗口，见 ui_flet/map_window.py）。"""
     out = []
     for mp in (getattr(plan, "aip_maps", None) or []):
         if mp and mp[0]:
@@ -182,8 +213,81 @@ def _route_from_title(title):
     return parts[1].strip() if len(parts) > 1 else ""
 
 
+def _merc(lat, lon):
+    """Web-Mercator 世界坐标（0–1；x 向东、y 向南）。屏幕像素 = 它 × 256 × 2^zoom（与 flutter_map 同一投影）。"""
+    s = math.sin(math.radians(max(-85.0, min(85.0, lat))))
+    return (lon + 180.0) / 360.0, 0.5 - math.log((1 + s) / (1 - s)) / (4 * math.pi)
+
+
+def _unmerc(x, y):
+    return math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y)))), x * 360.0 - 180.0
+
+
+def _dir_deg(p, q):
+    """(lat, lon) p→q 在屏幕上的方向角（度；0=向右、90=向下）。墨卡托保角，所以与缩放级无关。"""
+    (x1, y1), (x2, y2) = _merc(*p), _merc(*q)
+    return math.degrees(math.atan2(y2 - y1, x2 - x1))
+
+
+_SIDES = (("up", -90.0), ("right", 0.0), ("down", 90.0), ("left", 180.0))
+
+
+def _label_side(dirs):
+    """航点名放在符号哪一侧：默认上方（Navigraph 的放法）；航路线正从那一侧进出（夹角 < 50°）就依次改试右、下、左。
+    dirs = 从该点指向前后相邻点的屏幕方向角。"""
+    for side, a in _SIDES:
+        if all(abs((a - d + 180.0) % 360.0 - 180.0) >= 50.0 for d in dirs):
+            return side
+    return "up"
+
+
+def _label_box(side, w, r):
+    """标签外框相对符号中心的像素偏移 (左, 上, 右, 下)；r = 符号半径。"""
+    h, g = MAP_LBL_H, MAP_LBL_GAP
+    return {"up": (-w / 2, -(r + g + h), w / 2, -(r + g)), "down": (-w / 2, r + g, w / 2, r + g + h),
+            "right": (r + g, -h / 2, r + g + w, h / 2), "left": (-(r + g + w), -h / 2, -(r + g), h / 2)}[side]
+
+
+_ZOOM_LEVELS = [z / 2.0 for z in range(4, 31)]      # 避让按 2.0 … 15.0 每半级算一次
+_CELL = 64.0                                         # 查重叠用的网格边长（像素）
+
+
+def _declutter(items):
+    """按缩放避让，返回每项的 min zoom（缩放 ≥ 它才显示）。
+    items 按重要性从高到低排好，每项 (x, y, box, forced, parent, need)：x/y = 锚点的墨卡托世界坐标；
+    box = 外框相对锚点的像素偏移 (左, 上, 右, 下)；forced = 永远显示（但照样挡住后面的）；
+    parent = 依附的项（航点名依附它的符号：符号没显示，名字也不显示）；
+    need = (世界长度, 所需像素)：航路名要等它那段线在屏幕上够长才放得下。
+    从高缩放往低扫，每级按重要性逐个放，与已放的重叠就不放；某级放不下，往下各级也都不放——放大时只增不减，
+    不会忽隐忽现。（墨卡托下图元间距随缩放 ×2、图元尺寸是固定像素，所以某级不重叠的到更高级也不重叠。）"""
+    n = len(items)
+    zmin = [0.0 if it[3] else None for it in items]
+    alive = [True] * n
+    for lv in reversed(_ZOOM_LEVELS):
+        s = 256.0 * 2.0 ** lv
+        grid, placed = {}, [False] * n
+        for i, (x, y, (l, t, r, b), forced, parent, need) in enumerate(items):
+            if not alive[i]:
+                continue
+            box = (x * s + l, y * s + t, x * s + r, y * s + b)
+            cells = [(cx, cy) for cx in range(int(box[0] // _CELL), int(box[2] // _CELL) + 1)
+                     for cy in range(int(box[1] // _CELL), int(box[3] // _CELL) + 1)]
+            if not forced and ((parent is not None and not placed[parent])
+                               or (need and need[0] * s < need[1])
+                               or any(box[0] < o[2] and o[0] < box[2] and box[1] < o[3] and o[1] < box[3]
+                                      for c in cells for o in grid.get(c, ()))):
+                alive[i] = False
+                continue
+            placed[i] = True
+            for c in cells:
+                grid.setdefault(c, []).append(box)
+            if not forced:
+                zmin[i] = lv
+    return [z if z is not None else _ZOOM_LEVELS[-1] + 0.5 for z in zmin]
+
+
 def route_legs(coords, route_str):
-    """每条【腿】一个标注：`[{lat, lon, label}]`，label = 航路名(Y56…) / SID·STAR 程序名 / `DCT`。
+    """每条【腿】一个标注：`[{lat, lon, label, angle, seg, wlen}]`，label = 航路名(Y56…) / SID·STAR 程序名 / `DCT`。
 
     航路串里**能在坐标序列里找到同名航点**的 token = 换路点，其余 token = 名称（airway 或程序名）。
     按顺序把换路点对到坐标下标；两个换路点之间的所有坐标（`_parse_aip_route` 沿 airway 加密出来的
@@ -191,6 +295,10 @@ def route_legs(coords, route_str):
 
     这套规则对 SID/STAR 也自动成立：程序的航点不在航路串里（串里只有程序名），
     于是它们整段落进「程序名」那一腿——离场是首腿、进场是末腿。
+
+    标注放在这条腿里【最长那一段】的中点（墨卡托中点，正落在屏幕上的直线上）；angle = 该段在屏幕上的走向
+    （度，折到 ±90° 以内，字不倒着）；seg = 该段所属段（sid / enr / star，配色用）；
+    wlen = 该段的墨卡托世界长度（避让时判断线够不够长、放不放得下字）。
 
     （`router._parse_aip_route` 其实算过每段的 airway 名，但 `route_geometry` 只返回坐标、把名字丢了。
       这里就地反推，不动逻辑层。）
@@ -227,28 +335,121 @@ def route_legs(coords, route_str):
     if prev < n - 1:                              # 末换路点 → 终点（STAR 段，或直飞进场）
         spans.append((prev, n - 1, trailing))
 
-    legs = []
+    # 全段预览：AIP 串开头 / 结尾常把 SID / STAR 机体逐点展开（NANKO NIKEX KYOTO…），程序段里就切出一串 DCT 小腿——
+    # 它们都是程序的一部分，并成一条腿、标程序名（SID 名在串首那条腿上，STAR 名在串尾那条腿上）
+    segs = [c[3] if len(c) > 3 else "enr" for c in coords]
+    merged = []                                   # [(起, 止, 名称, 所属段)]
     for a, b, name in spans:
-        m = (a + b) // 2                          # 标注放在这条腿折线的中点
-        legs.append({"lat": (coords[m][1] + coords[m + 1][1]) / 2.0,
-                     "lon": (coords[m][2] + coords[m + 1][2]) / 2.0,
-                     "label": name or _DCT})
+        kinds = set(segs[a + 1:b + 1])
+        kind = kinds.pop() if len(kinds) == 1 else "enr"
+        if merged and kind in ("sid", "star") and merged[-1][3] == kind:
+            pa, _pb, pname, _k = merged[-1]
+            merged[-1] = (pa, b, (pname or name) if kind == "sid" else (name or pname), kind)
+        else:
+            merged.append((a, b, name, kind))
+
+    world = [_merc(c[1], c[2]) for c in coords]
+    legs = []
+    for a, b, name, _kind in merged:
+        k = max(range(a, b), key=lambda j: math.dist(world[j], world[j + 1]))
+        (x1, y1), (x2, y2) = world[k], world[k + 1]
+        lat, lon = _unmerc((x1 + x2) / 2.0, (y1 + y2) / 2.0)
+        ang = math.degrees(math.atan2(y2 - y1, x2 - x1))
+        ang = ang - 180.0 if ang > 90.0 else (ang + 180.0 if ang <= -90.0 else ang)
+        legs.append({"lat": lat, "lon": lon, "label": name or _DCT, "angle": ang, "seg": segs[k + 1],
+                     "wlen": math.dist(world[k], world[k + 1])})
     return legs
 
 
-def map_model(coords, title=""):
-    """航路坐标 → {polyline, markers, legs, bounds, center, zoom}。
-    三档 marker：0=起降机场 / 1=换路点(ident 出现在航路串里) / 2=加密中间点。
-    `legs` = 每条腿的航路名标注（见 route_legs）。
-    纯数据，UI 只负责把它翻译成具体地图控件的图元。coords=[(ident, lat, lon), …]。"""
+_RWY_IDENT = re.compile(r"^\d{2}[LRC]?$")
+
+
+def map_model(coords, title="", kinds=None):
+    """航路坐标 → 地图的纯数据，UI 只负责把它翻译成具体图元：
+      lines    [{seg, points}]  航段折线；seg = sid / enr / star（只有全段预览分得出 SID/STAR，其余全是 enr）
+      markers  [{lat, lon, ident, label, tier, sym, style, side, sym_z, lbl_z}]
+               tier 0=起降机场 / 1=换路点（ident 在航路串里，程序里的点除外）/ 2=加密中间点与程序里的点；
+               sym = apt / VOR / NDB / fix / dot（dot = SID·STAR 程序里的终端区点）；style = 配色 apt / wpt / sid / star；
+               side = 标签在符号哪一侧；sym_z / lbl_z = 符号 / 标签从第几级缩放起显示（见 _declutter）
+      legs     [{lat, lon, label, angle, seg, z}]  每条腿的航路名（沿线写；见 route_legs）
+      bounds / center / zoom（初始视野）/ title
+    coords = [(ident, lat, lon[, seg]), …]（带 seg 的来自 procedures.full_route_coords(tagged=True)）；
+    kinds = 与 coords 同序的导航台类型（'VOR' / 'NDB' / None，见 nav_kinds），不给就全按航点画。"""
     if not coords:
         return None
-    majors = set((title or "").split())
+    n = len(coords)
+    route = _route_from_title(title)
+    majors = set(route.split())
+    ends = (title or "").split("  ", 1)[0].split("→")      # 标题头 'RJTT→RJFF'
+    segs = [c[3] if len(c) > 3 else "enr" for c in coords]
+    kinds = list(kinds or [])
+    pts = [(c[1], c[2]) for c in coords]
+
+    # 一段航段归它【终点】所属的段：SID 末点（交接点）之后那段算 enroute、进入 STAR 的那段算 STAR
+    lines = []
+    for i in range(1, n):
+        if lines and lines[-1]["seg"] == segs[i]:
+            lines[-1]["points"].append(pts[i])
+        else:
+            lines.append({"seg": segs[i], "points": [pts[i - 1], pts[i]]})
+
+    # 程序里的点（Navigraph 画成程序色的圆点）：SID / STAR 段上除交接点（SID 末点）外的点——包括 AIP 串开头
+    # 逐点展开的 SID 机体（NANKO NIKEX KYOTO…，它们虽在航路串里，却是程序的一部分）。重要性按加密中间点算。
+    sid_exit = max((i for i in range(n) if segs[i] == "sid"), default=-1)
     markers = []
-    for i, (ident, la, lo) in enumerate(coords):
-        tier = 0 if (i == 0 or i == len(coords) - 1) else (1 if ident in majors else 2)
-        markers.append({"lat": la, "lon": lo, "ident": ident, "tier": tier})
-    pts = [(la, lo) for _id, la, lo in coords]
+    for i, c in enumerate(coords):
+        end = i in (0, n - 1)
+        proc = not end and segs[i] in ("sid", "star") and i != sid_exit
+        tier = 0 if end else (1 if c[0] in majors and not proc else 2)
+        nav = kinds[i] if i < len(kinds) else None
+        label = c[0]
+        if end and _RWY_IDENT.match(c[0]) and len(ends) == 2:    # 全段预览的首尾是跑道头（'34R'）→ 'RJTT 34R'
+            label = "%s %s" % (ends[0] if i == 0 else ends[1], c[0])
+        dirs = [_dir_deg(pts[i], pts[j]) for j in (i - 1, i + 1) if 0 <= j < n and pts[j] != pts[i]]
+        markers.append({"lat": c[1], "lon": c[2], "ident": c[0], "label": label, "tier": tier,
+                        "sym": "apt" if end else (nav or ("dot" if proc else "fix")),
+                        "style": "apt" if end else (segs[i] if proc else "wpt"), "side": _label_side(dirs)})
+    legs = route_legs(coords, route)
+
+    # 避让的重要性：机场 > 换路点 > 航路名 > 加密中间点（同档内符号先于名字）。机场的符号与名字永远显示。
+    world = [_merc(*p) for p in pts]
+    items, slots, sym_at = [], [], {}
+
+    def add(target, key, xy, box, forced=False, parent=None, need=None):
+        items.append((xy[0], xy[1], box, forced, parent, need))
+        slots.append((target, key))
+        return len(items) - 1
+
+    def add_sym(i, forced):
+        r = map_sym_d(markers[i]["sym"]) / 2.0
+        sym_at[i] = add(markers[i], "sym_z", world[i], (-r, -r, r, r), forced)
+
+    def add_lbl(i, forced):
+        m = markers[i]
+        box = _label_box(m["side"], map_label_w(m["label"]), map_sym_d(m["sym"]) / 2.0)
+        add(m, "lbl_z", world[i], box, forced, parent=sym_at[i])
+
+    by_tier = [[i for i in range(n) if markers[i]["tier"] == t] for t in (0, 1, 2)]
+    for i in by_tier[0]:
+        add_sym(i, True)
+    for i in by_tier[0]:
+        add_lbl(i, True)
+    for i in by_tier[1]:
+        add_sym(i, False)
+    for i in by_tier[1]:
+        add_lbl(i, False)
+    for lg in legs:
+        w, h, a = map_label_w(lg["label"], MAP_LEG_FONT), MAP_LEG_H, math.radians(lg["angle"])
+        bw, bh = abs(w * math.cos(a)) + abs(h * math.sin(a)), abs(w * math.sin(a)) + abs(h * math.cos(a))
+        add(lg, "z", _merc(lg["lat"], lg["lon"]), (-bw / 2, -bh / 2, bw / 2, bh / 2),
+            need=(lg.pop("wlen"), w + MAP_APT_D + 4))         # 线段要容得下字 + 两端各半个符号
+    for i in by_tier[2]:
+        add_sym(i, False)
+    for i in by_tier[2]:
+        add_lbl(i, False)
+    for (target, key), z in zip(slots, _declutter(items)):
+        target[key] = z
+
     bounds = center = None
     zoom = 7.0
     if len(pts) >= 2:
@@ -260,9 +461,13 @@ def map_model(coords, title=""):
         zoom = _fit_zoom(bounds)
     elif pts:
         center = pts[0]
-    return {"polyline": pts if len(pts) >= 2 else [], "markers": markers,
-            "legs": route_legs(coords, _route_from_title(title)),
+    return {"lines": lines, "markers": markers, "legs": legs,
             "bounds": bounds, "center": center, "zoom": zoom, "title": title}
+
+
+def nav_kinds(coords):
+    """coords 里每个点是不是导航台：['VOR' / 'NDB' / None, …]，地图据此选符号（router.nav_kind：只查已建好的航路图）。"""
+    return [router.nav_kind(c[0], c[1], c[2]) for c in coords or []]
 
 
 def map_tab_label(i, title):
@@ -539,10 +744,10 @@ class ProcPanelModel:
             return None, "无航路候选"
         c = self.candidates[self.sel_idx]
         try:
-            coords = procedures.full_route_coords(
+            coords = procedures.full_route_coords(                 # tagged：每点带所属段，地图给 SID/STAR 另配色
                 self.dep_icao, self.sel_proc["dep"].strip(), self.sel_rwy["dep"],
                 self.arr_icao, self.sel_proc["arr"].strip(), self.sel_rwy["arr"],
-                c.get("pts"), self.dat_path)
+                c.get("pts"), self.dat_path, tagged=True)
         except Exception as e:                            # noqa: BLE001
             return None, "⚠️ 生成全段航路失败: %s" % e
         if len(coords) < 2:

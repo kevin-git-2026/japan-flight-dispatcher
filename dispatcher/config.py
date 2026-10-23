@@ -64,6 +64,32 @@ def save_sim_config(cfg):
         pass
 
 
+def _map_settings_path():
+    """map_settings.json（地图窗口的偏好，目前只有底图图源 basemap）路径，锚定到运行目录。"""
+    return os.path.join(get_real_run_path(), "map_settings.json")
+
+
+def load_map_settings():
+    """读取 map_settings.json。文件缺失/损坏返回空 dict，绝不崩。"""
+    try:
+        with open(_map_settings_path(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_map_settings(**kv):
+    """读出 → 更新指定字段 → 写回（保留其它字段），容错。"""
+    data = load_map_settings()
+    data.update(kv)
+    try:
+        with open(_map_settings_path(), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
 def _update_sim_config(**kv):
     """读出 → 更新指定字段 → 写回（保留其它字段）。"""
     cfg = load_sim_config()

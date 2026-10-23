@@ -14,8 +14,8 @@ from .. import controller as C
 from .. import viewmodel as VM
 from .aip_dialog import AipDialog
 from .form_view import FormView
+from . import map_window
 from .log_view import LogView
-from .map_view import MapView
 from .ops_view import OpsView
 from .proc_view import ProcView
 from .result_view import ResultView
@@ -73,7 +73,6 @@ class DispatcherApp:
                              on_open_aip_dialog=self._open_aip_dialog)
         self.log = LogView()
         self.shell.bind_log(self.log)
-        self.map_view = MapView(self.page, on_close=self._pop_view)
         self.ops_view = OpsView(self.page, on_close=self._pop_view)
         self.aip_dialog = AipDialog(self.page, on_select=self.proc.select_candidate)
         self._plan_maps = []
@@ -206,13 +205,9 @@ class DispatcherApp:
         self._plan_maps = VM.plan_maps(plan)             # 本次规划的全部航路（地图标签页用）
         self._populate_proc(plan, proc)
         if os.environ.get("DISPATCHER_SELFTEST_MAP") and self._plan_maps:
+            # 地图子进程继承环境变量：DISPATCHER_SELFTEST_MAP_OFF（验标注开关）/ _MAPTOUR（自动漫游后关窗）在那边生效
             print("🧪 SELFTEST: 自动打开地图（%d 条航路）" % len(self._plan_maps))
             self._open_map(*self._plan_maps[0])
-            off = os.environ.get("DISPATCHER_SELFTEST_MAP_OFF")   # "wp" / "leg" / "both"：验标注开关
-            if off:
-                print("🧪 SELFTEST: 关闭标注 → %s" % off)
-                self.map_view.set_labels(wp=off not in ("wp", "both"),
-                                         leg=off not in ("leg", "both"))
 
     # ---------- 进离场面板（F20/F21/F24）----------
     def _populate_proc(self, plan, proc):
@@ -244,20 +239,21 @@ class DispatcherApp:
 
     # ---------- 地图 ----------
     def _open_map(self, coords, title=""):
-        """点某条航路的 🗺️ → 推入地图视图。Flet 无多窗口，故把本次规划的【所有】航路做成标签页，
-        默认选中点的那条 —— 用切标签页代替 tk 版的「并排开多个窗口」。"""
+        """点某条航路的 🗺️ → 在【独立的地图窗口（单独进程）】里打开：本次规划的所有航路做成标签页，
+        默认选中点的那条。为什么开新进程而不在主窗口里画：见 map_window.py 文件头（地图的 GPU 缓存关窗才还）。"""
         routes = list(getattr(self, "_plan_maps", None) or [])
         idx = next((i for i, (c, t) in enumerate(routes) if c is coords), None)
         if idx is None:                                  # 临时航路（如进离场面板的全段预览）→ 单独一页
             routes = [(coords, title)]
             idx = 0
-        view = self.map_view.build(routes, idx)
-        if view is None:
-            return
-        self.page.views.append(view)
-        self.page.update()
+        try:
+            # 子进程不建航路图（要几秒），哪些点是 VOR / NDB 在这边查好带过去，地图据此画符号
+            map_window.launch([(c, t, VM.nav_kinds(c)) for c, t in routes], idx)
+            print("🗺️ 正在打开航路地图窗口（%d 条航路）…" % len(routes))
+        except Exception as e:                          # noqa: BLE001
+            print(f"⚠️ 打开地图窗口失败: {e}")
 
-    # ---------- 视图栈（Flet 无多窗口 → 地图 / 规则编辑器都是 pushed View）----------
+    # ---------- 视图栈（Flet 无多窗口 → 规则编辑器是 pushed View）----------
     def _pop_view(self):
         if len(self.page.views) > 1:
             self.page.views.pop()

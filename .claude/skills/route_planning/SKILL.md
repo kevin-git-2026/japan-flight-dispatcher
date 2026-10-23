@@ -43,7 +43,7 @@ description: >-
 - **case 0（最优先）**：两机场间有**直连 AIP 航路** → 直接用，结束。
 - 无直连 AIP → 按「dep 有无 SID」「arr 有无 STAR」分四类，套路统一：
   1. 规划大圆航线、明确方向；
-  2. **离场点**：**优先用【从官方航路学到的真实离场过渡点】∪ [transfer_points.md](reference/transfer_points.md) 官方离场头**（并集 + 按航向过滤，A\* 自选）；否则 有 SID → SID 尾(=enroute 头)，无 SID → 挑「最快切入航路的航点」作虚拟离场点；
+  2. **离场点**：**优先用【从官方航路学到的真实离场过渡点】∪ [transfer_points.md](reference/transfer_points.md) 官方离场头**（并集 + 按航向过滤，A\* 自选）；否则 有 SID → SID 尾(=enroute 头)，无 SID → 挑「最快切入航路的航点」作虚拟离场点；**本场 VOR 离场只作后备**——RNAV 离场（学到的过渡点 / SID 出口）不绕远、不绕回场上空就用它（见 enroute.md「本场台离场只作后备」）；
   3. **进场点**：**优先用【从官方航路学到的真实进场过渡点】∪ [transfer_points.md](reference/transfer_points.md) 官方进场门**（按到达方向择门，权威源）；否则 有 STAR → STAR 头(=enroute 尾)，无 STAR → IAP 的 IAF/IF 若直接接在航路上则用它、再否则用**本场 VOR**；
   4. **A\*** 在离场点 ↔ 进场点间找尽量贴大圆的航线（守航路方向 N/F/B 与高度带）。
   - case 1=SID+STAR · case 2=SID 无 STAR · case 3=无 SID 有 STAR · case 4=两端都无。

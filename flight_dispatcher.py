@@ -22,10 +22,18 @@
 #
 # 三层架构：17 个逻辑模块（零 GUI）→ controller + viewmodel（零 GUI，可 headless 单测）→ ui_flet（只剩渲染）。
 #
+# 两种启动方式：无参数 = 主窗口；`--map <json> --parent <pid>` = 航路地图子窗口（独立进程，由主窗口启动，
+# 见 dispatcher/ui_flet/map_window.py——地图的 GPU 缓存只有进程退出才归还，所以不放在主窗口里）。
+#
 # 打包：flet pack flight_dispatcher.py -n flight_dispatcher -y \
 #         --pyinstaller-build-args="--exclude-module=numpy" ...=scipy ...=tkinter ...=PIL
 
-from dispatcher.ui_flet import run_flet
+import sys
 
 if __name__ == "__main__":
-    run_flet()
+    if "--map" in sys.argv:
+        from dispatcher.ui_flet.map_window import run_map_window
+        run_map_window(sys.argv)
+    else:
+        from dispatcher.ui_flet import run_flet
+        run_flet()

@@ -371,11 +371,14 @@ def matching_choices(icao, dat_path, route_fixes, kind):
 # SID/STAR 段在这里按【选定跑道 + 过渡】还原有序航点并解析坐标（含 terminal section-P 航点）。
 
 _LEG_CACHE = {}                  # icao -> {"SID":{name:{gkey:[(ident,region,section)…]}}, "STAR":{...}}
-_FIX_INDEX = None                # {(ident,region): {terminal|'ENRT': (lat,lon)}}
+_FIX_INDEX = None                # {(ident,region): {terminal|'ENRT': (lat,lon)}}，只收 _FIX_REGIONS
+_FIX_REGIONS = ("RJ", "RO")      # 日本 CIFP 只引用这两区（另有空 region，_resolve_fix 会回退到这两区）
 
 
 def _load_fix_index(dat_path=None):
-    """解析 earth_fix.dat(全部，含 terminal) + earth_nav.dat(ENRT 台) → {(ident,region):{area:(lat,lon)}}。一次性缓存。"""
+    """解析 earth_fix.dat(含 terminal) + earth_nav.dat(ENRT 台) → {(ident,region):{area:(lat,lon)}}。一次性缓存。
+    **只收 RJ/RO 两区**：_resolve_fix 只按日本 CIFP 记录里的 region（RJ / RO / 空）查，查不到也只回退 RJ/RO，
+    别区的点永远查不到。收全球是 25 万键、约 125 MB 常驻（曾是 Python 进程内存的头号大户），只收两区约 5.5 千键、不到 3 MB。"""
     global _FIX_INDEX
     if _FIX_INDEX is not None:
         return _FIX_INDEX
@@ -385,7 +388,7 @@ def _load_fix_index(dat_path=None):
         with open(os.path.join(d, "earth_fix.dat"), encoding="utf-8", errors="ignore") as f:
             for line in f:
                 p = line.split()
-                if len(p) < 5:
+                if len(p) < 5 or p[4] not in _FIX_REGIONS:
                     continue
                 try:
                     lat, lon = float(p[0]), float(p[1])
@@ -401,10 +404,15 @@ def _load_fix_index(dat_path=None):
                 if len(p) < 11 or p[0] not in ("2", "3"):
                     continue
                 try:
-                    lat, lon = float(p[1]), float(p[2])
                     e = p.index("ENRT")
                     ident, region = p[e - 1], p[e + 1]
                 except (ValueError, IndexError):
+                    continue
+                if region not in _FIX_REGIONS:
+                    continue
+                try:
+                    lat, lon = float(p[1]), float(p[2])
+                except ValueError:
                     continue
                 idx.setdefault((ident, region), {}).setdefault("ENRT", (lat, lon))
     except Exception:
@@ -493,8 +501,9 @@ def procedure_coords(icao, label, rwy_id, kind, dat_path=None):
     return coords
 
 
-def full_route_coords(dep, sid_label, dep_rwy, arr, star_label, arr_rwy, enroute_pts, dat_path=None):
-    """拼全段坐标：SID 段 + enroute(去掉首尾机场，pts[1:-1]) + STAR 段，按 ident 去相邻重复。供 GUI `_open_map`。"""
+def full_route_coords(dep, sid_label, dep_rwy, arr, star_label, arr_rwy, enroute_pts, dat_path=None, tagged=False):
+    """拼全段坐标：SID 段 + enroute(去掉首尾机场，pts[1:-1]) + STAR 段，按 ident 去相邻重复。供 GUI `_open_map`。
+    tagged=True → 每点多带一个所属段 'sid' / 'enr' / 'star'（地图按段配色）；去重时保留先出现的那个点及其段。"""
     sid_wp = procedure_coords(dep, sid_label, dep_rwy, "dep", dat_path)
     star_wp = procedure_coords(arr, star_label, arr_rwy, "arr", dat_path)
     mid = list(enroute_pts[1:-1]) if enroute_pts and len(enroute_pts) >= 2 else list(enroute_pts or [])
@@ -511,7 +520,8 @@ def full_route_coords(dep, sid_label, dep_rwy, arr, star_label, arr_rwy, enroute
         if ss in ids:
             mid = mid[:ids.index(ss) + 1]
     out = []
-    for it in list(sid_wp) + mid + list(star_wp):
-        if not out or out[-1][0] != it[0]:
-            out.append(it)
+    for seg, part in (("sid", sid_wp), ("enr", mid), ("star", star_wp)):
+        for it in part:
+            if not out or out[-1][0] != it[0]:
+                out.append((it[0], it[1], it[2], seg) if tagged else it)
     return out

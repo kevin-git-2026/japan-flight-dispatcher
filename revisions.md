@@ -16,6 +16,282 @@
 
 ---
 
+## v2.0.2(✅ 2026-10-23)— 内存优化：地图开到独立子窗口 · 航点索引只收 RJ/RO · 底图可选 · 航路图仿 Navigraph · 本场台离场只作后备
+
+### 问题
+用户反馈程序内存峰值 500–700 MB，大头在 flet 端。
+
+### 实测方法
+- 内存监视器：在隔离副本里脚本驱动真程序走完各功能（本次整理入库为 `tools/memprobe.py`）。
+  - 用 Win32 `GetProcessMemoryInfo` 采样 Python 进程与 flet.exe 的**私有工作集**（≈ 任务管理器「内存」列）。
+  - 用 `VirtualQueryEx` 把私有内存按分配块分类；用 WMI `GPUProcessMemory` 读 GPU 共享内存。
+- 测量环境：Flutter 跑在核显上（独显未参与渲染）。
+
+### 改前：内存花在哪（私有工作集，MB）
+
+| 项 | 进程 | 占用 | 说明 |
+| --- | --- | --- | --- |
+| Flutter 引擎底数（空白 Flet 窗口） | flet.exe | 140 | 省不掉 |
+| 中日文字体 + emoji | flet.exe | +30 | |
+| 本程序主界面 | flet.exe | +40（空闲共 210） | |
+| 规划结果卡 + 进离场面板 + AIP 弹窗 | flet.exe | +40（共 250） | |
+| **浏览地图后的 GPU 渲染缓存** | flet.exe | **+406（封顶约 650–690）** | 关掉地图也不释放 |
+| Python 解释器 + flet 库 | python | 33 | |
+| **全球航点索引 `procedures._FIX_INDEX`** | python | **+143** | 首次规划时建立，之后常驻 |
+| 其它（航路图、CIFP 缓存、AIP 表等） | python | 约 15 | |
+
+全流程峰值合计 **850–880 MB**。规则编辑器反复重建、连续规划 6 次都没有可见增长，不是泄漏。
+
+### 根因 1：地图的 GPU 渲染缓存（flet.exe）
+- 浏览地图后，flet.exe 的私有内存与它的 GPU 共享内存**同步上涨**（瓦片 +279 MB、矢量 +327 MB）。
+- 增长落在若干 4–64 MB 的分配块，外加两块 128 MB 的分配。来源是 Skia 的 GPU 资源缓存（预算随窗口物理分辨率变化）和核显驱动的内存池。核显没有独立显存，所以全部记在进程头上。
+- 这是**封顶的缓存，不是泄漏**：浏览 14 / 28 / 42 / 56 个视角后分别是 504 / 520 / 502 / 572 MB；把地图移除 38 秒后也不回落。
+- 在程序内压不住。同一套 14 个视角下，flet.exe 的私有工作集（MB）：
+
+  | 底图设置 | 空闲 | 浏览后 |
+  | --- | --- | --- |
+  | 默认瓦片 | 211 | 520 |
+  | `keep_buffer=0` / `pan_buffer=0` | 193 | 542 |
+  | `fallback_url`（瓦片不进内存缓存） | 208 | 559 |
+  | 以上全部 + 瓦片不淡入 | 184 | 549 |
+  | 瓦片 + 无动画跳转 | 195 | 524 |
+  | 矢量多边形 1.5 万点（无瓦片） | 205 | 753 |
+  | 轻量矢量 2,400 点、不描边 | 178 | 682 |
+  | 只有航路线 + 标注（无底图） | 142 | 183 |
+  | 不放地图、只刷新界面 | 141 | 162 |
+
+- 预编译的 Flet 客户端不开放缓存预算（Skia 资源缓存、ImageCache），release 版也不读引擎开关，所以程序内无解。
+
+### 根因 2：全球航点索引（Python）
+`procedures._load_fix_index` 解析了全球的 earth_fix + earth_nav：251,417 个键，约 125 MB 堆内存，构建 1.70 秒，首次规划时建立后常驻。而 `_resolve_fix` 只按日本 CIFP 记录里的 region（RJ / RO / 空）查，查不到也只回退 RJ/RO——其它区的点一个都查不到。
+
+### 地图方案对比
+同一组 9 条航路（RJTT→RJFF），同样先切完标签页、再浏览 14 个视角。数值是相对打开地图之前的增量（MB）：
+
+| 做法 | 打开 | 切完标签 | 重度浏览后 | 关掉地图后 |
+| --- | --- | --- | --- | --- |
+| 程序内 Flet 地图（改前） | +64 | 峰值 +117 | +406 | +414，不释放 |
+| 浏览器 Edge（隔离实例，Leaflet + 同款 CARTO 瓦片） | +155 | +119 | +804（GPU 进程到 900） | 40 秒后仍 +335 |
+| 浏览器 Chrome（同上） | +105 | +95 | +700 | 40 秒后仍 +252 |
+| **独立 Flet 子窗口（选定）** | +249 | +278 | +643 | **0，进程退出** |
+
+- 浏览器的 GPU 进程同样被核显撑大，峰值约是 Flet 原生的两倍；只是把内存挪到了浏览器名下，所以不选。
+- 用户选定子窗口：峰值居中，关窗即全部归还，外观不变，还找回了 tk 版的多窗口并排。
+- 顺带发现：`.html` 文件的关联程序不一定是默认浏览器（与 http 链接可以各不相同）。将来若做浏览器版，必须走 http（本机回环服务），不能用 `file://`。
+
+### 实现
+- **备份**：本地分支 `backup/inapp-flet-map` → `99a7755`（程序内地图的最后版本），不推送。
+- **文件**：`dispatcher/procedures.py` `_load_fix_index`；**类型**：修改。
+  - **源码**：
+
+    ```python
+    # before
+    if len(p) < 5:
+        continue
+    # after（earth_nav 同理：region 不在两区就 continue，先判区再解析坐标）
+    _FIX_REGIONS = ("RJ", "RO")
+    if len(p) < 5 or p[4] not in _FIX_REGIONS:
+        continue
+    ```
+
+  - **说明**：只收 RJ/RO，按上面「根因 2」的道理不会丢结果。
+- **文件**：`dispatcher/ui_flet/map_window.py`；**类型**：新增。
+  - `launch(routes, index)`：
+    - 把航路写进 `%TEMP%/jp-flight-dispatcher-maps/route-*.json`，同时清掉 1 天前的旧文件；
+    - `Popen([sys.executable, (源码态加 flight_dispatcher.py,) "--map", json, "--parent", pid])` 启动后不等待。
+  - `run_map_window(argv)`：读入 JSON 即删，`apply_theme`，窗口 1240×920，把 `page.views` 换成地图视图。
+  - `_watch_parent`：Windows 用 `OpenProcess(SYNCHRONIZE)` + `WaitForSingleObject`，其它平台每 2 秒 `os.kill(pid, 0)`。主程序一退出就 `page.window.destroy()`，失败则 `os._exit`。
+  - `_tour`：`DISPATCHER_SELFTEST_MAPTOUR` 测试钩子，切遍标签页、飞 14 个视角后自行关窗。
+- **文件**：`dispatcher/ui_flet/map_view.py`；**类型**：修改。
+  - 去掉返回箭头和 `on_close`：独立窗口用自己的关闭按钮（`automatically_imply_leading=False`）。
+  - 记下 `self.maps`（各页的 Map 控件）和 `self.tabs`；View 的 route 改为 `/`。
+- **文件**：`dispatcher/ui_flet/app.py` `_open_map`；**类型**：修改。
+  - `map_view.build` + `page.views.append` → `map_window.launch(routes, idx)`，外加一行日志。
+  - 删掉 `self.map_view`；`DISPATCHER_SELFTEST_MAP_OFF` 移到子进程，靠环境变量继承生效。
+- **文件**：`flight_dispatcher.py`；**类型**：修改。参数里有 `--map` 走 `run_map_window(sys.argv)`，否则 `run_flet()`。
+- **文件**：`tools/memprobe.py`；**类型**：新增。内存监视器，用法见 CLAUDE.md 的 Commands。
+- 另：`viewmodel.plan_maps` 的 docstring，以及 README / PRD / CLAUDE.md 同步更新。
+
+### 验证
+- **航点索引对拍**（同一进程里互换索引，再加改前存档、改后比对）：
+  - 新索引与旧索引的 RJ/RO 子集完全相同；
+  - 17,635 次 `_resolve_fix`、1,662 次 `matching_choices`（全部 AIP 行的离场、进场两端）、2,341 次 `procedure_coords`（131 个 RJ/RO 机场的全部 SID/STAR × 跑道），逐项一致；
+  - 新索引 5,461 个键、2.6 MB，构建 0.87 秒。
+- **地图子窗口冒烟（源码态）**：
+  - 9 条航路，2.2 秒出窗；
+  - 带 MAPTOUR 漫游后自行关窗，临时 JSON 已删除；
+  - `DISPATCHER_SELFTEST_MAP_OFF=both` 无报错；
+  - 父进程退出后 1 秒内，地图窗口跟着关闭。
+- **打包版**（另打的测试 exe，没动 `dist/`）：
+  - 地图子进程只有一个 exe 加一个 flet.exe：PyInstaller 的子进程复用父进程的解压目录，不重新解压；
+  - 冷启动 **1.1 秒**；
+  - 漫游峰值 788 MB，之后自行关窗；关主窗口后 0.8 秒内全部退出；
+  - 地图开着时关主窗口，看门狗 0.8 秒关掉地图窗口；
+  - `_MEI` 无残留。
+- **复测内存**（`tools/memprobe.py`；主程序 = Python + flet.exe，MB）：
+
+  | 步骤 | 改前 | 改后 |
+  | --- | --- | --- |
+  | 主界面空闲 | 247 | 248 |
+  | 首次规划后 | 430 | 301 |
+  | 看过地图之后 | 848–856 | 318 |
+  | 再规划 6 次 | 855–880 | 314–333 |
+  | 最终空闲 | 856 | 304 |
+
+  地图子窗口漫游时峰值 650–790 MB（GPU 缓存每次略有出入），关窗后归零。
+
+### 另：地图底图换成国土地理院（CARTO 改为必须带 API key）
+- **问题**（用户反馈）：地图放大到一定程度后，满屏「API KEY REQUIRED · carto.com/basemaps/apikey」字样。
+- **根因**：CARTO 自 2026-09 起，`basemaps.cartocdn.com` 的瓦片必须带 `?key=`。
+  - 实测 1–18 级、voyager / dark_all 两套样式、换几种 UA / Referer，返回的**全是同一张水印图**（深色 2,513 B、浅色 2,049 B）。
+  - 「放大才出现」是因为低倍率显示的还是本地瓦片缓存（`%LOCALAPPDATA%\Appveyor Systems Inc\Flet\fm_cache`）里 9 月 6 日以前的旧瓦片；放大到没看过的级别才去网上取，取到的就是水印图（还会被缓存 30 天）。
+  - key 免费（非商用每月 500 万次请求），但写进公开仓库和发布包，谁都能拿去用，额度刷爆后所有用户一起坏。
+- **文件**：`dispatcher/ui_flet/map_view.py`；**类型**：修改。
+  - **源码**：
+
+    ```python
+    # before
+    _TILE_LIGHT = "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+    _TILE_DARK = "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+    _ATTRIB = "© OpenStreetMap contributors · © CARTO"
+    # after
+    _TILE = "https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png"   # 国土地理院「淡色地図」
+    _TILE_MAX_ZOOM = 18
+    _ATTRIB = "出典：地理院タイル（国土地理院）"                          # 点击打开地理院瓦片一览页
+    _ATTRIB_SHORE = 'Shoreline data is derived from: United States. National Imagery and Mapping Agency. "Vector Map Level 0 (VMAP0)."'
+    ```
+
+  - **说明**：地理院瓦片免 key、免申请，软件里实时加载只需署名（地理院瓦片一览页的要求：写「地理院タイル」并链接到一览页；淡色地図 5–8 级另注明海岸线数据来源）。覆盖 5–18 级日本及周边、2–8 级全球；地名为日文。**没有深色版**，深色模式下底图同样是淡色，药丸标注按界面深浅配色，浅底图上照样读得清。
+- **验证**：
+  - 用程序的 UA 直接请求，淡色地図 / 标准地图 3–17 级都是真实瓦片（英文地图只到 11 级，没选它）。
+  - 截图核对（同一个 `MapView`）：全国约 5 级、关西约 8 级、羽田 13 级、福冈粕屋 15 级和 17 级都正常出图，航路线、航点药丸、航路名标注叠加正常，全程无水印。
+
+### 另：地图底图可选（用户提出：「能否做一个图源选择的功能，比如 OSM、GSI、ESRI」）
+- **可行性实测**（用本程序实际会发的 UA `flutter_map (…)` 逐个取瓦片，羽田 5 / 10 / 15 级）：
+  - OSM、Esri 五种（地形 / 卫星 / 街道 / 深灰 / 浅灰）、地理院三种（淡色 / 标准 / 航空照片）全部返回真实瓦片。
+  - OSM 在 v2.0.0 时会 403 拒绝 flutter_map 的 UA，这次复测已放行，并在程序里截图确认能出图。
+  - 各源实测有数据的最高级：地理院 18、OSM 19、Esri 地形 / 卫星 19、Esri 深灰 16。再高一级时，OSM 回 400，地理院回 404，Esri 回「暂无数据」占位图。
+- **条款**：
+  - OSM 的瓦片政策：UA 必须写明程序名；署名必须始终可见，不能藏在按钮后面；禁止批量预取和离线下载；滥用会被封。
+  - Esri 的免 key 旧版服务（`server.arcgisonline.com`）：已不再更新；按 Esri 条款限非商业用途，须写「Powered by Esri」加数据署名。
+  - 地理院：只需署名。
+- **收录**：地理院 淡色地図（默认）、OpenStreetMap、Esri 地形图 / 卫星影像 / 深灰（暗色）。
+  - 地理院「标准地图」5–8 级还须另加 GEBCO 与海上保安厅许可号两条署名，「航空照片」各缩放段的署名来源更多，先不收。
+  - 卫星影像由 Esri 提供；深灰补上了地理院没有深色版的缺口。
+- **文件**：`dispatcher/ui_flet/map_view.py`；**类型**：修改。
+  - `BASEMAPS`（标签 / 地址 / 实测最高级 / 署名 / 出处链接）、`DEFAULT_BASEMAP`、`basemap_key`（不认识的回到默认）、`_tile_layer`。
+  - `MapView(page, basemap=, on_basemap=)`；`set_basemap(key)` 把每个标签页 Map 的 `layers[0]` 整层换成新瓦片层（只改 `url_template` 不保证重载），并改写署名文字。
+  - AppBar 加「底图」下拉框（`on_select`）。
+  - `_UA` 改为 `JapanFlightDispatcher (+https://github.com/kevin-git-2026/japan-flight-dispatcher)`，以满足 OSM 的 UA 要求。
+  - **署名改为自绘文字条** `_attrib_overlay`：叠在地图右下角，始终显示，太长自动换行，点击打开出处页。
+    - flet_map 的 RichAttribution 几秒后会收成一个图标；SimpleAttribution 会强加「flutter_map | ©」前缀，OSM 那条因此变成「© ©」，Esri 地形图的长署名还被截掉了尾巴（都是实测截图里看到的）。
+    - 长短文字都靠 `expand_loose`（相当于 Flutter 的 Flexible loose）：短的只占自身宽度，长的最多占满底边再换行。
+- **文件**：`dispatcher/config.py`；**类型**：新增 `load_map_settings` / `save_map_settings`。读写运行目录的 `map_settings.json`，写法同 `installed_scenery.json`。
+- **文件**：`dispatcher/ui_flet/map_window.py`；**类型**：修改。按 `map_settings.json` 里的 `basemap` 打开地图，切换后写回；多个地图窗口同时开着时，以最后一次切换为准。
+- **验证**（标题唯一的测试窗口，羽田 11 级依次切 5 个图源各截一张）：
+  - 5 个图源都正常出图，航路线和标注叠加正常；
+  - OSM 署名「© OpenStreetMap contributors」只有一个 ©；
+  - Esri 地形图的长署名完整显示，折成两行；
+  - 每次切换后 `map_settings.json` 同步写入；
+  - Esri 深灰放大到 18 级（超出其 16 级上限）时，显示的是拉伸的 16 级真实瓦片，没有出现占位图。
+
+### 另：地图窗口兜底关窗时连带结束 Flutter 客户端
+- **文件**：`dispatcher/ui_flet/map_window.py` `_close`；**类型**：修改。
+- **说明**：测试中实测到，Python 侧被 `os._exit` 结束后，它起的 flet.exe（窗口）会继续开着，成了孤儿窗口。
+  - 现在优雅关窗（`page.window.destroy()`）失败时，先 `taskkill /T /F /PID <自己>`（`CREATE_NO_WINDOW`，连同子进程整棵树）再 `os._exit`。
+  - 模拟 `destroy` 失败验证：Python 与 flet.exe 都结束，无窗口残留。
+
+### 另：航路画法改成 Navigraph Charts 的样式（用户提出：「地图的航路能不能做成和 navigraph chart 类似的形式，显眼易读」）
+- **样式**（颜色从用户给的 Navigraph 截图里取样）：
+  - 航路线加粗、改紫色（`#9461B8`，深紫描边）；SID 段粉红，STAR 段绿色（只有进离场面板的全段预览分得出）。
+    - STAR 原先也是粉红，用户看了 Navigraph 的进场图后要求改绿：浅绿线芯 `#92BD75`、深绿标签 `#5F8246`。STAR 名的底条也用深绿，因为浅绿上压不住白字。
+  - 航点名改为深蓝底白字的方框，放在符号上方；航路线正从上方进出时，自动改放右 / 下 / 左。
+  - 符号：航点 = 深蓝圆 + 白色三角，VOR = 六边形，NDB = 点画圆，机场 = 青色圆 + 齿轮；SID 里的点 = 粉红圆点、粉红标签，STAR 里的点 = 浅绿圆点、深绿标签（同 Navigraph）。
+  - 航路名（`Y20` / `NANKO3` / `DCT`）沿线写在线上，按该段走向旋转。
+  - 全段预览首尾标成「RJBB 06L」（原来只写跑道号「06L」）。
+- **按缩放避让**（`viewmodel._declutter`）：
+  - 原因：标签变大后，缩小看全程时会叠成一团。
+  - 做法：按重要性逐个放置——机场 > 换路点 > 航路名 > 加密中间点和程序里的点，同档内符号先于名字。每个标签和符号都算出「放大到第几级起，才不和更重要的图元重叠」，地图窗口只在缩放跨过半级时按它显隐。
+  - 从高缩放往低扫；某级放不下的，往下各级也不放。所以放大时图元只增不减，不会忽隐忽现。
+  - 「航点名称 / 航路名称」两个开关照旧；开着时也按缩放避让。
+- **数据**：
+  - **VOR / NDB**：主程序在开地图前查航路图（`router.nav_kind`：只查已建好的图，不触发建图；同名点按坐标核对 ≤3 NM），结果随航路一起写进临时 JSON。地图子进程不建航路图——建一次要几秒。
+  - **SID / STAR 分段**：`procedures.full_route_coords(tagged=True)` 给每点带上所属段；一段航段归它终点所属的段。
+  - **SID 机体合并**：AIP 串开头逐点展开的 SID 机体（`NANKO NIKEX KYOTO…`）并进 SID 那条腿，标 SID 名，不再标一串 `DCT`；这些点也按程序里的点画。
+- **文件**：
+  - `dispatcher/viewmodel.py`：修改。`map_model(coords, title, kinds)` 改为输出分段折线、符号 / 标签及各自的 min zoom；`route_legs` 增加角度与所属段；新增 `_declutter`、`nav_kinds`、`map_label_w`、`map_sym_d`，以及图元尺寸常量 `MAP_*`。
+  - `dispatcher/ui_flet/map_view.py`：修改。图元重画；新增 `_on_move`（缩放跨级时显隐）。
+  - `dispatcher/router.py`：新增 `nav_kind`。
+  - `dispatcher/procedures.py`：`full_route_coords` 增加 `tagged`。
+  - `dispatcher/ui_flet/map_window.py`、`dispatcher/ui_flet/app.py`：JSON 带上导航台类型和所属段。
+- **性能**：
+  - `map_model` 每条航路约 1.5 ms，9 条约 10 ms。
+  - **缩放事件关掉了自动更新**：位置变化事件每帧都来，而 Flet 默认在每个事件处理完后把整页 diff 一遍。9 个标签页的地图窗口实测一次 19 ms，平移时能吃满一个核。现在只在跨半级时更新这一张图（约 1.3 ms）。
+  - **内存**：同一漫游场景（RJTT→RJFF 9 条航路），地图窗口空闲 274 MB、峰值 652 MB，与改前（约 270 / 650–800）持平。
+- **验证**：
+  - **截图核对**（测试窗口挪到屏幕外，只截本窗口）：
+    - RJBB→RJCC 全段预览：地理院 6 / 8 / 10 级；
+    - RJOO→RJTT 全段：Esri 地形 9 级；
+    - RJTT→RJFF 9 条：地理院、Esri 深灰；
+    - RJCC→ROAH：Esri 卫星。
+  - 两个开关、切标签页正常；各标签页按各自的缩放显隐。
+  - **端到端**：调用真的 `map_window.launch`，子窗口 1.6 秒出图，漫游后自行关闭，临时 JSON 已删。
+
+### 另：地图窗口打开后自动提到最前（用户反馈：「点击预览之后地图弹窗并不会放在第一层」，要去任务栏点开）
+- **原因**：Windows 的前台锁只许「用户正在用的进程」（或由它启动的进程）把自己的窗口设为前台。
+  - 用户点的是主程序窗口，属于主程序的 flet.exe。
+  - 地图窗口属于主程序 Python 进程另起的子进程及其 flet.exe——不是前台进程启动的，所以激活被拒：窗口压在主窗口后面，任务栏按钮闪烁。
+  - Flet 的 `focused` / `to_front()` 由地图那个 flet.exe 去申请，同样被拒。
+- **改法**：`map_window._raise_window`（仅 Windows），地图窗口出来后执行：
+  - 前提是前台窗口属于本程序（主窗口或另一个地图窗口），判法是前台窗口的进程往上数几层就是主程序。
+  - 满足时，地图进程的线程临时挂上前台窗口线程的输入状态（`AttachThreadInput`），借它的权限 `SetForegroundWindow` + `BringWindowToTop`，随即解开。前台是我们自己的窗口，只挂几毫秒。
+  - **提一次不够**：窗口刚出来时 Flet 还在收尾，实测提上来约 0.1 秒后，前台又回到了主窗口。所以要盯 3 秒：前台若又回到本程序的其它窗口就再提一次，地图窗口稳稳占住前台 0.3 秒就收手。
+  - 用户若在地图出来前已切到别的程序，就不抢焦点：窗口照常出现，任务栏闪烁。
+- **验证**：
+  - **测试进程不能从正在前台的编辑器 / 终端里直接启动**：从前台程序一路启动下来的进程都继承了前台权限，地图本来就会自己跳到最前，问题复现不了（实测：不带新代码也照样成为前台）。
+  - **改用「任务计划程序」启动测试进程**：它没有前台权限，与真实主程序的 Python 进程处境相同。再由**另一个**帮手进程把测试「主窗口」设为前台，模拟用户刚点了它。测试进程自己不能去设，否则它和它起的子进程也会沾上前台权限。
+  - 结果：
+    - 不带新代码（对照）：地图窗口始终没成为前台，复现了原问题；
+    - 带新代码：源码态约 1.0 秒、冻结版 exe 约 1.6 秒后成为前台，此后一直保持（各测两次，每次观察 7 秒）；
+    - 前台在别的程序上：地图窗口不抢焦点，前台保持不变。
+  - 测试用的计划任务用完即删。
+
+### 另：航路生成——本场台 VOR 离场只作后备（用户报：RJCH→RJSN 选了本场台 HWE 离场，应走 `TSUGA2 TAPPI Y120 OBAKO Y122 BUDOH`）
+- **原因**：A\* 的代价含「机场→起点」那段直线，本场 VOR 就在场内（≈0 NM），结构性地压过一切 RNAV 离场出口。
+  - RJCH→RJSN：从 HWE 起飞 244 NM，从 TAPPI 起飞 245 NM，只差 1 NM 却选了 HWE。
+  - TAPPI 是 SID TSUGA2 的出口，也是 RJCH 官方航路的离场头（3 条）；RJCH 的官方航路没有一条从 HWE 起飞。
+  - HWE 还经两条路进了候选池：CIFP 的本场台 + VATJPN 移管表的离场门。
+  - 进场端早有「enroute 门优先、本场台只作后备」（`_arrival_candidates` + `_prefer_star_handoff`），离场端缺了这一层。
+- **改法**（`dispatcher/router.py`）：
+  - `_direct_route` 的选路流程收成 `_plan(vor)`：首轮 A\* + 离场门质量门控 + 进场走廊奖励 + STAR 交接偏好。
+  - 最终航路从本场台起飞、且本场台不是学到的离场头时，在 `vor=False` 下整套重跑。三条都满足才改用：
+    - 不可疑；
+    - 全程不再经过本场台；
+    - 最多多飞 `_VOR_DEP_EXTRA_NM`=25 NM。
+  - `_departure_candidates(…, vor=False)` 剔除本场台，不论它来自 CIFP 还是移管门；剔完为空就返回空，不走几何兜底（那多半又落回本场台）。
+- **为什么这样定**（固定 301 对无直连 AIP 的机场对，改前改后对比）：
+  - 第一版（只比首轮、按 1.15 倍）改了 32 对、共 +719 NM，其中不少是坏改动：
+    - 宫古 `SHUJI V90 MJC …`：飞出去又绕回场上空的本场台；
+    - RJNK→RJFK：首轮两边打平，走完进场偏好后多 68 NM；
+    - 八丈岛多 45 NM。
+  - 于是改为：比【最终】结果、禁止绕回本场台、改用绝对海里上限。离场端的局部绕行不随航程变长，按倍数算，800 NM 的航路能白绕 100 NM。
+  - 结果：改 13 对，均 ≤ +22 NM，共 +105 NM；可疑数 3 → 3；从本场台起飞的 52 → 39 对。
+    - 改动的多是改走官方离场头 + 官方走廊，如 RJSA→RJAA 改走 `UWE Y32 YTE Y304 GUGBI Y30 SWAMP`（与 RJCH→RJAA 的官方航路同一走廊）、RJOA→RJEC 改从 MIDER 离场。
+    - 留在本场台的，都是 RNAV 离场要绕回场上空，或要多飞 ≥ 28 NM 的。
+- **验证**：
+  - RJCH→RJSN 生成 `TAPPI Y120 OBAKO Y122 BUDOH`（247 NM，1.02× 大圆）；
+  - 进离场面板预选 RW30 / **TSUGA2**；
+  - 全段预览为 `TSUGA2 TAPPI Y120 OBAKO Y122 BUDOH KAETSU`。
+- **文档**：`route_planning` skill 的 `SKILL.md`（决策树第 2 步）与 `reference/enroute.md`（新增「本场台离场只作后备」一节）同步。
+
+### 已知局限 / 取舍
+- 地图窗口开着时，整机多一个 Flutter 引擎：空闲约 270 MB，重度浏览 650–800 MB；同时开几个窗口就按个数累加。换来的是关窗即全部归还，主程序常驻约 300 MB。
+- 只在核显机器上实测过。独显机器上 GPU 缓存大多落在显存里，程序内地图的问题应当小得多（未测）。
+- 主程序退出时，地图窗口会跟着关闭（看门狗），不能单独留着。
+- 字体 / emoji（约 +30 MB）和 Flutter 引擎底数（约 140 MB）省不掉。
+
+---
+
 ## v2.0.1 hotfix_3(✅ 2026-10-17)— Volanta 同步失效修复：令牌读取改为真正解析 LevelDB · EOBT 默认 = 当前 + 30 分钟 · F30 模拟呼号按真实编号范式选号
 
 ### 问题
