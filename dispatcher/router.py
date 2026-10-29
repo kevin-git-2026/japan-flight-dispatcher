@@ -485,6 +485,20 @@ def _transfer_points():
     return _TRANSFER
 
 
+def reload_transfer_points(data=None):
+    """换用新的移管表（启动时 `vatjpn.refresh` 重建后调）：`data` 直接替换缓存（写盘失败时也能用上新表），
+    None → 下次从文件重读；连带清掉由它派生的 `_ARR_DCT_ONLY`。
+    航路图的端点学习（`_learn_routes` 的 skip）也读它，但启动时图还没建，故不必重学。"""
+    global _TRANSFER
+    _TRANSFER = data
+    _ARR_DCT_ONLY.clear()
+
+
+def transfer_entry(icao):
+    """该机场在移管表里的整条记录（dict）；没有 → None。"""
+    return _transfer_points().get(icao)
+
+
 def arr_gate_routings(icao, gate):
     """VATJPN「到着」栏里该进场门的全部官方径路 → [{via_fix, via_awy, dct, star, cond}, …]（无则空）。
     `via_fix`/`via_awy` = **来向**（上游接入点/航路）；`dct` = 门后 enroute 该照抄的直飞段；

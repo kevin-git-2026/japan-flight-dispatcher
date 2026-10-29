@@ -2,7 +2,7 @@
 
 > 为 X-Plane 11/12（兼容 MSFS）的飞行模拟玩家自动生成「日本地区」飞行任务：智能抽取或指定起降机场 → 查询机场间的官方 AIP 推荐航路 → 交叉比对现实世界航班排班 → 输出一份可直接用于模拟飞行的航班规划单。
 
-**当前版本：v2.0.2** ｜ 平台：Windows（兼容类 Unix）｜ 形态：纯图形界面桌面程序（`flight_dispatcher.exe`，单文件约 55 MB，冷启动约 2 秒）
+**当前版本：v2.0.3** ｜ 平台：Windows（兼容类 Unix）｜ 形态：纯图形界面桌面程序（`flight_dispatcher.exe`，单文件约 55 MB，冷启动约 2 秒）
 
 ---
 
@@ -27,6 +27,7 @@
 | ✈️ **机型可搜索下拉**（v1.4.0） | 从 212 种 SimBrief 机型库中搜索 / 选择 |
 | 🗺️ **航路交互地图**（v1.4.0） | 每条航路在真实地图上查看，可拖拽缩放；画法参照 Navigraph Charts（紫色航路线、深蓝航点名、离场程序粉红、进场程序绿色）；底图可选国土地理院 / OpenStreetMap / Esri（地形、卫星、深灰）；地图在单独的窗口里打开，可同时开多个并排比对 |
 | 📐 **航路距离与偏差**（v1.4.0） | 每条航路显示沿真实航路的精确长度与相对大圆的绕行 +X% |
+| 📉 **进近移管高度**（v2.0.3） | 每条航路下方列出 VATJPN 移管表里这条进场的移管点、移管高度（如 `SPENS FL220`）以及从哪个管制席位交给哪个席位（含频率），连飞时可直接对照下降与交接 |
 | 🛫 **跑道 + 进离场程序 + 天气**（v1.4.1；v1.5.0 增强） | 规划后为航班选出发 / 到达跑道与 SID/STAR，配 METAR/TAF 天气算每条跑道的逆 / 侧风与适航；**小机场 METAR 缺测 / 过期时，自动用 Open-Meteo 网格天气合成一条参考 METAR**（清楚标注「模型合成·非实测」），并拼进 SimBrief |
 | ⚙️ **机场运行规则编辑器**（v1.5.0） | 可视化编写各机场按【时段 + 星期 + 风 + 天气】切换的运行规则（跑道 / SID / STAR / IAP），保存为 `operation.json`；换向门槛支持顺风 / 逆风 / **侧风**（如都心「16 侧风超即改 22/23」） |
 | 🎯 **运行规则自动应用**（v1.6.0） | 规划一次航班后，按 EOBT（默认为当前时间 + 30 分钟，可改）时段 + 星期 + 实测风 + 天气匹配上面编写的规则，**自动为该航班预选跑道 / SID / STAR / IAP** 并标注依据；决策支持，您随时可改选（也可一键关闭）。该 EOBT 同时提交给 SimBrief |
@@ -42,7 +43,7 @@
    - `flight_dispatcher.exe`
    - `NavData/`（导航数据，详见下方说明）
    - `aircrafts.json`（机型库）
-   - `transfer_points.json`（进离场移管点）
+   - `transfer_points.json`（进离场移管点；程序启动时会按您的导航数据自动更新，无需另行下载）
    - `operation.json`（机场运行规则，**已附带一套完整的羽田 RJTT 规则作样例**；可用「⚙️ 编辑机场运行规则」照着改写其它机场，删掉该文件即为空规则）
    - `flight_blocks.json`（真实航班号号段表，模拟呼号据此选号；缺了它程序照常运行，只是模拟呼号只按奇偶规律选号）
 3. 双击 `flight_dispatcher.exe` 即可打开窗口。
@@ -81,6 +82,7 @@
 
 - 查询 AIP 航路（jp-routes）、现实航班排班（FlightAware）、加载交互地图瓦片均需联网。
 - 首次联网后会生成 AIP 航路缓存，之后可离线查询 AIP 航路；但查询现实航班始终需要联网。
+- 每次启动会联网检查 VATJPN 的「空港別移管高度表」，按您 `NavData` 的 AIRAC 周期自动更新 `transfer_points.json`（进离场移管点及其配套 STAR），所以更新导航数据后不必重新下载程序包。若您的导航数据比 VATJPN 最新一期移管表旧，会弹窗提醒您升级导航数据。断网时沿用现有文件。
 
 ### 3. 地景检测
 
@@ -120,6 +122,16 @@
 ---
 
 ## 📋 更新日志
+
+### v2.0.2 → v2.0.3
+
+- 📉 **航路下方显示进近移管高度**。每条 AIP 航路 / 生成航路下面，列出 VATJPN 移管表里这条进场的移管点、要求的高度，以及由哪个管制席位交给哪个席位（含频率）。例如伊丹→羽田 `ASUKA SHTLE Y71 XAC`：`SPENS  FL220  TG T40 (123.70) → TT APP (119.10)`。
+  - 机型或跑道不同、高度也不同的，会并成一行列出，如 `MUGIE  FL190 (JET) / FL170 (PROP)`。
+  - 移管表里找不到对应进场时，会注明「没有与这条航路对应的进场」。
+- 🔄 **进离场移管表随导航数据自动更新**。每次启动会联网检查 VATJPN 的「空港別移管高度表」，按您 `NavData` 的 AIRAC 周期选用对应的一期并自动更新 `transfer_points.json`。**以后您更新导航数据，不必再重新下载程序包**。
+  - 您的导航数据比 VATJPN 最新一期移管表旧时，会弹窗提醒您升级导航数据。
+  - 没有变化时只读一次目录（约 0.4 秒）；断网时沿用现有文件。
+- 📋 **移管表更新到 AIRAC 2610**：高知（RJOK）的进场门改版等。另外，进离场面板「按进场门预选 STAR」现在按您的导航数据重新配对：伊丹、高知有几条 STAR 在新导航数据里改了名，旧表配不上，会悄悄退回默认选择（例如羽田→伊丹落 32L，现在预选到 VATJPN 给出的 `AGPU1R`）。
 
 ### v2.0.1 → v2.0.2
 
@@ -258,13 +270,13 @@
 
 - **核心逻辑全部为 Python 标准库实现**（航路生成、天气、运行规则、Volanta、抓取等，无任何第三方依赖）；**界面层**用 [Flet](https://flet.dev)（Python 编写、Flutter 渲染，v2.0.0 起）。v1.x 的 `tkintermapview` + `Pillow` 已随 tkinter 一并移除。
 - 从源码运行：`pip install flet flet-map` 后 `python flight_dispatcher.py`（Python ≥ 3.10）。
-- 外部数据源：航路（jp-routes）与排班（FlightAware）为页面抓取而非官方 API，可能随对方改版而失效；天气为 NOAA `tgftp`（METAR/TAF）与 **[Open-Meteo](https://open-meteo.com)** 网格模型（缺测 / 过期时的回退）；**羽田实测运用状况来自国土交通省 [ntrack](https://www.ntrack.mlit.go.jp/NtrackTop/show)**（全公开数据，取不到时自动回退到运行规则）。
+- 外部数据源：航路（jp-routes）与排班（FlightAware）为页面抓取而非官方 API，可能随对方改版而失效；天气为 NOAA `tgftp`（METAR/TAF）与 **[Open-Meteo](https://open-meteo.com)** 网格模型（缺测 / 过期时的回退）；**羽田实测运用状况来自国土交通省 [ntrack](https://www.ntrack.mlit.go.jp/NtrackTop/show)**（全公开数据，取不到时自动回退到运行规则）；进离场移管点来自 VATJPN 以 Google 表格公开发布的「空港別移管高度表」（取不到时沿用现有文件）。
 - 全部用户界面文案为简体中文。
 
 ## 🙏 数据来源与致谢
 
 - 天气模型数据来自 **[Open-Meteo](https://open-meteo.com)**，依 **CC BY 4.0** 授权使用（网格天气回退功能）；实时观测 / 预报报文来自 **NOAA**。
-- 导航数据由用户自备的 Navigraph `NavData` 提供；AIP 航路来自 jp-routes 公开数据。
+- 导航数据由用户自备的 Navigraph `NavData` 提供；AIP 航路来自 jp-routes 公开数据；进离场移管点来自 **[VATJPN](https://vatjpn.org)** 公开的「空港別移管高度表」。
 - 地图底图（可在地图窗口中切换）：
   - **[国土地理院「地理院タイル」](https://maps.gsi.go.jp/development/ichiran.html)**（淡色地図）。小比例尺（5–8 级）的海岸线数据：Shoreline data is derived from: United States. National Imagery and Mapping Agency. "Vector Map Level 0 (VMAP0)."
   - **© [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors**。

@@ -35,6 +35,37 @@ class Span:
         return "Span(%r, %r%s)" % (self.text, self.style, ", action" if self.action else "")
 
 
+def xfer_alt(s):
+    """移管表的高度原文 → 显示串：`at F220`/`F220`→`FL220`，`at A110`/`A110`→`11000ft`，
+    `at BLW`→`≤`、`at ABV`→`≥`，`-`→`—`；认不出的写法原样（如 `COOR with E DEP`）。"""
+    s = " ".join((s or "").split())
+    if s in ("", "-"):
+        return "—"
+    s = re.sub(r"\bat\s+BLW\s*", "≤", s)
+    s = re.sub(r"\bat\s+ABV\s*", "≥", s)
+    s = re.sub(r"\bat\s+", "", s)
+    s = re.sub(r"\bF(\d{3})\b", r"FL\1", s)
+    return re.sub(r"\bA(\d{3})\b", lambda m: "%dft" % (int(m.group(1)) * 100), s)
+
+
+def xfer_lines(rows):
+    """移管行 → 每行一个显示串「点  高度  移管元 → 移管先」。同一点、同一组席位、只差条件（机型 / 跑道）的相邻行
+    并成一行：`MUGIE  FL190 (JET) / FL170 (PROP)  …`。移管点 / 移管先写「→」的照原样显示（表里就是这么写的）。"""
+    out = []
+    for r in rows or ():
+        alt = xfer_alt(r.get("alt")) + (" (%s)" % r["cond"] if r.get("cond") else "")
+        key = (r.get("fix"), r.get("from"), r.get("to"))
+        if r.get("cond") and out and out[-1][0] == key and out[-1][2]:
+            out[-1][1].append(alt)
+            continue
+        out.append([key, [alt], bool(r.get("cond"))])
+    lines = []
+    for (fix, frm, to), alts, _c in out:
+        hand = " → ".join(x for x in (frm, to) if x) if to != "→" else (frm + " →")
+        lines.append("  ".join(x for x in (fix or "—", " / ".join(alts), hand) if x))
+    return lines
+
+
 def result_spans(plan, has_map=True):
     """FlightPlan → span 列表（结果卡的全部内容）。UI 只负责把 span 画成 Tk tag 或 ft.TextSpan。
     这是结果卡在两套 UI 下逐字一致的关键——文案与配色语义全在这里定死。"""
@@ -77,6 +108,17 @@ def result_spans(plan, has_map=True):
         pct = (route_len - plan.dist_nm) / plan.dist_nm * 100.0
         return "航路长 %.0f NM（较大圆 %+.1f%%）" % (route_len, pct)
 
+    def _xfer(x, pad):
+        """F32 进近移管：x = vatjpn.match_arrival 的结果。None（目的场不在移管表里）→ 不显示。"""
+        if x is None:
+            return
+        if not x:
+            ins(pad + "└ 进近移管：VATJPN 移管表里没有与这条航路对应的进场\n", "muted")
+            return
+        ins(pad + "└ 进近移管（VATJPN %s）%s：\n" % (x["route"], "" if x.get("full") else "（按进场门近似匹配）"), "muted")
+        for ln in xfer_lines(x.get("rows")):
+            ins(pad + "    " + ln + "\n", "muted")
+
     if plan.aip_routes:
         ins("\n  📜 AIP 航路\n", "section")
         _dists = plan.aip_route_dists or []
@@ -96,6 +138,8 @@ def result_spans(plan, has_map=True):
             _dd = _dev(_dists[i - 1] if i - 1 < len(_dists) else None)
             if _dd:
                 ins("       └ " + _dd + "\n", "muted")
+            _xf = getattr(plan, "aip_xfers", None) or []
+            _xfer(_xf[i - 1] if i - 1 < len(_xf) else None, "       ")
             _map_link(_maps[i - 1] if i - 1 < len(_maps) else None)
 
     if plan.generated_route:
@@ -104,6 +148,7 @@ def result_spans(plan, has_map=True):
         _gd = _dev(plan.generated_route_dist)
         if _gd:
             ins("  " + _gd + "\n", "muted")
+        _xfer(getattr(plan, "gen_xfer", None), "  ")
         _map_link(plan.gen_map)
         ins("  ⚠️ 起讫点取自 SID/STAR 衔接点、中间为 A* 连出的 enroute 航路；仅供参考，未含具体 SID/STAR 程序段。\n", "warn")
         if plan.generated_route_warn:

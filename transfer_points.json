@@ -1,5 +1,12 @@
 {
-  "_comment": "机场进/离场移管点（VATJPN「空港別移管高度表」**AIRAC 2607**；公开页 https://vatjpn.org/document/public/om/sop/transfer-point-and-alt）。arr=进场门 · dep=离场头 · arr_dct=门后 enroute 该照抄的直飞段 · arr_gates=门→[{via_fix,via_awy: 到着栏的上游走廊=来向; dct: 门后真直飞段; star: 门后展开点反查出的 STAR（空=该门无 STAR/走雷达引导）; cond: 方向/机型/跑道限定}]。RJCJ/RJTL/RJTY 是 VATJPN 未覆盖的军用场，人工推测录入（见 _source）。",
+  "_comment": "机场进/离场移管点（VATJPN「空港別移管高度表」**AIRAC 2610**；公开页 https://vatjpn.org/document/public/om/sop/transfer-point-and-alt）。arr=进场门 · dep=离场头 · arr_dct=门后 enroute 该照抄的直飞段 · arr_gates=门→[{via_fix,via_awy: 到着栏的上游走廊=来向; dct: 门后真直飞段; star: 门后展开点反查出的 STAR（空=该门无 STAR/走雷达引导）; cond: 方向/机型/跑道限定}]。RJCJ/RJTL/RJTY 是 VATJPN 未覆盖的军用场，人工推测录入（见 _source）。",
+  "_vatjpn": {
+    "pub": "2PACX-1vSNm44y4pYdLTvZMvnLddLv3sMer3M0uxR6lI4d4qze84p7zjlpzulsGvdkQkGzdDcVczZMXB0C5kiO",
+    "gid": "437830123",
+    "tab": "AIRAC 2610",
+    "navdata": "2610",
+    "schema": 2
+  },
   "RJAA": {
     "region": "東京進入管制区",
     "arr": [
@@ -63,7 +70,151 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y30 SWAMP"
+        ],
+        "rows": [
+          {
+            "fix": "GURIP",
+            "alt": "at F150",
+            "from": "TG T34 (118.90)",
+            "to": "AA APP (127.70)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…R211 SWAMP"
+        ],
+        "rows": [
+          {
+            "fix": "GLAXY",
+            "alt": "at F150",
+            "from": "TG T34 (118.90)",
+            "to": "AA APP (127.70)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y809 SUPOK"
+        ],
+        "rows": [
+          {
+            "fix": "LESPO",
+            "alt": "at F150",
+            "from": "TG T36 (134.00)",
+            "to": "AA APP (127.70)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y813 LUBLA"
+        ],
+        "rows": [
+          {
+            "fix": "VAGLA",
+            "alt": "at F150",
+            "from": "TG T36 (134.00)",
+            "to": "AA APP (127.70)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y81 RUTAS"
+        ],
+        "rows": [
+          {
+            "fix": "MAMAS",
+            "alt": "at F240",
+            "from": "TG T42 (125.90)",
+            "to": "AA APP (124.40)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "AGRIS Y37…",
+          "KIMIN Y117…"
+        ],
+        "rows": [
+          {
+            "fix": "RADIX",
+            "alt": "F230 & at ABV F150",
+            "from": "AA DEL (121.90)",
+            "to": "TT DEP (120.80)"
+          },
+          {
+            "fix": "→",
+            "alt": "F230",
+            "from": "TT DEP (120.80)",
+            "to": "TG T35 (124.10)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "GULBO Y808…",
+          "BORLO Y830…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F230",
+            "from": "AA DEL (121.90)",
+            "to": "TG T36 (134.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "OLVAN Y823…",
+          "SAMUS Y84…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F240",
+            "from": "AA DEL (121.90)",
+            "to": "TG T42 (125.90)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "PIGOK Y50…",
+          "REDEK Y60…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F240",
+            "from": "AA DEL (121.90)",
+            "to": "TG T39 (132.10)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "ENPAR Y16…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F240",
+            "from": "AA DEL (121.90)",
+            "to": "TG T38 (120.50)"
+          }
+        ]
+      }
+    ]
   },
   "RJAH": {
     "region": "百里進入管制区",
@@ -85,7 +236,50 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y88 DAIGO Y887 TATSU NAKAH"
+        ],
+        "rows": [
+          {
+            "fix": "DAIGO",
+            "alt": "at A100",
+            "from": "TG T34 (118.90)",
+            "to": "AH APP (123.87)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y10 DAIGO Y887 TATSU NAKAH"
+        ],
+        "rows": [
+          {
+            "fix": "TATSU",
+            "alt": "at A100",
+            "from": "TG T34 (118.90)",
+            "to": "AH APP (123.87)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "OGITU Y887…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A090",
+            "from": "AH",
+            "to": "TG T34 (118.90)"
+          }
+        ]
+      }
+    ]
   },
   "RJBB": {
     "region": "関西進入管制区",
@@ -176,7 +370,280 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…KOHWA Y544 DUBKA"
+        ],
+        "rows": [
+          {
+            "fix": "SINGU",
+            "alt": "at F180",
+            "from": "TG T45 (125.70)",
+            "to": "BB E APP (120.45)"
+          },
+          {
+            "fix": "DUBKA",
+            "alt": "at A100",
+            "from": "BB E APP (120.45)",
+            "to": "BB C DEP (120.65)"
+          },
+          {
+            "fix": "→",
+            "alt": "A100",
+            "from": "BB C DEP (120.65)",
+            "to": "BB C APP (120.25)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y46 EVERT",
+          "…Y46 CANDY"
+        ],
+        "rows": [
+          {
+            "fix": "EMSUV",
+            "alt": "at F160",
+            "from": "TG T46 (133.50)",
+            "to": "BB C APP (120.25)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y48 EVERT",
+          "…Y48 EVERT Y46 CANDY"
+        ],
+        "rows": [
+          {
+            "fix": "10S EVERT",
+            "alt": "at F160",
+            "from": "TG T46 (133.50)",
+            "to": "BB C APP (120.25)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y53 NIXOV"
+        ],
+        "rows": [
+          {
+            "fix": "OLBUG",
+            "alt": "at F160",
+            "from": "BG N50 (127.15)",
+            "to": "BB C APP (120.25)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y35 IGLEV"
+        ],
+        "rows": [
+          {
+            "fix": "URDET",
+            "alt": "at F180",
+            "from": "BG N52 (135.65)",
+            "to": "BB C DEP (120.65)"
+          },
+          {
+            "fix": "BIXIS / MIDUX",
+            "alt": "at A120",
+            "from": "BB C DEP (120.65)",
+            "to": "BB C APP (120.25)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y36 ATMUG"
+        ],
+        "rows": [
+          {
+            "fix": "SAEKI",
+            "alt": "at F170",
+            "from": "BG N48 (133.80)",
+            "to": "BB C RDR (120.85)"
+          },
+          {
+            "fix": "BIXUR / MINOS",
+            "alt": "at A110",
+            "from": "BB C RDR (120.85)",
+            "to": "BB C APP (120.25)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A050",
+            "from": "BB DEL (121.90)",
+            "to": "BB C DEP (119.20)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・NANKO NIKEX KYOTO SIGAK GUJYO Y13…",
+          "NANKO NIKEX KYOTO SIGAK KCC…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "COOR with E DEP",
+            "from": "BB C DEP (119.20)",
+            "to": "BB E DEP (119.50)"
+          },
+          {
+            "fix": "→",
+            "alt": "F190",
+            "from": "BB E DEP (119.50)",
+            "to": "BG N44 (123.90)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・SOVRI UPRAL UENOH KCC…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A080",
+            "from": "BB C DEP (119.20)",
+            "to": "BB E APP (120.45)"
+          },
+          {
+            "fix": "→",
+            "alt": "-",
+            "from": "BB E APP (120.45)",
+            "to": "BB E DEP (119.50)"
+          },
+          {
+            "fix": "→",
+            "alt": "F170",
+            "from": "BB E DEP (119.50)",
+            "to": "BG N44 (123.90)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・SOVRI UPRAL YAGYU SHTLE…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A080",
+            "from": "BB C DEP (119.20)",
+            "to": "BB E APP (120.45)"
+          },
+          {
+            "fix": "→",
+            "alt": "F190",
+            "from": "BB E APP (120.45)",
+            "to": "TG T45 (125.70)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・TOMOH DOPDA KEC…",
+          "UPMIN DOPDA KEC…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A080",
+            "from": "BB C DEP (119.20)",
+            "to": "BB C DEP (120.65)"
+          },
+          {
+            "fix": "→",
+            "alt": "F200",
+            "from": "BB C DEP (120.65)",
+            "to": "TG T46 (133.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・OMGOR Y34…"
+        ],
+        "rows": [
+          {
+            "fix": "ENSIP",
+            "alt": "at F200",
+            "from": "BB C DEP (119.20)",
+            "to": "BG N50 (127.15)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・OBLUR Y236…"
+        ],
+        "rows": [
+          {
+            "fix": "OBLUR",
+            "alt": "at F200",
+            "from": "BB C DEP (119.20)",
+            "to": "BG N50 (127.15)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・UPMIN IVROG…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F200",
+            "from": "BB C DEP (119.20)",
+            "to": "BG N50 (127.15)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・LINDA SHION WASYU…",
+          "LINDA SHION HABAR…",
+          "MAIKO OSRIX GUMID SOUJA…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "BB C DEP (119.20)",
+            "to": "BG N49 (132.70)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・MAIKO OSRIX SHION HABAR…",
+          "MAIKO OSRIX SHION WASYU…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "BB C DEP (119.20)",
+            "to": "BG N49 (132.70)"
+          }
+        ]
+      }
+    ]
   },
   "RJBE": {
     "region": "関西進入管制区",
@@ -224,7 +691,180 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y537 LOVGI Y353 AVKUL"
+        ],
+        "rows": [
+          {
+            "fix": "LUXAD",
+            "alt": "at F180",
+            "from": "BG N50 (127.15)",
+            "to": "BB C DEP (120.65)"
+          },
+          {
+            "fix": "EMAJA",
+            "alt": "at A110",
+            "from": "BB C DEP (120.65)",
+            "to": "BB N RDR (121.20)"
+          },
+          {
+            "fix": "15W TRACY",
+            "alt": "at A080",
+            "from": "BB N RDR (121.20)",
+            "to": "BB C RDR (120.85)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y35 URDET Y353 AVKUL"
+        ],
+        "rows": [
+          {
+            "fix": "URDET",
+            "alt": "at F160",
+            "from": "BG N52 (135.65)",
+            "to": "BB C DEP (120.65)"
+          },
+          {
+            "fix": "10SW LOVGI",
+            "alt": "at A100",
+            "from": "BB C DEP (120.65)",
+            "to": "BB N RDR (121.20)"
+          },
+          {
+            "fix": "15W TRACY",
+            "alt": "at A080",
+            "from": "BB N RDR (121.20)",
+            "to": "BB C RDR (120.85)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…MIHOU Y39 OYE V28 OMBIP"
+        ],
+        "rows": [
+          {
+            "fix": "OYE",
+            "alt": "at A100",
+            "from": "BG N48 (133.80)",
+            "to": "BB N RDR (121.20)"
+          },
+          {
+            "fix": "→",
+            "alt": "A080",
+            "from": "BB N RDR (121.20)",
+            "to": "BB C RDR (120.85)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…WAKIT Y201 TRACY"
+        ],
+        "rows": [
+          {
+            "fix": "WAKIT",
+            "alt": "at A130",
+            "from": "BG N47 (133.55)",
+            "to": "BB C RDR (120.85)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "RWY09",
+            "alt": "A015",
+            "from": "BE GND (122.07)",
+            "to": "BB C RDR (120.85)"
+          },
+          {
+            "fix": "RWY27",
+            "alt": "A030",
+            "from": "BE GND (122.07)",
+            "to": "BB C RDR (120.85)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・MUKRI LANID PORUS TRIPY ASAGI YME Y381…",
+          "MAIKO KAWAT OMBIP YME…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F170",
+            "from": "BB C RDR (120.85)",
+            "to": "BG N47 (133.55)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・MUKRI LANID REVUE HYOGO SANDA…",
+          "MUKRI LANID REVUE HYOGO SANDA MIDER…"
+        ],
+        "rows": [
+          {
+            "fix": "HYOGO",
+            "alt": "F170",
+            "from": "BB C RDR (120.85)",
+            "to": "BG N47 (133.55)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・MUKRI ATKAS TANTA Y236…",
+          "MUKRI ATKAS TANTA Y75…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A060",
+            "from": "BB C RDR (120.85)",
+            "to": "BB C DEP (119.20)"
+          },
+          {
+            "fix": "→",
+            "alt": "F220",
+            "from": "BB C DEP (119.20)",
+            "to": "BG N50 (127.15)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・MUKRI ATKAS GUMID SOUJA…",
+          "MUKRI ATKAS SHION WASYU…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A060",
+            "from": "BB C RDR (120.85)",
+            "to": "BB C DEP (119.20)"
+          },
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "BB C DEP (119.20)",
+            "to": "BG N49 (132.70)"
+          }
+        ]
+      }
+    ]
   },
   "RJCB": {
     "region": "日高進入管制区",
@@ -244,7 +884,37 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y110 OBE"
+        ],
+        "rows": [
+          {
+            "fix": "HIROO",
+            "alt": "at A130",
+            "from": "TG T30 (127.50)",
+            "to": "EC APP (128.32)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "RACKO Y110 EPDOM Y112…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "CB TWR (118.70)",
+            "to": "TG T30 (127.50)"
+          }
+        ]
+      }
+    ]
   },
   "RJCC": {
     "region": "千歳進入管制区",
@@ -282,7 +952,92 @@
           "cond": "PROP"
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…RUMOI V1 CHE"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F160",
+            "from": "TG T30 (132.60)",
+            "to": "CC APP (120.10)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y13 SIRAO Y139 NAVER (JET)"
+        ],
+        "rows": [
+          {
+            "fix": "IDEMI",
+            "cond": "RWY01",
+            "alt": "at F150",
+            "from": "TG T31 (119.30)",
+            "to": "CC APP (120.10)"
+          },
+          {
+            "fix": "NAVER",
+            "cond": "RWY19",
+            "alt": "at F170",
+            "from": "TG T31 (119.30)",
+            "to": "CC APP (120.10)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…NONUT Y11 NAVER (PROP)"
+        ],
+        "rows": [
+          {
+            "fix": "NONUT",
+            "cond": "RWY01",
+            "alt": "at A120",
+            "from": "TG T31 (119.30)",
+            "to": "CC APP (120.10)"
+          },
+          {
+            "fix": "IBURI",
+            "cond": "RWY19",
+            "alt": "at F160",
+            "from": "TG T31 (119.30)",
+            "to": "CC APP (120.10)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "TOBBY…"
+        ],
+        "rows": [
+          {
+            "fix": "TOBBY",
+            "alt": "F200",
+            "from": "CC DEL (121.90)",
+            "to": "TG T30 (132.60)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "DALBI…"
+        ],
+        "rows": [
+          {
+            "fix": "DALBI",
+            "alt": "F200",
+            "from": "CC DEL (121.90)",
+            "to": "TG T31 (119.30)"
+          }
+        ]
+      }
+    ]
   },
   "RJCH": {
     "region": "白神進入管制区",
@@ -322,7 +1077,65 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…V2 UPLOK"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A120",
+            "from": "CC RDR (134.10)",
+            "to": "SK N APP (120.85)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y113 TAXIR",
+          "…V31 HWE"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A130",
+            "from": "TG T32 (124.50)",
+            "to": "SK N APP (120.85)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "HWE V2…",
+          "HWE V30 CHE…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A110",
+            "from": "CH TWR (118.35)",
+            "to": "CC RDR (134.10)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "For Other"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A130",
+            "from": "CH TWR (118.35)",
+            "to": "TG T31 (119.30)"
+          }
+        ]
+      }
+    ]
   },
   "RJCK": {
     "region": "日高進入管制区",
@@ -346,7 +1159,35 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…MQE Y111 CRANE"
+        ],
+        "rows": [
+          {
+            "fix": "SUMGA",
+            "alt": "at F150",
+            "from": "TG T30 (127.50)",
+            "to": "EC APP (128.32)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…MQE Z13 AKESI Y111 CRANE"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "TG T30 (127.50)",
+            "to": "EC APP (128.32)"
+          }
+        ]
+      }
+    ]
   },
   "RJCM": {
     "region": "日高進入管制区",
@@ -367,7 +1208,38 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y111 OZORA"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "TG T30 (127.50)",
+            "to": "EC APP (128.32)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "MENIB Y112…",
+          "OLDUS Y14…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "-",
+            "to": "TG T30 (127.50)"
+          }
+        ]
+      }
+    ]
   },
   "RJCN": {
     "region": "日高進入管制区",
@@ -384,7 +1256,22 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y111 TCE V2 MASHU"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "TG T30 (127.50)",
+            "to": "EC APP (128.32)"
+          }
+        ]
+      }
+    ]
   },
   "RJCO": {
     "region": "札幌進入管制区",
@@ -441,7 +1328,110 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…V1 RUMOI SPE (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A100",
+            "from": "TG T30 (132.60)",
+            "to": "CO RDR (119.22)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…V2 KURIS (West Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F160",
+            "from": "EC APP (128.32)",
+            "to": "CC DEP (124.70)"
+          },
+          {
+            "fix": "→",
+            "alt": "A080",
+            "from": "CC DEP (124.70)",
+            "to": "CO RDR (119.22)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…HWE V2 MOIWA",
+          "…TEKKO V2 MOIWA"
+        ],
+        "rows": [
+          {
+            "fix": "UPLOK",
+            "alt": "F210",
+            "from": "TG T31 (119.30)",
+            "to": "CC RDR (134.10)"
+          },
+          {
+            "fix": "→",
+            "alt": "A110",
+            "from": "CC RDR (134.10)",
+            "to": "CO RDR (119.22)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "RUMOI Y10…",
+          "RUMOI V1…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F230",
+            "from": "CO GND (121.80)",
+            "to": "TG T30 (132.60)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "KURIS V2…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A070",
+            "from": "CO GND (121.80)",
+            "to": "CC DEP (124.70)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "MOIWA V2 HWE…",
+          "SPE V2 HWE…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A100",
+            "from": "CO GND (121.80)",
+            "to": "CC RDR (134.10)"
+          },
+          {
+            "fix": "→",
+            "alt": "F200",
+            "from": "CC RDR (134.10)",
+            "to": "TG T31 (119.30)"
+          }
+        ]
+      }
+    ]
   },
   "RJDC": {
     "region": "築城進入管制区",
@@ -470,7 +1460,76 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…MARCO Y284 UBE"
+        ],
+        "rows": [
+          {
+            "fix": "DEMIZ",
+            "alt": "at F160",
+            "from": "BG N51 (132.50)",
+            "to": "FZ RDR (119.22)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y209 IKE A595 DGC V28 UBE"
+        ],
+        "rows": [
+          {
+            "fix": "PAVGA",
+            "alt": "at F150",
+            "from": "BG N53 (118.90)",
+            "to": "FF RDR (119.70)"
+          },
+          {
+            "fix": "ONGHA",
+            "alt": "at A090",
+            "from": "FF RDR (119.70)",
+            "to": "FZ RDR (121.07)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "KOHEI HIMEH FIATO Y61…",
+          "FIATO Y61…"
+        ],
+        "rows": [
+          {
+            "fix": "HIMEH",
+            "alt": "F160",
+            "from": "DC RDO (118.05)",
+            "to": "BG N52 (135.65)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "UBE V28 DGC G339…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "-",
+            "from": "-",
+            "to": "FF RDR (119.70)"
+          },
+          {
+            "fix": "BEETL",
+            "alt": "F160",
+            "from": "FF RDR (119.70)",
+            "to": "BG N53 (118.90)"
+          }
+        ]
+      }
+    ]
   },
   "RJEC": {
     "region": "日高進入管制区",
@@ -497,7 +1556,45 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…NAVER Y139 ASIBE V7 AWE",
+          "…Y13 CHE V7 AWE"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F210",
+            "from": "TG T30 (132.60)",
+            "to": "CC DEP (124.70)"
+          },
+          {
+            "fix": "EMREG",
+            "alt": "A100",
+            "from": "CC DEP (124.70)",
+            "to": "EC APP (128.32)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "KAGRA Y103 TOBBY…",
+          "KAGRA SUIKA V1…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F170",
+            "from": "EC APP (128.32)",
+            "to": "TG T30 (132.60)"
+          }
+        ]
+      }
+    ]
   },
   "RJFF": {
     "region": "福岡進入管制区",
@@ -564,8 +1661,8 @@
             "HONOK"
           ],
           "star": [
-            "HONOKK",
-            "HONOKE"
+            "HONOKE",
+            "HONOKK"
           ],
           "cond": null
         }
@@ -606,7 +1703,258 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…MARCO Y256 STOUT Y20 KIRIN"
+        ],
+        "rows": [
+          {
+            "fix": "RISRU",
+            "cond": "PROP",
+            "alt": "at F170",
+            "from": "BG N51 (132.50)",
+            "to": "FF APP (119.65)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y20 KIRIN"
+        ],
+        "rows": [
+          {
+            "fix": "STOUT",
+            "cond": "JET",
+            "alt": "at F180",
+            "from": "BG N51 (132.50)",
+            "to": "FF APP (119.65)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…V28 DGC (West Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "KATTA",
+            "alt": "at F160",
+            "from": "BG N51 (132.50)",
+            "to": "FZ RDR (119.22)"
+          },
+          {
+            "fix": "SWE",
+            "alt": "A100",
+            "from": "FZ RDR (119.22)",
+            "to": "FF APP (119.65)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "HABOH FUGEN OMUTA OSTEP HONOK"
+        ],
+        "rows": [
+          {
+            "fix": "OMUTA",
+            "alt": "at A100",
+            "from": "FT APP (126.50)",
+            "to": "FF APP (119.65)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y25 ISKUP"
+        ],
+        "rows": [
+          {
+            "fix": "ROBKU",
+            "alt": "at F200",
+            "from": "BG N53 (118.90)",
+            "to": "FU RDR (121.02)"
+          },
+          {
+            "fix": "GUSPA",
+            "alt": "at F160",
+            "from": "FU RDR (121.02)",
+            "to": "FF APP (119.65)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y253 ATSAG"
+        ],
+        "rows": [
+          {
+            "fix": "OLVIN",
+            "alt": "at A110",
+            "from": "BG N53 (118.90)",
+            "to": "FF APP (119.65)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…SAMDO A595 IKE"
+        ],
+        "rows": [
+          {
+            "fix": "IKE",
+            "alt": "F170",
+            "from": "BG N53 (118.90)",
+            "to": "FF APP (119.65)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y209 SARUP"
+        ],
+        "rows": [
+          {
+            "fix": "PAVGA",
+            "alt": "at A130",
+            "from": "BG N53 (118.90)",
+            "to": "FF APP (119.65)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "DGC V28 MARCO…"
+        ],
+        "rows": [
+          {
+            "fix": "SWE",
+            "alt": "F150",
+            "from": "FF DEL (121.92)",
+            "to": "FZ RDR (119.22)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "DGC A595…",
+          "DGC G339… (North Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A100",
+            "from": "FF DEL (121.92)",
+            "to": "FF DEP (127.90)"
+          },
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "FF DEP (127.90)",
+            "to": "BG N53 (118.90)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "ENGID Y412…",
+          "BUTUR Y453…",
+          "IPRIR Y231…"
+        ],
+        "rows": [
+          {
+            "fix": "YOKAT",
+            "alt": "F170",
+            "from": "FF DEL (121.92)",
+            "to": "BG N52 (135.65)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "CARSE Y81…"
+        ],
+        "rows": [
+          {
+            "fix": "KIKYU",
+            "alt": "F170",
+            "from": "FF DEL (121.92)",
+            "to": "BG N52 (135.65)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "YAMGA KUE…"
+        ],
+        "rows": [
+          {
+            "fix": "YAMGA",
+            "alt": "F160",
+            "from": "FF DEL (121.92)",
+            "to": "FT APP (126.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "YAMGA VEMRA Y506…"
+        ],
+        "rows": [
+          {
+            "fix": "YAMGA",
+            "alt": "F180",
+            "from": "FF DEL (121.92)",
+            "to": "BG N53 (118.90)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "SGE OLE Y40…",
+          "SGE OLE V40…"
+        ],
+        "rows": [
+          {
+            "fix": "SGE",
+            "alt": "A120",
+            "from": "FF DEL (121.92)",
+            "to": "FU RDR (119.17)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・SGE OLE Y40…",
+          "SGE OLE V40… (CRZ F205 or ABV)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F200",
+            "from": "FU RDR (119.17)",
+            "to": "DG F13 (133.60)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・SGE OLE Y40…",
+          "SGE OLE V40… (CRZ F205 or BLW)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F200",
+            "from": "FU RDR (119.17)",
+            "to": "BG N53 (118.90)"
+          }
+        ]
+      }
+    ]
   },
   "RJFK": {
     "region": "鹿児島進入管制区",
@@ -711,7 +2059,210 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…KUE ESLIL HIGOH KGE"
+        ],
+        "rows": [
+          {
+            "fix": "ESLIL",
+            "alt": "at A120",
+            "from": "FT APP (126.50)",
+            "to": "FK APP (126.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y45 HKC (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "AKLEM",
+            "alt": "at F160",
+            "from": "BG N53 (118.90)",
+            "to": "FM RDR (121.40)"
+          },
+          {
+            "fix": "-",
+            "alt": "-",
+            "from": "FM RDR (121.40)",
+            "to": "FK APP (126.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y757 SPICA"
+        ],
+        "rows": [
+          {
+            "fix": "VEKVO",
+            "alt": "at F200",
+            "from": "BG N54 (133.85)",
+            "to": "FM RDR (121.40)"
+          },
+          {
+            "fix": "→",
+            "alt": "A100",
+            "from": "FM RDR (121.40)",
+            "to": "FK APP (126.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y455 KINKO",
+          "…Y14 KINKO",
+          "…KINKO"
+        ],
+        "rows": [
+          {
+            "fix": "KINKO",
+            "alt": "at A130",
+            "from": "BG N54 (133.85)",
+            "to": "FK APP (126.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y45 HKC (North Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "MAKRA",
+            "alt": "at A130",
+            "from": "BG N54 (133.85)",
+            "to": "FK APP (126.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…A582 HKC"
+        ],
+        "rows": [
+          {
+            "fix": "TEMIP",
+            "alt": "at F160",
+            "from": "BG N53 (118.90)",
+            "to": "FK APP (126.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y14 HKC (South Bound)",
+          "…G339 HKC (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "SAPIS",
+            "alt": "at F170",
+            "from": "BG N53 (118.90)",
+            "to": "FK APP (126.00)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "MIDAI M750…"
+        ],
+        "rows": [
+          {
+            "fix": "MIDAI",
+            "alt": "F210",
+            "from": "FK DEL (121.80)",
+            "to": "BG N54 (133.85)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "HKC Y45… (North Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A110",
+            "from": "FK DEL (121.80)",
+            "to": "FK DEP (119.40)"
+          },
+          {
+            "fix": "RAFUL",
+            "alt": "F190",
+            "from": "FK DEP (119.40)",
+            "to": "BG N53 (118.90)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "HKC Y14…",
+          "HKC Y145…",
+          "HKC AMMON ONSKE TOLOT…",
+          "HKC Y45… (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F200",
+            "from": "FK DEL (121.80)",
+            "to": "BG N54 (133.85)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "SASIK Y208…",
+          "SASIK Y14…",
+          "SASIK G339…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "FK DEL (121.80)",
+            "to": "FK DEP (119.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・(for North Kyusyu) SASIK Y208…",
+          "SASIK Y14…",
+          "SASIK G339…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "FK DEP (119.40)",
+            "to": "FT APP (126.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・(for Other) SASIK Y208…",
+          "SASIK Y14…",
+          "SASIK G339…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "FK DEP (119.40)",
+            "to": "BG N53 (118.90)"
+          }
+        ]
+      }
+    ]
   },
   "RJFM": {
     "region": "鹿児島進入管制区",
@@ -819,16 +2370,203 @@
             "ENBEN"
           ],
           "star": [
-            "MELAR",
-            "KARAH"
+            "KARAH",
+            "MELAR"
           ],
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…TFE ABUMI SIIBA MZE"
+        ],
+        "rows": [
+          {
+            "fix": "SIIBA",
+            "alt": "at F150",
+            "from": "BG N52 (135.65)",
+            "to": "FM RDR (121.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y402 RYUGU"
+        ],
+        "rows": [
+          {
+            "fix": "SIROK",
+            "alt": "at A120",
+            "from": "BG N54 (133.85)",
+            "to": "FM RDR (121.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…B597 JACKY MZE"
+        ],
+        "rows": [
+          {
+            "fix": "JOKER",
+            "alt": "at F170",
+            "from": "BG N54 (133.85)",
+            "to": "FM RDR (121.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y451 HKC A1 JINGU MZE"
+        ],
+        "rows": [
+          {
+            "fix": "30SW HKC",
+            "alt": "at F210",
+            "from": "BG N54 (133.85)",
+            "to": "FK -"
+          },
+          {
+            "fix": "-",
+            "alt": "A110",
+            "from": "FK -",
+            "to": "FM RDR (121.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…SASIK LALAG MZE"
+        ],
+        "rows": [
+          {
+            "fix": "LALAG",
+            "alt": "at F200",
+            "from": "BG N53 (118.90)",
+            "to": "FM RDR (121.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…KUE ESKAP KROMA ENBEN MZE"
+        ],
+        "rows": [
+          {
+            "fix": "ESKAP",
+            "alt": "at F150",
+            "from": "FT APP (126.50)",
+            "to": "FM RDR (121.40)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A090",
+            "from": "FM GND (121.90)",
+            "to": "FM RDR (121.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・SIIBA ABUMI TFE…"
+        ],
+        "rows": [
+          {
+            "fix": "SIIBA",
+            "alt": "F180",
+            "from": "FM RDR (121.40)",
+            "to": "BG N52 (135.65)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・MADOG… (East Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "HIROS",
+            "alt": "F190",
+            "from": "FM RDR (121.40)",
+            "to": "BG N54 (133.85)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・JACKY B597… (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F200",
+            "from": "FM RDR (121.40)",
+            "to": "BG N54 (133.85)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・MZE JINGU A1 HKC…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "FM RDR (121.40)",
+            "to": "FK -"
+          },
+          {
+            "fix": "→",
+            "alt": "F200",
+            "from": "FK -",
+            "to": "BG N54 (133.85)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・(for North Kyusyu) LALAG Y252…",
+          "LALAG SASIK…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "FM RDR (121.40)",
+            "to": "FT APP (126.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・(for Other) LALAG Y252…",
+          "LALAG SASIK…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "FM RDR (121.40)",
+            "to": "BG N53 (118.90)"
+          }
+        ]
+      }
+    ]
   },
   "RJFO": {
-    "region": "大分進入管制区",
+    "region": "福岡進入管制区",
     "arr": [
       "YANAI",
       "OOITA"
@@ -861,7 +2599,69 @@
           "cond": "North Bound"
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y45 YANAI BAIEN TFE (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "SQRUM",
+            "alt": "at A110",
+            "from": "BG N51 (132.50)",
+            "to": "FO APP (120.60)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y40 OOITA (East Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "ESNAL",
+            "alt": "at F160",
+            "from": "BG N53 (118.90)",
+            "to": "FT APP (126.50)"
+          },
+          {
+            "fix": "IGLAT",
+            "alt": "at A110",
+            "from": "FT APP (126.50)",
+            "to": "FO APP (120.60)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y45 OOITA (North Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "SOBOH",
+            "alt": "at A110",
+            "from": "BG N53 (118.90)",
+            "to": "FO APP (120.60)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A120",
+            "from": "FO GND (121.60)",
+            "to": "BG"
+          }
+        ]
+      }
+    ]
   },
   "RJFR": {
     "region": "築城進入管制区",
@@ -893,7 +2693,101 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…MARCO Y285 ASARI"
+        ],
+        "rows": [
+          {
+            "fix": "SAZOH",
+            "alt": "at F160",
+            "from": "BG N51 (132.50)",
+            "to": "FZ RDR (119.22)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y14 DGC V28 SWE"
+        ],
+        "rows": [
+          {
+            "fix": "OSTEP",
+            "alt": "at F180",
+            "from": "BG N53 (118.90)",
+            "to": "FF RDR (119.70)"
+          },
+          {
+            "fix": "ONGHA",
+            "alt": "at A090",
+            "from": "FF RDR (119.70)",
+            "to": "FZ RDR (121.07)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y209 IKE A595 DGC V28 SWE"
+        ],
+        "rows": [
+          {
+            "fix": "PAVGA",
+            "alt": "at F150",
+            "from": "BG N53 (118.90)",
+            "to": "FF RDR (119.70)"
+          },
+          {
+            "fix": "ONGHA",
+            "alt": "at A090",
+            "from": "FF RDR (119.70)",
+            "to": "FZ RDR (121.07)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "FIATO Y61…",
+          "KOHEI MYE…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A090",
+            "from": "FR GND (121.90)",
+            "to": "FZ RDR (121.07)"
+          },
+          {
+            "fix": "HIMEH",
+            "alt": "F160",
+            "from": "FZ RDR (121.07)",
+            "to": "BG N52 (135.65)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "ONGHA V28 DGC G339… (North Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A080",
+            "from": "FR GND (121.90)",
+            "to": "FF RDR (119.70)"
+          },
+          {
+            "fix": "BEETL",
+            "alt": "F160",
+            "from": "FF RDR (119.70)",
+            "to": "BG N53 (118.90)"
+          }
+        ]
+      }
+    ]
   },
   "RJFS": {
     "region": "福岡進入管制区",
@@ -987,7 +2881,182 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…KOSHI Y501 SASIK Y14 TAIME Y40 MILEP UGAMU SGE"
+        ],
+        "rows": [
+          {
+            "fix": "ANLIK",
+            "alt": "at F150",
+            "from": "BG N54 (133.85)",
+            "to": "FK APP"
+          },
+          {
+            "fix": "TEMIP",
+            "alt": "at A110",
+            "from": "FK APP",
+            "to": "FT APP (126.50)"
+          },
+          {
+            "fix": "IRPIN",
+            "alt": "at A060",
+            "from": "FT APP (126.50)",
+            "to": "FF RDR (119.70)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…FUE Y40 OLE SGE",
+          "…FUE Y40 MILEP UGAMU SGE"
+        ],
+        "rows": [
+          {
+            "fix": "AGRIT",
+            "alt": "at A130",
+            "from": "BG N53 (118.90)",
+            "to": "FU APP (119.17)"
+          },
+          {
+            "fix": "→",
+            "alt": "A060",
+            "from": "FU APP (119.17)",
+            "to": "FF APP (119.70)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y209 IKE Y251 OLE SGE",
+          "…Y209 IKE Y251 OLE Y40 MILEP UGAMU SGE"
+        ],
+        "rows": [
+          {
+            "fix": "PAVGA",
+            "alt": "at F150",
+            "from": "BG N53 (118.90)",
+            "to": "FF RDR (119.70)"
+          },
+          {
+            "fix": "→",
+            "alt": "A100",
+            "from": "FF RDR (119.70)",
+            "to": "FU RDR (119.17)"
+          },
+          {
+            "fix": "→",
+            "alt": "A060",
+            "from": "FU RDR (119.17)",
+            "to": "FF RDR (119.70)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y40 MILEP UGAMU SGE",
+          "…V40 MILEP UGAMU SGE"
+        ],
+        "rows": [
+          {
+            "fix": "IGLAT",
+            "alt": "at F150",
+            "from": "BG N52 (135.65)",
+            "to": "FT APP (126.50)"
+          },
+          {
+            "fix": "IRPIN",
+            "alt": "at A060",
+            "from": "FT APP (126.50)",
+            "to": "FF APP (119.70)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A060",
+            "from": "FS TWR (118.02)",
+            "to": "FF RDR (119.70)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・SGE DGC…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "FF RDR (119.70)",
+            "to": "BG N53 (118.90)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・FS100 OOITA…",
+          "OOITA…"
+        ],
+        "rows": [
+          {
+            "fix": "KIKYU",
+            "alt": "F170",
+            "from": "FF RDR (119.70)",
+            "to": "BG N52 (135.65)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・SGE OLE Y40…",
+          "SGE OLE V40… (CRZ F205 or ABV)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A120",
+            "from": "FF RDR (119.70)",
+            "to": "FU RDR (119.17)"
+          },
+          {
+            "fix": "→",
+            "alt": "F200",
+            "from": "FU RDR (119.17)",
+            "to": "DG F13 (133.60)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・SGE OLE Y40…",
+          "SGE OLE V40… (CRZ F205 or BLW)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A120",
+            "from": "FF RDR (119.70)",
+            "to": "FU RDR (119.17)"
+          },
+          {
+            "fix": "→",
+            "alt": "F200",
+            "from": "FU RDR (119.17)",
+            "to": "BG N53 (118.90)"
+          }
+        ]
+      }
+    ]
   },
   "RJFT": {
     "region": "福岡進入管制区",
@@ -1047,7 +3116,138 @@
           "cond": "South Bound"
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y40 KAZMA (West Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "IGLAT",
+            "alt": "at A130",
+            "from": "BG N52 (135.65)",
+            "to": "FT APP (126.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…G339 HINAG (North Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "SAPIS",
+            "alt": "at A110",
+            "from": "FK APP",
+            "to": "FT APP (126.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…KOSHI Y501 SASIK Y14 HINAG"
+        ],
+        "rows": [
+          {
+            "fix": "ANLIK",
+            "alt": "at F150",
+            "from": "BG N54 (133.85)",
+            "to": "FK APP"
+          },
+          {
+            "fix": "TEMIP",
+            "alt": "at A110",
+            "from": "FK APP",
+            "to": "FT APP (126.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y251 OLE Y40 KUE"
+        ],
+        "rows": [
+          {
+            "fix": "AKNAG",
+            "alt": "at F190",
+            "from": "BG N53 (118.90)",
+            "to": "FU RDR (121.02)"
+          },
+          {
+            "fix": "IRPIN",
+            "alt": "at A100",
+            "from": "FU RDR (121.02)",
+            "to": "FT APP (126.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y14 TAIME Y40 KUE (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "DGC",
+            "alt": "at F170",
+            "from": "BG N53 (118.90)",
+            "to": "FF RDR (119.70)"
+          },
+          {
+            "fix": "OMUTA",
+            "alt": "at A120",
+            "from": "FF RDR (119.70)",
+            "to": "FT APP (126.50)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A060",
+            "from": "FT GND (121.80)",
+            "to": "FT DEP (126.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・MYE…",
+          "SALTY…",
+          "SPIDE…",
+          "DONAR…",
+          "TFE…"
+        ],
+        "rows": [
+          {
+            "fix": "IWATO",
+            "alt": "F150",
+            "from": "FT DEP (126.50)",
+            "to": "BG N53 (118.90)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・HKC…",
+          "KUE TAIME Y14…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F160",
+            "from": "FT DEP (126.50)",
+            "to": "BG N53 (118.90)"
+          }
+        ]
+      }
+    ]
   },
   "RJFU": {
     "region": "福岡進入管制区",
@@ -1104,7 +3304,156 @@
           "cond": "North Bound"
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y204 OHGIE"
+        ],
+        "rows": [
+          {
+            "fix": "DGC",
+            "alt": "at F170",
+            "from": "BG N53 (118.90)",
+            "to": "FF RDR (119.70)"
+          },
+          {
+            "fix": "OHGIE",
+            "alt": "at A110",
+            "from": "FF RDR (119.70)",
+            "to": "FU APP (119.17)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…FUE Y40 OLE"
+        ],
+        "rows": [
+          {
+            "fix": "AGRIT",
+            "alt": "at A130",
+            "from": "BG N53 (118.90)",
+            "to": "FU APP (119.17)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…HONDO OLE (North Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "HONDO",
+            "alt": "at A130",
+            "from": "BG N53 (118.90)",
+            "to": "FU APP (119.17)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y209 IKE Y251 OLE"
+        ],
+        "rows": [
+          {
+            "fix": "PAVGA",
+            "alt": "at F150",
+            "from": "BG N53 (118.90)",
+            "to": "FF RDR (119.70)"
+          },
+          {
+            "fix": "→",
+            "alt": "A070",
+            "from": "FF RDR (119.70)",
+            "to": "FU APP (119.17)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "AKNAG Y255 OMDUK",
+          "DGC G339… (North Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A120",
+            "from": "FU GND (121.60)",
+            "to": "FF RDR (119.70)"
+          },
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "FF RDR (119.70)",
+            "to": "BG N53 (118.90)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "OOITA Y40…",
+          "OOITA Y351…",
+          "OOITA Y23…",
+          "OOITA Y41…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "FU GND (121.60)",
+            "to": "FU RDR (119.17)"
+          },
+          {
+            "fix": "GOROH",
+            "alt": "at ABV F190",
+            "from": "FU RDR (119.17)",
+            "to": "BG N53 (118.90)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "CARCO Y40 FUE…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "FU GND (121.60)",
+            "to": "FU RDR (119.17)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・CARCO Y40 FUE… (CRZ F205 or ABV)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F200",
+            "from": "FU RDR (119.17)",
+            "to": "DG F13 (133.60)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・CARCO Y40 FUE… (CRZ F205 or BLW)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F200",
+            "from": "FU RDR (119.17)",
+            "to": "BG N53 (118.90)"
+          }
+        ]
+      }
+    ]
   },
   "RJGG": {
     "region": "中部進入管制区",
@@ -1184,7 +3533,145 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…MBE Y121 SWING"
+        ],
+        "rows": [
+          {
+            "fix": "MAPLE",
+            "alt": "at F150",
+            "from": "BG N43 (132.45)",
+            "to": "GG APP (119.17)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y88 SUGAL Y881 SLIDE"
+        ],
+        "rows": [
+          {
+            "fix": "NEZAM",
+            "alt": "at A130",
+            "from": "TG T38 (120.50)",
+            "to": "GG APP (119.17)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y50 OLTOM"
+        ],
+        "rows": [
+          {
+            "fix": "SANOR",
+            "alt": "at A120",
+            "from": "TG T39 (132.30)",
+            "to": "GG APP (119.17)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y755 CARDS"
+        ],
+        "rows": [
+          {
+            "fix": "NATCH",
+            "alt": "at A110",
+            "from": "TG T46 (133.50)",
+            "to": "GG APP (121.05)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…MIDER Y28 BIWWA",
+          "…MIDER V28 BIWWA"
+        ],
+        "rows": [
+          {
+            "fix": "MIDER",
+            "alt": "at A130",
+            "from": "BG N47 (133.55)",
+            "to": "GG APP (121.05)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y511 CHESS"
+        ],
+        "rows": [
+          {
+            "fix": "MARIA",
+            "alt": "at A130",
+            "from": "BG N48 (133.80)",
+            "to": "GG APP (121.05)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A070",
+            "from": "GG DEL (121.85)",
+            "to": "GG DEP (120.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・BOGON Y23…",
+          "BOGON Y79…",
+          "MODEL ENSYU Y23…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A120",
+            "from": "GG DEP (120.00)",
+            "to": "TG T45 (125.70)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・ESPAN KEC…",
+          "FTAMI ESPAN KEC…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A120",
+            "from": "GG DEP (120.00)",
+            "to": "TG T46 (133.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・For Other"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "GG DEP (120.00)",
+            "to": "BG N44 (123.90)"
+          }
+        ]
+      }
+    ]
   },
   "RJKA": {
     "region": "那覇進入管制区",
@@ -1225,7 +3712,76 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…BOMAP Y25 KANAH"
+        ],
+        "rows": [
+          {
+            "fix": "IGREK",
+            "alt": "at F180",
+            "from": "BG N55 (132.35)",
+            "to": "KA APP (124.95)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…ALTAI Y758 TUMGI"
+        ],
+        "rows": [
+          {
+            "fix": "ALGIX",
+            "alt": "at F180",
+            "from": "BG N55 (132.35)",
+            "to": "KA APP (124.95)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…B597 TUMGI"
+        ],
+        "rows": [
+          {
+            "fix": "RURIK",
+            "alt": "at F180",
+            "from": "BG N55 (132.35)",
+            "to": "KA APP (124.95)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…TONAR Y521 TUMGI"
+        ],
+        "rows": [
+          {
+            "fix": "ESTRA",
+            "alt": "at F180",
+            "from": "BG N55 (132.35)",
+            "to": "KA APP (124.95)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A050",
+            "from": "KA RDO (118.15)",
+            "to": "KA APP (124.95)"
+          }
+        ]
+      }
+    ]
   },
   "RJKB": {
     "region": "那覇進入管制区",
@@ -1242,7 +3798,22 @@
           "cond": "South Bound"
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y45 ANOXA (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "LEMEG",
+            "alt": "at F200",
+            "from": "BG N55 (132.35)",
+            "to": "KA APP (124.95)"
+          }
+        ]
+      }
+    ]
   },
   "RJKI": {
     "region": "那覇進入管制区",
@@ -1259,7 +3830,22 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y456 POMAS"
+        ],
+        "rows": [
+          {
+            "fix": "RURIK",
+            "alt": "at F180",
+            "from": "BG N55 (132.35)",
+            "to": "KA APP (124.95)"
+          }
+        ]
+      }
+    ]
   },
   "RJKN": {
     "region": "那覇進入管制区",
@@ -1276,7 +3862,22 @@
           "cond": "South Bound"
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y45 ANOXA (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "LEMEG",
+            "alt": "at F200",
+            "from": "BG N55 (132.35)",
+            "to": "KA APP (124.95)"
+          }
+        ]
+      }
+    ]
   },
   "RJNA": {
     "region": "中部進入管制区",
@@ -1341,7 +3942,97 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…MBE Y121 SWING"
+        ],
+        "rows": [
+          {
+            "fix": "MAPLE",
+            "alt": "at F150",
+            "from": "BG N43 (132.45)",
+            "to": "GG APP (119.17)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y88 KCC",
+          "…Y88 SWING"
+        ],
+        "rows": [
+          {
+            "fix": "SUGAL",
+            "alt": "at A130",
+            "from": "TG T38 (120.50)",
+            "to": "GG APP (119.17)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…KEC Y12 SHIMA"
+        ],
+        "rows": [
+          {
+            "fix": "AYANO",
+            "alt": "at A110",
+            "from": "TG T46 (133.50)",
+            "to": "GG APP (121.05)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…MIDER Y28 KCC",
+          "…MIDER V28 KCC"
+        ],
+        "rows": [
+          {
+            "fix": "MIDER",
+            "alt": "at A130",
+            "from": "BG N47 (133.55)",
+            "to": "GG APP (121.05)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…KMC Y383 KCC"
+        ],
+        "rows": [
+          {
+            "fix": "OHNNO",
+            "alt": "at A120",
+            "from": "BG N43 (132.45)",
+            "to": "GG APP (119.17)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A040",
+            "from": "NA DEL (121.75)",
+            "to": "GG DEP (119.17)"
+          },
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "GG APP (119.17)",
+            "to": "TG / BG"
+          }
+        ]
+      }
+    ]
   },
   "RJNK": {
     "region": "小松進入管制区",
@@ -1400,7 +4091,104 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…GOLDO Y381 HIMMY"
+        ],
+        "rows": [
+          {
+            "fix": "HIMMY",
+            "alt": "at F160",
+            "from": "BG N43 (132.45)",
+            "to": "NK APP (121.25)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y45 IMIZU",
+          "…V30 IMIZU (West Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "IMIZU",
+            "alt": "at F160",
+            "from": "BG N43 (132.45)",
+            "to": "NK APP (121.25)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y384 KMC"
+        ],
+        "rows": [
+          {
+            "fix": "YARII",
+            "alt": "at F200",
+            "from": "BG N43 (132.45)",
+            "to": "NK APP (121.25)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y45 SONBU"
+        ],
+        "rows": [
+          {
+            "fix": "SONBU",
+            "alt": "at F170",
+            "from": "BG N48 (133.80)",
+            "to": "NK APP (121.25)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "SUMVU GINJO NTE…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F170",
+            "from": "NK GND (121.70)",
+            "to": "BG N43 (132.45)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "OHNNO Y383…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "NK GND (121.70)",
+            "to": "BG N43 (132.45)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "SONBU Y45…",
+          "SONBU UGEDO YME…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F160",
+            "from": "NK GND (121.70)",
+            "to": "BG"
+          }
+        ]
+      }
+    ]
   },
   "RJOA": {
     "region": "広島進入管制区",
@@ -1475,7 +4263,104 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y20 KAMMY Y202 AMURO"
+        ],
+        "rows": [
+          {
+            "fix": "AMURO",
+            "alt": "A100 & at BLW F150",
+            "from": "BG N49 (132.70)",
+            "to": "OA RDR (124.05)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y453 SUNFL MISEN HGE"
+        ],
+        "rows": [
+          {
+            "fix": "SUNFL",
+            "alt": "A110",
+            "from": "BG N51 (132.50)",
+            "to": "OA RDR (124.05)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…OPERA AKANA MIYOS HGE",
+          "…V29 HGE"
+        ],
+        "rows": [
+          {
+            "fix": "MIYOS",
+            "alt": "at F150",
+            "from": "BG N51 (132.50)",
+            "to": "OA RDR (124.05)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A080",
+            "from": "OA TWR (118.60)",
+            "to": "OA RDR (124.05)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・KIJYY TOZAN YME…",
+          "BOLIG IKUNO MIDER…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "OA RDR (124.05)",
+            "to": "BG N48 (133.80)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・MARCO… (South / West Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "OA RDR (124.05)",
+            "to": "BG N51 (132.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・SINFO STAGE Y38 SAPRA…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "OA RDR (124.05)",
+            "to": "BG N51 (132.50)"
+          }
+        ]
+      }
+    ]
   },
   "RJOB": {
     "region": "関西進入管制区",
@@ -1522,7 +4407,108 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…WAKIT Y205 OYE"
+        ],
+        "rows": [
+          {
+            "fix": "WAKIT",
+            "alt": "at F160",
+            "from": "BG N47 (133.55)",
+            "to": "BB C RDR (120.85)"
+          },
+          {
+            "fix": "→",
+            "alt": "A070",
+            "from": "BB C RDR (120.85)",
+            "to": "BB N RDR (121.20)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…MYE Y283 KINOE Y288 INOOK OYE"
+        ],
+        "rows": [
+          {
+            "fix": "TAKMA",
+            "alt": "at A110",
+            "from": "BG N51 (132.50)",
+            "to": "BB N RDR (121.20)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…MIHOU Y39 OYE"
+        ],
+        "rows": [
+          {
+            "fix": "YUBAR",
+            "alt": "at A090",
+            "from": "BG N48 (133.80)",
+            "to": "BB N RDR (121.20)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "OLIVE HYOGO SANDA Y289…",
+          "CHIZU YME…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A100",
+            "from": "OB TWR (124.30)",
+            "to": "BB C RDR (120.85)"
+          },
+          {
+            "fix": "→",
+            "alt": "F190",
+            "from": "BB C RDR (120.85)",
+            "to": "BG N47 (133.55)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "WASYU Y28…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A090",
+            "from": "OB TWR (124.30)",
+            "to": "BB N RDR (121.20)"
+          },
+          {
+            "fix": "→",
+            "alt": "F160",
+            "from": "BB N RDR (121.20)",
+            "to": "BG N51 (132.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "OYE Y39…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A080",
+            "from": "OB TWR (124.30)",
+            "to": "BG"
+          }
+        ]
+      }
+    ]
   },
   "RJOC": {
     "region": "美保進入管制区",
@@ -1575,7 +4561,79 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y18 RAKDA",
+          "…Y188 RAKDA"
+        ],
+        "rows": [
+          {
+            "fix": "RAKDA",
+            "alt": "at A100",
+            "from": "BG N48 (133.80)",
+            "to": "OH RDR (125.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…G597 XZE"
+        ],
+        "rows": [
+          {
+            "fix": "DAIEI",
+            "alt": "at A100",
+            "from": "BG N48 (133.80)",
+            "to": "OH RDR (125.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y45 KYOKA V29 XZE",
+          "…V29 XZE"
+        ],
+        "rows": [
+          {
+            "fix": "KYOKA",
+            "alt": "at A100",
+            "from": "BG N51 (132.50)",
+            "to": "OH RDR (125.40)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "TSUNO Y38…",
+          "MIHOU Y45… (East Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A090",
+            "from": "OC RDO (122.70)",
+            "to": "BG N48 (133.80)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "CARPS Y45…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F160",
+            "from": "OC RDO (122.70)",
+            "to": "BG N48 (133.80)"
+          }
+        ]
+      }
+    ]
   },
   "RJOH": {
     "region": "美保進入管制区",
@@ -1634,10 +4692,94 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y18 RAKDA"
+        ],
+        "rows": [
+          {
+            "fix": "RAKDA",
+            "alt": "at A080",
+            "from": "BG N48 (133.80)",
+            "to": "OH RDR (125.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y45 KYOKA YGE",
+          "…V29 XZE"
+        ],
+        "rows": [
+          {
+            "fix": "KYOKA",
+            "alt": "at A100",
+            "from": "BG N51 (132.50)",
+            "to": "OH RDR (125.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y597 PEPOS"
+        ],
+        "rows": [
+          {
+            "fix": "KABKI",
+            "alt": "at A100",
+            "from": "DG F08 (124.15)",
+            "to": "OH RDR (125.40)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "YAPPA INABA KUMIK KMC…",
+          "YAPPA INABA YME…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "OH GND (118.00)",
+            "to": "BG N48 (133.80)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "STAGE Y38 SAPRA…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A100",
+            "from": "OH GND (118.00)",
+            "to": "DG F08 (124.15)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "MIHOU Y45… (West Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F160",
+            "from": "OH GND (118.00)",
+            "to": "BG N48 (133.80)"
+          }
+        ]
+      }
+    ]
   },
   "RJOI": {
-    "region": "広島進入管制区",
+    "region": "岩国進入管制空域",
     "arr": [
       "MARCO",
       "MYE"
@@ -1688,25 +4830,110 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y45 MARCO NEU (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "30NE NEU",
+            "alt": "at A100",
+            "from": "BG N51 (132.50)",
+            "to": "OI APP (131.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y28 MARCO"
+        ],
+        "rows": [
+          {
+            "fix": "ONDOC",
+            "alt": "at A100",
+            "from": "BG N51 (132.50)",
+            "to": "OI APP (131.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y45 MARCO NEU (North Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "15SW NEU",
+            "alt": "at F150",
+            "from": "BG N51 (132.50)",
+            "to": "OI APP (131.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y40 MYE"
+        ],
+        "rows": [
+          {
+            "fix": "SHONO",
+            "alt": "A100",
+            "from": "BG N52 (135.65)",
+            "to": "OI APP (131.40)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A060",
+            "from": "OI DEL (135.70)",
+            "to": "OI APP (131.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・MALTA Y33…",
+          "MYE Y40…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "OI APP (131.40)",
+            "to": "BG N52 (135.65)"
+          }
+        ]
+      }
+    ]
   },
   "RJOK": {
     "region": "関西進入管制区",
     "arr": [
       "POPPY",
       "PANCH",
-      "JAKAL",
-      "KRE",
+      "NAE",
+      "OKITU",
+      "KABIL",
       "MYE"
     ],
     "dep": [
       "MUROT",
       "SUC",
       "OMOGO",
+      "NAE",
       "KRE"
     ],
     "arr_dct": {
-      "JAKAL": [
+      "NAE": [
         "PANCH"
       ],
       "MYE": [
@@ -1740,23 +4967,41 @@
           "cond": null
         }
       ],
-      "JAKAL": [
+      "NAE": [
         {
-          "via_fix": null,
-          "via_awy": null,
+          "via_fix": "JAKAL",
+          "via_awy": "Y256",
           "dct": [
             "PANCH"
           ],
           "star": [
-            "YOSAKE"
+            "PANCH1"
           ],
           "cond": null
-        }
-      ],
-      "KRE": [
+        },
         {
           "via_fix": "SUC",
           "via_awy": "V53",
+          "dct": [
+            "KRE"
+          ],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "OKITU": [
+        {
+          "via_fix": "SUC",
+          "via_awy": "V53",
+          "dct": [],
+          "star": [],
+          "cond": null
+        }
+      ],
+      "KABIL": [
+        {
+          "via_fix": "BOTAN",
+          "via_awy": "Y403",
           "dct": [],
           "star": [],
           "cond": null
@@ -1771,15 +5016,130 @@
             "KABIL"
           ],
           "star": [
-            "YOSAKW"
+            "KABIL1"
           ],
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y282 POPPY",
+          "…V53 POPPY (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "POPPY",
+            "alt": "A120",
+            "from": "BB C DEP (120.65)",
+            "to": "BB W APP (125.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…TURFY Y242 PANCH",
+          "…JAKAL Y256 NAE PANCH KRE"
+        ],
+        "rows": [
+          {
+            "fix": "PANCH",
+            "alt": "at A100",
+            "from": "BG N50 (127.15)",
+            "to": "BB W APP (125.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…SUC V53 NAE KRE",
+          "…SUC V53 OKITU"
+        ],
+        "rows": [
+          {
+            "fix": "OKITU",
+            "alt": "at A110",
+            "from": "BG N54 (133.85)",
+            "to": "BB W APP (125.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…BOTAN Y403 KABIL…",
+          "MYE BOTAN KABIL…"
+        ],
+        "rows": [
+          {
+            "fix": "BOTAN",
+            "alt": "at A110",
+            "from": "BG N52 (135.65)",
+            "to": "BB W APP (125.00)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A090",
+            "from": "OK TWR (118.75)",
+            "to": "BB W APP (125.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・MUROT MIYAT MERID KEC…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "BB W APP (125.00)",
+            "to": "BG N50 (127.15)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・SUC… (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "BB W APP (125.00)",
+            "to": "BG N54 (133.85)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・OMOGO Y256…",
+          "NAE V56… (North Bound)",
+          "OMOGO V56…",
+          "KRE V56…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A120",
+            "from": "BB W APP (125.00)",
+            "to": "BG N52 (135.65)"
+          }
+        ]
+      }
+    ]
   },
   "RJOM": {
-    "region": "広島進入管制区",
+    "region": "岩国進入管制空域",
     "arr": [
       "ITUKI",
       "BAMBO",
@@ -1811,9 +5171,9 @@
             "ITUKI"
           ],
           "star": [
-            "ROBINE",
+            "KIKMA",
             "MADON",
-            "KIKMA"
+            "ROBINE"
           ],
           "cond": null
         }
@@ -1843,7 +5203,77 @@
           "cond": "East Bound"
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…BAMBO Y283 ITUKI",
+          "…BAMBO KINOE ITUKI MYE"
+        ],
+        "rows": [
+          {
+            "fix": "ITUKI",
+            "alt": "at A100",
+            "from": "BG N51 (132.50)",
+            "to": "OI APP (128.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y40 MYE"
+        ],
+        "rows": [
+          {
+            "fix": "SHONO",
+            "alt": "at A100",
+            "from": "BG N52 (135.65)",
+            "to": "OI APP (131.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "ENGID Y412 MYE"
+        ],
+        "rows": [
+          {
+            "fix": "35W MYE",
+            "alt": "at A100",
+            "from": "BG N52 (135.65)",
+            "to": "OI APP (131.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…V28 MARCO (East Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "15W MARCO",
+            "alt": "at A100",
+            "from": "BG N51 (132.50)",
+            "to": "OI APP (131.40)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "OM TWR (118.35)",
+            "to": "BG"
+          }
+        ]
+      }
+    ]
   },
   "RJOO": {
     "region": "関西進入管制区",
@@ -1865,7 +5295,7 @@
           "via_awy": "Y546",
           "dct": [],
           "star": [
-            "IKOMAE"
+            "AGPU1R"
           ],
           "cond": null
         }
@@ -1899,12 +5329,248 @@
           "via_awy": null,
           "dct": [],
           "star": [
-            "IKOMAN"
+            "ROKKO1"
           ],
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…KOHWA Y546 AGPUK MIRAI ABENO IKOMA"
+        ],
+        "rows": [
+          {
+            "fix": "OHDAI",
+            "alt": "at A130",
+            "from": "TG T45 (125.70)",
+            "to": "BB E APP (120.45)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y753 IZUMI"
+        ],
+        "rows": [
+          {
+            "fix": "MUGIE",
+            "cond": "JET",
+            "alt": "at F190",
+            "from": "BG N50 (127.15)",
+            "to": "BB C DEP (120.65)"
+          },
+          {
+            "fix": "MUGIE",
+            "cond": "PROP",
+            "alt": "at F170",
+            "from": "BG N50 (127.15)",
+            "to": "BB C DEP (120.65)"
+          },
+          {
+            "fix": "KAINA",
+            "alt": "A110",
+            "from": "BB C DEP (120.65)",
+            "to": "BB E APP (120.45)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y231 MIRIO Y401 KAINA Y753 IZUMI"
+        ],
+        "rows": [
+          {
+            "fix": "BECKY",
+            "alt": "at F190",
+            "from": "BG N50 (127.15)",
+            "to": "BB C DEP (120.65)"
+          },
+          {
+            "fix": "KAINA",
+            "alt": "A110",
+            "from": "BB C DEP (120.65)",
+            "to": "BB E APP (120.45)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…BOTAN Y403 KAINA Y753 IZUMI",
+          "…BOTAN KABIL KRE KAIFU Y403 KAINA Y753 IZUMI"
+        ],
+        "rows": [
+          {
+            "fix": "BOTAN",
+            "alt": "at F150",
+            "from": "BG N52 (135.65)",
+            "to": "BB W APP (125.00) / BB C DEP (120.65)"
+          },
+          {
+            "fix": "-",
+            "alt": "F150",
+            "from": "BB W APP (125.00)",
+            "to": "BB C DEP (120.65)"
+          },
+          {
+            "fix": "KAINA",
+            "alt": "A110",
+            "from": "BB C DEP (120.65)",
+            "to": "BB E APP (120.45)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y401 KAINA Y753 IZUMI"
+        ],
+        "rows": [
+          {
+            "fix": "RIVER",
+            "alt": "at F170",
+            "from": "BG N52 (135.65)",
+            "to": "BB C DEP (120.65)"
+          },
+          {
+            "fix": "KAINA",
+            "alt": "A110",
+            "from": "BB C DEP (120.65)",
+            "to": "BB E APP (120.45)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…KTE V38 OLIVE Y28 SANDA V55 IZUMI"
+        ],
+        "rows": [
+          {
+            "fix": "SAKAI",
+            "alt": "at F170",
+            "from": "BG N52 (135.65)",
+            "to": "BB C DEP (120.65)"
+          },
+          {
+            "fix": "→",
+            "alt": "F170",
+            "from": "BB C DEP (120.65)",
+            "to": "BB C RDR (120.85)"
+          },
+          {
+            "fix": "HYOGO",
+            "alt": "at A100",
+            "from": "BB C RDR (120.85)",
+            "to": "BB E DEP (119.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…ROKKO KAMEO OTABE ABENO IKOMA"
+        ],
+        "rows": [
+          {
+            "fix": "ROKKO",
+            "cond": "JET",
+            "alt": "at A110",
+            "from": "BG N47 (133.55)",
+            "to": "BB E APP (120.45)"
+          },
+          {
+            "fix": "ROKKO",
+            "cond": "DH8D",
+            "alt": "at A100",
+            "from": "BG N47 (133.55)",
+            "to": "BB E APP (120.45)"
+          },
+          {
+            "fix": "ROKKO",
+            "cond": "PROP",
+            "alt": "at A090",
+            "from": "BG N47 (133.55)",
+            "to": "BB E APP (120.45)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "PANAS BYODO REVOL KMC…"
+        ],
+        "rows": [
+          {
+            "fix": "BYODO",
+            "alt": "A120",
+            "from": "OO DEL (118.80)",
+            "to": "BG N47 (133.55)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "MINAC GUJYO…",
+          "MINAC YOKKA KCC…",
+          "ASUKA SHTLE…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F160",
+            "from": "OO DEL (118.80)",
+            "to": "BG N44 (123.90)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "TIGER MAIKO Y75…",
+          "TIGER MAIKO AWAJI Y232…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F200",
+            "from": "OO DEL (118.80)",
+            "to": "BB C DEP (119.20)"
+          },
+          {
+            "fix": "→",
+            "alt": "F240",
+            "from": "BB C DEP (119.20)",
+            "to": "BG N50 (127.15)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "TIGER SUMAR AYAME SETOH…",
+          "TIGER BUMER…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F200",
+            "from": "OO DEL (118.80)",
+            "to": "BG N49 (132.70)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "TIGER ASAGI…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A120",
+            "from": "OO DEL (118.80)",
+            "to": "BG N47 (133.55)"
+          }
+        ]
+      }
+    ]
   },
   "RJOS": {
     "region": "徳島進入管制区",
@@ -1946,7 +5612,218 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…KOHWA Y544 SINGU Y542 DATIS"
+        ],
+        "rows": [
+          {
+            "fix": "SINGU",
+            "alt": "at F180",
+            "from": "TG T45 (125.70)",
+            "to": "BB E APP (120.45)"
+          },
+          {
+            "fix": "DINAH",
+            "alt": "at A100",
+            "from": "BB E APP (120.45)",
+            "to": "BB C DEP (120.65)"
+          },
+          {
+            "fix": "DOPDA",
+            "alt": "A060",
+            "from": "BB C DEP (120.65)",
+            "to": "OS APP (124.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…SUC V53 NAE KRE V37 TOSAR"
+        ],
+        "rows": [
+          {
+            "fix": "OKITU",
+            "alt": "at F150",
+            "from": "BG N54 (133.85)",
+            "to": "BB W APP (125.00)"
+          },
+          {
+            "fix": "RYOMA",
+            "alt": "at A110",
+            "from": "BB W APP (125.00)",
+            "to": "BB C APP (120.25)"
+          },
+          {
+            "fix": "→",
+            "alt": "A060",
+            "from": "BB C APP (120.25)",
+            "to": "OS APP (124.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…MYE Y33 KTE Y331 TSC"
+        ],
+        "rows": [
+          {
+            "fix": "SAKAI",
+            "alt": "at A120",
+            "from": "BG N52 (135.65)",
+            "to": "BB C DEP (120.65)"
+          },
+          {
+            "fix": "KOMPI",
+            "alt": "at A090",
+            "from": "BB C DEP (120.65)",
+            "to": "BB N RDR (121.20)"
+          },
+          {
+            "fix": "KTE",
+            "alt": "at BLW A080",
+            "from": "BB N RDR (121.20)",
+            "to": "→"
+          },
+          {
+            "fix": "KULUL",
+            "alt": "A050",
+            "from": "BB N RDR (121.20)",
+            "to": "OS APP (124.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y39 OYE KTE Y331 TSC"
+        ],
+        "rows": [
+          {
+            "fix": "YUBAR",
+            "alt": "at A090",
+            "from": "BG N48 (133.80)",
+            "to": "BB N RDR (121.20)"
+          },
+          {
+            "fix": "KTE",
+            "alt": "at BLW A080",
+            "from": "BB N RDR (121.20)",
+            "to": "→"
+          },
+          {
+            "fix": "KULUL",
+            "alt": "A050",
+            "from": "BB N RDR (121.20)",
+            "to": "OS APP (124.00)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "HONMA KMANO KILAP Y43…",
+          "HONMA KEC…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "OS GND (118.00)",
+            "to": "OS DEP (124.00)"
+          },
+          {
+            "fix": "→",
+            "alt": "A050",
+            "from": "OS DEP (124.00)",
+            "to": "BB C APP (120.25)"
+          },
+          {
+            "fix": "→",
+            "alt": "A080",
+            "from": "BB C APP (120.25)",
+            "to": "BB C DEP (120.65)"
+          },
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "BB C DEP (120.65)",
+            "to": "TG T46 (133.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "TOSAR V37 NAE KRE…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "OS GND (118.00)",
+            "to": "OS DEP (124.00)"
+          },
+          {
+            "fix": "→",
+            "alt": "A060",
+            "from": "OS DEP (124.00)",
+            "to": "BB C APP (120.25)"
+          },
+          {
+            "fix": "NAE KRE",
+            "alt": "F150",
+            "from": "BB C APP (120.25)",
+            "to": "BG N50 (127.15)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "KTE UTAZU WASYU…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F160 A130",
+            "from": "OS GND (118.00)",
+            "to": "OS TWR (126.20)"
+          },
+          {
+            "fix": "→",
+            "alt": "A050",
+            "from": "OS TWR (126.20)",
+            "to": "BB N RDR (121.20)"
+          },
+          {
+            "fix": "→",
+            "alt": "F160",
+            "from": "BB N RDR (121.20)",
+            "to": "BG N49 (132.70)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "KTE OYE…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A050",
+            "from": "OS",
+            "to": "BB N RDR (121.20)"
+          },
+          {
+            "fix": "→",
+            "alt": "A090",
+            "from": "BB N RDR (121.20)",
+            "to": "BG N49 (132.70)"
+          }
+        ]
+      }
+    ]
   },
   "RJOT": {
     "region": "関西進入管制区",
@@ -2000,7 +5877,120 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…WAKIT Y203 WIMPY"
+        ],
+        "rows": [
+          {
+            "fix": "WAKIT",
+            "alt": "at F150",
+            "from": "BG N47 (133.55)",
+            "to": "BB C RDR (120.85)"
+          },
+          {
+            "fix": "15NE WIMPY",
+            "alt": "at BLW A100",
+            "from": "BB C RDR (120.85)",
+            "to": "→"
+          },
+          {
+            "fix": "WIMPY",
+            "alt": "at A060",
+            "from": "BB C RDR (120.85)",
+            "to": "BB N RDR (121.20)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…MYE Y283 KINOE Y288 TAKMA KTE"
+        ],
+        "rows": [
+          {
+            "fix": "TAKMA",
+            "alt": "at A090",
+            "from": "BG N51 (132.50)",
+            "to": "BB N RDR (121.20)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…MIHOU Y39 OYE KTE"
+        ],
+        "rows": [
+          {
+            "fix": "YUBAR",
+            "alt": "at A090",
+            "from": "BG N48 (133.80)",
+            "to": "BB N RDR (121.20)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A080",
+            "from": "OT TWR (118.30)",
+            "to": "BB N RDR (121.20)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・OLIVE HYOGO SANDA Y289…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A100",
+            "from": "BB N RDR (121.20)",
+            "to": "BB C RDR (120.85)"
+          },
+          {
+            "fix": "→",
+            "alt": "F190",
+            "from": "BB C RDR (120.85)",
+            "to": "BG N47 (133.55)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・WASYU Y28…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F160",
+            "from": "BB N RDR (121.20)",
+            "to": "BG N51 (132.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・TAROH MIHOU…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A090",
+            "from": "BB N RDR (121.20)",
+            "to": "BG N49 (132.70)"
+          }
+        ]
+      }
+    ]
   },
   "RJSA": {
     "region": "白神進入管制区",
@@ -2046,7 +6036,134 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y146 HIBAR Y113 BYOBU"
+        ],
+        "rows": [
+          {
+            "fix": "TEPIS",
+            "alt": "at A120",
+            "from": "TG T31 (119.30)",
+            "to": "SK N APP (120.85)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…UWE HINAI Y113 MRE"
+        ],
+        "rows": [
+          {
+            "fix": "UWE",
+            "alt": "at F180",
+            "from": "TG T32 (124.50)",
+            "to": "SK S APP (119.25)"
+          },
+          {
+            "fix": "→",
+            "alt": "A080",
+            "from": "SK S APP (119.25)",
+            "to": "SK N APP (120.85)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y13 AKITA Y131 HINAI Y113 MRE"
+        ],
+        "rows": [
+          {
+            "fix": "AKITA",
+            "alt": "at F190",
+            "from": "TG T32 (124.50)",
+            "to": "SK S APP (119.25)"
+          },
+          {
+            "fix": "→",
+            "alt": "A080",
+            "from": "SK S APP (119.25)",
+            "to": "SK N APP (120.85)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y113 MRE"
+        ],
+        "rows": [
+          {
+            "fix": "WAPPA",
+            "alt": "at F200",
+            "from": "TG T32 (124.50)",
+            "to": "SK S APP (119.25)"
+          },
+          {
+            "fix": "→",
+            "alt": "A080",
+            "from": "SK S APP (119.25)",
+            "to": "SK N APP (120.85)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y19 MRE"
+        ],
+        "rows": [
+          {
+            "fix": "NAMMY",
+            "alt": "at F190",
+            "from": "TG T32 (124.50)",
+            "to": "SK S APP (119.25)"
+          },
+          {
+            "fix": "→",
+            "alt": "A080",
+            "from": "SK S APP (119.25)",
+            "to": "SK N APP (120.85)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "OHMAR Y13…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A110",
+            "from": "SA TWR (118.30)",
+            "to": "SK N APP (120.85)"
+          },
+          {
+            "fix": "→",
+            "alt": "A130",
+            "from": "SK N APP (120.85)",
+            "to": "TG T31 (119.30)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "UWE Y320…",
+          "GONOU UWE V32…",
+          "UWE V31…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A130",
+            "from": "SA TWR (118.30)",
+            "to": "TG T32 (124.50)"
+          }
+        ]
+      }
+    ]
   },
   "RJSI": {
     "region": "白神進入管制区",
@@ -2076,7 +6193,63 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…MRE Y100 ENBIM"
+        ],
+        "rows": [
+          {
+            "fix": "ESBUN",
+            "alt": "A090",
+            "from": "SM APP (120.70)",
+            "to": "SK S APP (119.25)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y153 SIOMO"
+        ],
+        "rows": [
+          {
+            "fix": "RUNID",
+            "alt": "at A110",
+            "from": "TG T33 (132.30)",
+            "to": "SK S APP (119.25)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A070",
+            "from": "SI RDO (118.20)",
+            "to": "SK S APP (119.25)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・HANKA Y124…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F160",
+            "from": "SK S APP (119.25)",
+            "to": "TG T33 (132.30)"
+          }
+        ]
+      }
+    ]
   },
   "RJSK": {
     "region": "白神進入管制区",
@@ -2113,7 +6286,63 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y144 MAGGY"
+        ],
+        "rows": [
+          {
+            "fix": "IWASE",
+            "alt": "at F160",
+            "from": "TG T32 (124.50)",
+            "to": "SK S APP (119.25)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y32 CHOKA"
+        ],
+        "rows": [
+          {
+            "fix": "MIKUM",
+            "alt": "at A130",
+            "from": "TG T33 (132.30)",
+            "to": "SK S APP (119.25)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y312 YAYOI"
+        ],
+        "rows": [
+          {
+            "fix": "SEBGA",
+            "alt": "at A130",
+            "from": "TG T33 (132.30)",
+            "to": "SK S APP (119.25)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F180",
+            "from": "SK TWR (118.60)",
+            "to": "TG"
+          }
+        ]
+      }
+    ]
   },
   "RJSM": {
     "region": "三沢進入管制区",
@@ -2153,7 +6382,63 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…HWE OHMAR MIS"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "TG T31 (119.30)",
+            "to": "SM APP (120.70)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…V10 MIS"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F190",
+            "from": "TG T32 (124.50)",
+            "to": "SM APP (120.70)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "JYONA OHMAR…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "SM GND (118.65)",
+            "to": "TG T31 (119.30)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "HPE… (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F200",
+            "from": "SM GND (118.65)",
+            "to": "TG T32 (124.50)"
+          }
+        ]
+      }
+    ]
   },
   "RJSN": {
     "region": "新潟進入管制区",
@@ -2221,7 +6506,83 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y122 INAHO",
+          "…V31 GTC (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A120",
+            "from": "TG T33 (132.30)",
+            "to": "SN APP (121.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y312 MAGNA",
+          "…Y45 TERAD",
+          "…Y142 GTC"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A130",
+            "from": "TG T33 (132.30)",
+            "to": "SN APP (121.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…IGROD Y347 GTC"
+        ],
+        "rows": [
+          {
+            "fix": "GOLDO",
+            "alt": "F150",
+            "from": "TG T33 (132.30)",
+            "to": "SN APP (121.40)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "KENSI Y312…",
+          "GTC V31… (North Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A110",
+            "from": "SN TWR (118.00)",
+            "to": "TG T33 (132.30)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "MOKBA NAEBA Y312…",
+          "NAEBA V31…",
+          "MOKBA TERAD…",
+          "HAKBA V30…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A120",
+            "from": "SN TWR (118.00)",
+            "to": "TG T33 (132.30)"
+          }
+        ]
+      }
+    ]
   },
   "RJSR": {
     "region": "白神進入管制区",
@@ -2257,7 +6618,23 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y32 UWE Y312 ODE",
+          "…V32 UWE BONJI ODE"
+        ],
+        "rows": [
+          {
+            "fix": "MIKUM",
+            "alt": "at F190",
+            "from": "TG T32 (124.50)",
+            "to": "SK S APP (119.25)"
+          }
+        ]
+      }
+    ]
   },
   "RJSS": {
     "region": "仙台進入管制区",
@@ -2269,7 +6646,6 @@
     "dep": [
       "SAMBO",
       "GTC",
-      "YTE",
       "RIKYU"
     ],
     "arr_gates": {
@@ -2307,7 +6683,111 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y102 SDE"
+        ],
+        "rows": [
+          {
+            "fix": "METEL",
+            "alt": "at A120",
+            "from": "TG T34 (118.90)",
+            "to": "SS APP (120.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y15 OWLET"
+        ],
+        "rows": [
+          {
+            "fix": "OWLET",
+            "alt": "at A130",
+            "from": "TG T35 (124.10)",
+            "to": "SS APP (120.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y515 LANCE"
+        ],
+        "rows": [
+          {
+            "fix": "LANCE",
+            "alt": "at A110",
+            "from": "TG T33 (132.30)",
+            "to": "SS APP (120.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…R217 SDE (East Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "FINCH",
+            "alt": "at A110",
+            "from": "TG T33 (132.30)",
+            "to": "SS APP (120.40)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "SAMBO Y119…",
+          "SAMBO Y135…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F150",
+            "from": "SS GND (121.70)",
+            "to": "TG T34 (118.90)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "(SUTBA DEPARTURE)",
+          "GTC Y45…",
+          "GTC Y142…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A100",
+            "from": "SS GND (121.70)",
+            "to": "SS APP (120.40)"
+          },
+          {
+            "fix": "→",
+            "alt": "F160",
+            "from": "SS APP (120.40)",
+            "to": "TG T33 (132.30)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "(BUNKO DEPARTURE) RIKYU Y882…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F160",
+            "from": "SS GND (121.70)",
+            "to": "TG T34 (118.90)"
+          }
+        ]
+      }
+    ]
   },
   "RJTO": {
     "region": "東京進入管制区",
@@ -2340,7 +6820,23 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y71 XAC OSE",
+          "…V17 XAC OSE"
+        ],
+        "rows": [
+          {
+            "fix": "20W XAC",
+            "alt": "at A100",
+            "from": "TG T40 (123.70)",
+            "to": "TT RDR (124.00)"
+          }
+        ]
+      }
+    ]
   },
   "RJTT": {
     "region": "東京進入管制区",
@@ -2427,7 +6923,327 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y10 GODIN"
+        ],
+        "rows": [
+          {
+            "fix": "TEDIX",
+            "alt": "at F160",
+            "from": "TG T34 (118.90)",
+            "to": "TT APP (119.40)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y807 POLIX"
+        ],
+        "rows": [
+          {
+            "fix": "MILIT",
+            "alt": "at F160",
+            "from": "TG T36 (134.00)",
+            "to": "AA RDR (119.02)"
+          },
+          {
+            "fix": "ESKEN",
+            "alt": "at F160",
+            "from": "AA RDR (119.02)",
+            "to": "TT APP (119.40)"
+          },
+          {
+            "fix": "POLIX",
+            "alt": "at F150",
+            "from": "AA RDR (119.02)",
+            "to": "→"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y824 AROSA"
+        ],
+        "rows": [
+          {
+            "fix": "DOLBA",
+            "alt": "at F150",
+            "from": "TG T36 (134.00)",
+            "to": "AA RDR (119.02)"
+          },
+          {
+            "fix": "PEDLA",
+            "alt": "at A110",
+            "from": "AA RDR (119.02)",
+            "to": "TT APP (119.10)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…TOPIT Y875 AROSA"
+        ],
+        "rows": [
+          {
+            "fix": "TOPIT",
+            "alt": "at F150",
+            "from": "TG T42 (125.90)",
+            "to": "TT APP (119.10)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y21 AKSEL"
+        ],
+        "rows": [
+          {
+            "fix": "SELNO",
+            "alt": "at F210",
+            "from": "TG T41 (133.70)",
+            "to": "TT APP (119.10)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y71 XAC"
+        ],
+        "rows": [
+          {
+            "fix": "SPENS",
+            "alt": "at F220",
+            "from": "TG T40 (123.70)",
+            "to": "TT APP (119.10)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y108 MESSE"
+        ],
+        "rows": [
+          {
+            "fix": "INUBO",
+            "alt": "at F240",
+            "from": "TG T36 (134.00)",
+            "to": "AA RDR (119.02)"
+          },
+          {
+            "fix": "MESSE",
+            "alt": "at F170",
+            "from": "AA RDR (119.02)",
+            "to": "TT APP (119.10)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "SPOON AKAGI…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F170",
+            "from": "TT DEL (121.82)",
+            "to": "TG T35 (124.10)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "BRUCE AGRIS Y11…",
+          "SPOON AGRIS Y11…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F170",
+            "from": "TT DEL (121.82)",
+            "to": "TT DEP (120.80)"
+          },
+          {
+            "fix": "AGRIS",
+            "alt": "F210",
+            "from": "TT DEP (120.80)",
+            "to": "TG T35 (124.10)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "INUBO Y808…",
+          "INUBO Y830…",
+          "INUBO Y820…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F250",
+            "from": "TT DEL (121.82)",
+            "to": "TT DEP (120.80)"
+          },
+          {
+            "fix": "LEWIS",
+            "alt": "F220 & at ABV F170",
+            "from": "TT DEP (120.80)",
+            "to": "AA RDR (119.02)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・ INUBO Y808…"
+        ],
+        "rows": [
+          {
+            "fix": "GULBO",
+            "alt": "F250",
+            "from": "AA RDR (119.02)",
+            "to": "TG T36 (134.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・ INUBO Y830…"
+        ],
+        "rows": [
+          {
+            "fix": "BORLO",
+            "alt": "F250",
+            "from": "AA RDR (119.02)",
+            "to": "TG T36 (134.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・ INUBO Y820…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F250",
+            "from": "AA RDR (119.02)",
+            "to": "TG T36 (134.00)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "VAMOS DEPARTURE"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A090",
+            "from": "TT DEL (121.82)",
+            "to": "TT APP (119.10)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・ VAMOS XAC B586…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F230",
+            "from": "TT APP (119.10)",
+            "to": "TG T42 (125.90)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "LAXAS Y56…"
+        ],
+        "rows": [
+          {
+            "fix": "LAXAS",
+            "alt": "F200",
+            "from": "TT DEL (121.82)",
+            "to": "TG T39 (132.10)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "NINOX Y28…"
+        ],
+        "rows": [
+          {
+            "fix": "NINOX",
+            "alt": "F200",
+            "from": "TT DEL (121.82)",
+            "to": "TG T38 (120.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "GUSRO Y20…",
+          "LAYER TIARA GUSRO Y20…",
+          "TIARA GUSRO Y20…"
+        ],
+        "rows": [
+          {
+            "fix": "GUSRO",
+            "alt": "F200",
+            "from": "TT DEL (121.82)",
+            "to": "TG T38 (120.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "BEKLA Y18…",
+          "BEKLA Y884…",
+          "BEKLA Y885…"
+        ],
+        "rows": [
+          {
+            "fix": "BEKLA",
+            "alt": "F200",
+            "from": "TT DEL (121.82)",
+            "to": "TG T38 (120.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "OPPAR JYOGA…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F240",
+            "from": "TT DEL (121.82)",
+            "to": "TG T39 (132.10)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "OPPAR UTIBO…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F230",
+            "from": "TT DEL (121.82)",
+            "to": "TG"
+          }
+        ]
+      }
+    ]
   },
   "ROAH": {
     "region": "那覇進入管制区",
@@ -2503,7 +7319,179 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y525 IHEYA"
+        ],
+        "rows": [
+          {
+            "fix": "PRIUS",
+            "cond": "RWY18",
+            "alt": "at F180",
+            "from": "BG N55 (132.35)",
+            "to": "OAH APP (119.10)"
+          },
+          {
+            "fix": "PRIUS",
+            "cond": "RWY36",
+            "alt": "at F220",
+            "from": "BG N55 (132.35)",
+            "to": "OAH APP (119.10)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…V75 NHC LAVON"
+        ],
+        "rows": [
+          {
+            "fix": "BUICK",
+            "alt": "at F180",
+            "from": "DG F17 (124.50)",
+            "to": "OAH APP (126.50)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y573 MJC Y57 VELNO"
+        ],
+        "rows": [
+          {
+            "fix": "LILRA",
+            "alt": "at F290",
+            "from": "DG F17 (123.90)",
+            "to": "OMY RDR (133.70)"
+          },
+          {
+            "fix": "GEMNI",
+            "alt": "at A130",
+            "from": "OMY RDR (133.70)",
+            "to": "OAH APP"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…IGURU Y57 VELNO"
+        ],
+        "rows": [
+          {
+            "fix": "MJC",
+            "alt": "at F270",
+            "from": "DG F17 (123.90)",
+            "to": "OMY RDR (133.70)"
+          },
+          {
+            "fix": "GEMNI",
+            "alt": "at A130",
+            "from": "OMY RDR (133.70)",
+            "to": "OAH APP"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…Y57 VELNO"
+        ],
+        "rows": [
+          {
+            "fix": "GEMNI",
+            "alt": "at A130",
+            "from": "OMY RDR (133.70)",
+            "to": "OAH APP"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "…V91 OLVAL"
+        ],
+        "rows": [
+          {
+            "fix": "DODGE",
+            "alt": "at A130",
+            "from": "OMY RDR (133.70)",
+            "to": "OAH APP"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "For All"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "A012",
+            "from": "OAH DEL (122.07)",
+            "to": "OAH TWR (118.10)"
+          },
+          {
+            "fix": "→",
+            "cond": "COOR with DEP",
+            "alt": "A050",
+            "from": "OAH TWR (118.10)",
+            "to": "OAH DEP"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・ONC Y579…",
+          "AMAMI Y25…",
+          "AMAMI Y53…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F250",
+            "from": "OAH DEP",
+            "to": "BG N55 (132.35)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・AMAMI Y574…",
+          "ONC B597…",
+          "ONC"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F250",
+            "from": "OAH DEP",
+            "to": "BG N55 (132.35)"
+          }
+        ]
+      },
+      {
+        "routes": [
+          "・GANJU Y576…",
+          "OLVAL V91…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F240",
+            "from": "OAH DEP",
+            "to": "OMY RDR (133.70)"
+          },
+          {
+            "fix": "→",
+            "alt": "F280",
+            "from": "OMY RDR (133.70)",
+            "to": "DG F17 (123.90)"
+          }
+        ]
+      }
+    ]
   },
   "ROIG": {
     "region": "先島進入管制区",
@@ -2524,7 +7512,51 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y62 GANAS Y576 DIANA"
+        ],
+        "rows": [
+          {
+            "fix": "GANAS",
+            "alt": "at F300",
+            "from": "DG F17 (123.90)",
+            "to": "OMY RDR (133.70)"
+          },
+          {
+            "fix": "-",
+            "alt": "-",
+            "from": "OMY RDR (133.70)",
+            "to": "OMY APP (120.30)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "MJC Y62…",
+          "MJC Y57…",
+          "GUSUK V90 MJC V91…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F170",
+            "from": "OIG TWR (118.30)",
+            "to": "OMY APP (120.30)"
+          },
+          {
+            "fix": "→",
+            "alt": "F290",
+            "from": "OMY RDR (133.70)",
+            "to": "DG F17 (123.90)"
+          }
+        ]
+      }
+    ]
   },
   "ROKJ": {
     "region": "那覇進入管制区",
@@ -2552,7 +7584,22 @@
           "cond": "South Bound"
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…A582 NHC LAVON GURUX DORIS (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "LEKUS",
+            "alt": "at F240",
+            "from": "BG N55 (132.35)",
+            "to": "OAH APP (119.1)"
+          }
+        ]
+      }
+    ]
   },
   "ROMY": {
     "region": "先島進入管制区",
@@ -2573,7 +7620,50 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y62 GANAS Y576 YUTAH"
+        ],
+        "rows": [
+          {
+            "fix": "SOARA",
+            "alt": "at F300",
+            "from": "DG F17 (123.90)",
+            "to": "OMY RDR (133.70)"
+          },
+          {
+            "fix": "-",
+            "alt": "-",
+            "from": "OMY RDR (133.70)",
+            "to": "OMY APP (125.00)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "FREED Y57…",
+          "PAYAO V91…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F170",
+            "from": "OMY TWR (118.20)",
+            "to": "OMY RDR (125.00)"
+          },
+          {
+            "fix": "→",
+            "alt": "F270",
+            "from": "OMY RDR (133.70)",
+            "to": "DG F17 (123.90)"
+          }
+        ]
+      }
+    ]
   },
   "RORS": {
     "region": "先島進入管制区",
@@ -2593,7 +7683,49 @@
           "cond": null
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y62 GANAS Y576 DIANA"
+        ],
+        "rows": [
+          {
+            "fix": "SOARA",
+            "alt": "at F300",
+            "from": "DG F17 (123.90)",
+            "to": "OMY RDR (133.70)"
+          },
+          {
+            "fix": "-",
+            "alt": "-",
+            "from": "OMY RDR (133.70)",
+            "to": "OMY APP (125.00)"
+          }
+        ]
+      }
+    ],
+    "dep_xfer": [
+      {
+        "routes": [
+          "FREED Y57…"
+        ],
+        "rows": [
+          {
+            "fix": "→",
+            "alt": "F170",
+            "from": "ORS TWR (118.30)",
+            "to": "OMY RDR (125.00)"
+          },
+          {
+            "fix": "→",
+            "alt": "F270",
+            "from": "OMY RDR (133.70)",
+            "to": "DG F17 (123.90)"
+          }
+        ]
+      }
+    ]
   },
   "RORY": {
     "region": "那覇進入管制区",
@@ -2619,7 +7751,22 @@
           "cond": "South Bound"
         }
       ]
-    }
+    },
+    "arr_xfer": [
+      {
+        "routes": [
+          "…Y45 ONC ASATO YRE (South Bound)"
+        ],
+        "rows": [
+          {
+            "fix": "MEKAX",
+            "alt": "at F200",
+            "from": "BG N55 (132.35)",
+            "to": "KA APP (124.95)"
+          }
+        ]
+      }
+    ]
   },
   "RJCJ": {
     "region": "千歳進入管制区",

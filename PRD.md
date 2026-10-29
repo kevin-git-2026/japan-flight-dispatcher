@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | 日本航班智能搜索与规划脚本 (Japan Flight Dispatcher) |
-| 当前版本 | **v2.0.1**（F27 严格基于现实航班：FlightAware 逐候选核实 + F28 按地理地域限定：经纬度 9 地域分类）；v2.0.0_alpha1（F26 羽田实测运用状况：ntrack 实测优先于规则推断）；v2.0.0（F25 UI 迁移 tkinter → Flet：Flutter 渲染，业务逻辑零改动）；v1.6.0（运行规则应用引擎 F24）；v1.5.0（天气网格回退 F22 + 运行规则编辑器 F23）；v1.4.x（本地航路生成 + SimBrief + 机型库 + 交互地图） |
+| 当前版本 | **v2.0.3**（F31 移管表随导航数据自动更新 + F32 进近移管高度）；v2.0.2（地图独立子窗口 · 底图可选 · Navigraph 式画法 · 本场台离场只作后备）；v2.0.1（F27 严格基于现实航班：FlightAware 逐候选核实 + F28 按地理地域限定：经纬度 9 地域分类）；v2.0.0_alpha1（F26 羽田实测运用状况：ntrack 实测优先于规则推断）；v2.0.0（F25 UI 迁移 tkinter → Flet：Flutter 渲染，业务逻辑零改动）；v1.6.0（运行规则应用引擎 F24）；v1.5.0（天气网格回退 F22 + 运行规则编辑器 F23）；v1.4.x（本地航路生成 + SimBrief + 机型库 + 交互地图） |
 | 交付形态 | PyInstaller 打包的 `flight_dispatcher.exe`（v1.3.1 起**仅 tkinter 图形界面**；命令行版已移除） |
 | 运行平台 | Windows 为主(全盘扫描逻辑针对盘符),兼容类 Unix |
 | 技术栈 | Python 标准库为主；**v1.4.0 起引入第三方库 `tkintermapview` + `Pillow`（交互地图）**——缺失时地图功能自动禁用、其它仍纯标准库可用 |
@@ -71,6 +71,8 @@
 | F28 | 按地理地域限定（✅ v2.0.1） | 随机抽线新增「出发地域 / 目的地域」下拉：把起飞、落地机场各限定在日本 **9 大地域**（北海道/东北/关东/中部/近畿/中国/四国/九州/琉球）之一。新增 `dispatcher/regions.py` 按**机场经纬度 bounding box** 分类（非 ICAO 前缀——前缀分不开中国/四国且本身有错）：每地域一组盒、九州按关门海峡纬度线分东西两盒、按优先级顺序判定；实测 129 机场 0 未归类、61 边界机场 0 误分。仅作用于**随机端**。详见 §8.2 |
 | F29 | 模拟呼号避开现实航班号（✅ v2.0.1_hotfix2） | 无真实排班时降级生成的模拟呼号，**逐个用 FlightAware 核验该号现实中是否真实存在**，避开真号——否则连飞(VATSIM)时会干扰到正挂着该真实航班号飞的人。实测旧号段 11–899 **约 90–100% 都是真实航班号**（几乎每次都在冒充真实航班），且**不存在「安全号段」**（9000–9999 亦有 50% 被占）→ 必须联网核验。**优先 2–3 位短号**（4 位号连飞时管制不好记、机组不好读），短号段搜尽才放宽到 4 位。断网/限流 → 照给号但结果卡如实标「未能核验」。 |
 | F30 | 模拟呼号贴近真实编号规律（✅ v2.0.1_hotfix3） | 按日本航司的航班号范式生成模拟呼号：**奇偶按走向**（离开东京方向为奇数；先比东京 > 大阪 > 名古屋 > 福冈四个始发枢纽，其余机场含札幌、那霸按离东京远近，全量实测 98.7%），**锁定该航司同地区航线惯用的百位段**，并按**确切号码**避开随包号段表 `flight_blocks.json` 里实测出现过的真实航班号（空号藏在号段内部的空洞里，不能按区间扣），在剩下的小集合里逐个核验；同一段连撞 5 个真号就换下一段。既像真的、核验次数也少：同样 20 组航线，每抽撞真号 78%→64%，平均核验 4.5→2.8 次，ANA 11.8→6.0 次。号段表由 `tools/build_flight_blocks.py` 从 FlightAware 生成，每个航季可重跑。 |
+| F31 | 移管表随导航数据自动更新（✅ v2.0.3） | 程序**启动时**联网读 VATJPN 以 Google 表格公开发布的「空港別移管高度表」，按**本机导航数据的 AIRAC** 选期（「≤ 本机周期」里最新的一期），并用**本机 CIFP** 重新推算进场门 ↔ STAR 配对，自动更新 `transfer_points.json`——用户换了导航数据后**不必再等新版发行包**。期次与本机 AIRAC 都没变 → 只读一次目录（约 0.4 s）即「已是最新」；本机导航数据比 VATJPN 最新一期旧（且那一期已生效）→ **弹窗提醒升级导航数据**；断网 / 表格改版 → 沿用现有文件。详见 §8.2 |
+| F32 | 进近移管高度（✅ v2.0.3） | 移管表 json 补上 VATJPN 表上每个进场组下面的**移管行**（移管点、移管高度、移管元 → 移管先的席位与频率；离场一侧的移管行也一并存下，暂不显示）。规划后在结果卡**每条 AIP 航路 / 生成航路下方**列出这条航路对应的进近移管，如 `SPENS  FL220  TG T40 (123.70) → TT APP (119.10)`；按「门及门之前的点 / 航路名全在航路上」匹配到着组，实测 AIP 航路 91% 完全匹配。详见 §8.2 |
 
 ### 2.2 交互输入项(每轮规划)
 
@@ -136,6 +138,8 @@ GUI 用「**同步 Volanta**」按钮 + 「**自动同步**」复选框管理 Vo
   ├─ 多源地景扫描 (scan_installed_sceneries：XP Custom Scenery + MSFS Community
   │     → dict{ICAO: 来源}，installed_scenery.json 指纹缓存，目录未变秒开)
   ├─ 加载 AIP 航路数据 (load_aip_routes_from_csv,网络优先 → 本地缓存)
+  ├─ 更新移管表 (vatjpn.refresh：按本机 AIRAC 选 VATJPN 那一期，期次 / 本机 AIRAC 变了才重建
+  │     transfer_points.json；本机导航数据比最新一期旧 → 完成后弹窗提醒)
   ├─ (可选) Volanta 已飞航线获取(由 volanta_data.json 的偏好决定)
   │     ├─ 已开启自动(auto):静默用登录会话(localStorage 的 Orbx token)调
   │     │   /api/v1/Flights → 解析起降对并入 volanta_data.json(零操作)
@@ -177,6 +181,7 @@ v1.2.0 起,原本约 1100 行的单文件 `flight_dispatcher.py` 已**按功能�
 | **`dispatcher/regions.py`** (F28,✅ v2.0.1) | `REGIONS`、`region_of(lat, lon)`、`_REGION_BOXES` | 日本 9 大地理地域的**经纬度 bounding box** 分类。每地域一组盒、九州按关门海峡纬度线分东西两盒、按优先级顺序判定;实测 129 机场 0 未归类、61 边界机场 0 误分。纯 stdlib、零 GUI、零 import 依赖 |
 | `dispatcher/planner.py` (F13) | `build_flight_plan`→`FlightPlan`、`parse_runway_ft`/`parse_dist`、`simbrief_url` | 一次规划的计算(FlightAware 抓取 + 模拟呼号 + SimBrief 链接),供 UI 调用;渲染由 UI 负责 |
 | **`dispatcher/ntrack.py`** (F26,✅ v2.0.0_alpha1) | `fetch_latest`、`parse_config`、`match_iaps`、`supports` | 国土交通省 ntrack 的**实测运用状况**（羽田）。一次 GET，表格内联在首页 HTML（`<table id='atistable'>`），无 ajax / 无 JS / 无认证；30 分钟缓存＝其更新周期。进近串→CIFP ident 逐字匹配（唯一别名 `RNP`↔`RNAV`）。纯标准库，失败→`None` |
+| **`dispatcher/vatjpn.py`** (F31/F32,✅ v2.0.3) | `refresh`、`pick_tab`、`list_tabs`、`build`、`Stars` | VATJPN「空港別移管高度表」→ `transfer_points.json`。读发布页目录（标签页名 → gid）与单页 HTML 表（按 rowspan/colspan 展开）；门 = 到着串里最后一个航路名之后的点；STAR 配对按本机 CIFP 现推（与 `matching_choices` 同一套衔接判据）。`refresh` 供启动时调用、绝不抛异常；`match_arrival` 把一条航路对到移管表的到着组（F32）；json 里的 `_vatjpn` 记录 {发布 ID, gid, 期名, 本机 AIRAC} 用来判断要不要重建。`tools/build_transfer_points.py` 是它的命令行外壳。纯标准库 |
 | **`dispatcher/controller.py`** (F25,✅ v2.0.0) | `AppState`、`init_app`、`plan`、`compute_proc`、`volanta_sync`、`LogSink`、`NavDataMissing` | **编排层(零 GUI 依赖)**:应用状态 + 后台任务 + 日志。**绝不 import 任何 GUI 框架;只抛异常、只返回值、只回调**,跨线程 marshal 交给 UI |
 | **`dispatcher/viewmodel.py`** (F25,✅ v2.0.0) | `result_spans`、`map_model`、`ProcPanelModel`、`OpsEditorModel`、`AipTableModel`、`AircraftModel`、`MultiSelectModel`、`form_to_rule`/`rule_to_form`、`enabled_controls` | **各界面的纯数据 Model(零 GUI 依赖)**:**每个界面 = 一个可 headless 单测的 Model + 一层薄渲染**。两套 UI 共用同一 Model → 行为天然一致;这也是这些逻辑**第一次**能脱离 GUI 单测 |
 | **`dispatcher/ui_flet/`** (F25,✅ v2.0.0) | `run_flet`;`shell` / `theme` / `app` / `form_view` / `result_view` / `log_view` / `proc_view` / `aip_dialog` / `ops_view` / `map_view` | **Flet 前端(Flutter 渲染)**——v2.0.0 起的正式前端。**`shell.py` 是唯一允许碰 `page` 的模块**(Flet 的 `page.update()` 非线程安全,marshal 强制经 `page.run_task`) |
@@ -286,6 +291,7 @@ class Airport:
 | --- | --- | --- |
 | `jp-routes.vercel.app` | 第三方网站(爬取,非官方 API) | 可能随时变更或下线;有本地缓存兜底 |
 | `flightaware.com` | 第三方网站(爬取,非官方 API) | 页面改版即失效;**无结果缓存** |
+| `docs.google.com`(VATJPN 发布的移管表) | 公开发布的 Google 表格(读 HTML,非 API) | 每次启动读一次目录,有变化才读整张表;表格改版 → 合理性检查拒绝覆盖;断网 → 沿用现有 `transfer_points.json`;VATJPN 若换成另一份表格,需用工具贴一次新链接 |
 | `earth_aptmeta.dat`(程序自带 `NavData/`) | Navigraph 导航数据 | 需用户放入 NavData 文件夹;AIRAC 过期会提示更新 |
 | XP `Custom Scenery` / MSFS `Community` 地景目录 | 模拟器本地文件夹(读 apt.dat / 包结构,非 API) | 缺失则该来源软降级;MSFS 命名极不规范的极少数包会漏;`installed_scenery.json` 缓存 |
 | Volanta(`api.volanta.app` 官方接口 + 浏览器 localStorage 登录令牌) | 第三方(用用户自己浏览器会话调官方 API) | 前端改版 / 令牌过期(~14 天)/ 未登录即失效;失败降级为不启用优先 |
@@ -320,6 +326,7 @@ class Airport:
   scan_installed_sceneries()      # 多源地景扫描(XP/MSFS)→ scenery_map，指纹缓存秒开
   init_airline_data()             # 加载/生成 airlines.json(航司执飞规则)
   load_aip_routes_from_csv()      # 加载 AIP(网络优先)→ 预建 aip_index
+  vatjpn.refresh()                # 更新移管表(F31):按本机 AIRAC 选期,有变化才重建;过旧 → navdata_notice 弹窗
   # Volanta:按 volanta_data.json 偏好——已开启(auto)则静默用登录会话拉 API;
   #          未开启则不扫浏览器(由「同步 Volanta」按钮按需触发)
   load_volanta_flown_routes()     # 解析 json(+CSV)并入累积库 → 已飞有向航线集合(失败则空集,优雅降级)
@@ -385,6 +392,15 @@ class Airport:
   - **为何只取最新一条**(用户定):模拟飞行常调时间但**用实时天气**,而运用构型正是被实时天气驱动的——「此刻的构型」就是用户实际会遇到的那个。按钟点切换的深夜運用由规则引擎的时段闸门兜住。
   - **边界**:仅羽田(成田是 NAA 另一站点,可后续接入);断网/改版/解析失败 → `None`,静默回退规则引擎,规划流程不受影响。跑道下拉**仍列全部跑道**(实测在用的标 ✅ 并排最前),用户永远能改选——决策支持,不替用户拍板。
 
+- **F31 移管表随导航数据自动更新(✅ v2.0.3)**:用户提出「既然有了 2PACX 链接的根就能在没有 gid 的情况下读到最新的表，能否把升级 transfer_points.json 的功能做进主程序，免得每升级一次导航数据就得重新下载发行包」。
+  - **为何要跟着导航数据走**:`arr_gates[].star` 是按本机 CIFP 推出来的,换导航数据 AIRAC 后 STAR 会改名(AIRAC 2610 里 RJOO 的 IKOMAE/IKOMAN 已是 AGPU1R/ROKKO1),旧名留在 json 里面板就配不上;航路网也来自本机 NavData,所以门与配对要和本机数据同属一期。
+  - **选期(用户定)**:取「AIRAC ≤ 本机周期」里最新的一期;本机比各期都旧取最旧一期;本机导航数据比 VATJPN 最新一期旧、且那一期已生效 → 弹窗「本机导航数据与最新的 VATJPN 移管数据表不匹配，请升级导航数据到最新版本」。「已生效」这一条防 VATJPN 提前发布下期表:那时 Navigraph 多半还没出数据,提醒了也无从升级。
+  - **触发(用户定)**:启动时自动检查,不加按钮。json 的 `_vatjpn` 记着上次用的发布 ID / gid / 期名 / 本机 AIRAC,全一致 → 只读目录、不下载整张表。
+  - **兜底**:断网 → 一行日志、沿用现有文件;解析失败或机场数不足原有 80% → 视为表格改版、不覆盖;写不进程序目录 → 本次在内存里用新表。
+- **F32 进近移管高度(✅ v2.0.3)**:用户提出「现在的表是大幅简化过的产物，缺少了原来 JPN 移管表上的重要信息，优先级最高的是移管高度——要求飞机在指定航点下降到一个高度，方便管制交接」。
+  - **数据**:每个机场加 `arr_xfer` / `dep_xfer`(表中各组的到着 / 出発串 + 其下的移管行原文 {移管点, 条件, 高度, 移管元, 移管先});`_vatjpn.schema`=2,旧文件启动时自动重建补字段。现有字段逐字不变。
+  - **匹配**:门必须在航路上,「门及门之前的点 / 航路名全在航路上」优先,其次命中多、到着串更具体的。全部 AIP 航路(目的场在表里的 669 条):完全匹配 608、部分 28、无对应 33。
+  - **显示(用户定:高度 + 席位频率)**:`FL220` / `11000ft` / `≤9000ft`;只差机型或跑道条件的相邻行并成一行;部分匹配标「按进场门近似匹配」。离场移管(用户定)先只存不显示。
 - **F25 UI 迁移 tkinter → Flet(✅ v2.0.0)**:用户希望界面用 Flutter。**Flutter 本体(Dart)不能融合本项目**——Dart 进程跑不了 Python,硬上只能重写 3,837 行逻辑或搭 Python sidecar + IPC,均不划算。**[Flet](https://flet.dev) 是答案**:Python 写、Flutter 渲染,业务逻辑原地保留。本项目罕见地为此做好了准备——全仓 201 处 tkinter 调用**全在 `gui.py`**,其余 17 个模块引用数 = **0**。
   - **硬要求(用户已定)**:① **17 个逻辑模块零编辑**(若发现必须改 → 停下来报告);② **`gui.py` 的控制逻辑与数据处理「全部」剥离**,剥完后 UI 层只剩「造/读/写控件 + 绑事件」;③ **全量切换到 Flet,不保留 tkinter**(用户已备份 v1.6.0,出问题 `git` 回退);④ 界面**整洁美观**但**保留现有基本结构**(不做颠覆性改版)。
   - **架构**:新增 **`controller.py`**(编排:应用状态/后台任务/日志) + **`viewmodel.py`**(各界面的纯数据 Model) + **`ui_flet/`**(6 个渲染模块)。原则:**每个界面 = 一个可 headless 单测的纯数据 Model + 一层薄渲染** —— 两套 UI 共用同一 Model,行为天然一致;`viewmodel.py` 变大是**好事**,它是 tk→Flet 之间唯一的行为契约。剥离后 `gui.py` 1,925→1,186 行,且**只 import tkinter + controller + viewmodel**(不再直接碰任何逻辑模块)。
@@ -428,6 +444,11 @@ class Airport:
   - **UI 迁移 tkinter → Flet(F25)**:界面换成 **Flutter 渲染**,业务逻辑零改动。**主版本号跳到 2.0.0**——不是因为功能变了,而是因为**前端整个换了**(tkinter 将被删除)、**exe 体积由约 15MB 涨到 54MB**(内含 Flutter 预制客户端)、并有一处**永久功能倒退**(地图不能并排多开)。
   - **架构重构(迁移的前置,也是本次最大的工程价值)**:`gui.py` 的**控制逻辑与数据处理全部剥离**到 `controller.py`(编排) + `viewmodel.py`(各界面纯数据 Model)。剥离后 `gui.py` 1,925→1,186 行、只剩渲染;**17 个逻辑模块零编辑**;这些逻辑**第一次**能脱离 GUI 单测。用**黄金基准(oracle)逐字 diff** 保证剥离不改行为。
   - **收益**:彩色 emoji、深色模式跟随系统、Material 3 观感;**甩掉 `tkintermapview` + `Pillow` 两个第三方依赖**(Flet 的地图 marker 可用任意控件绘制)。
+
+- **v2.0.2 → v2.0.3(✅ 2026-10-28)**:
+  - **移管表随导航数据自动更新(F31)**:启动时读 VATJPN 公开发布的移管表,按本机 NavData 的 AIRAC 选期、用本机 CIFP 重配 STAR,有变化才重建 `transfer_points.json`;本机导航数据比最新一期旧 → 弹窗提醒。新增 `dispatcher/vatjpn.py`,`tools/build_transfer_points.py` 改为其命令行外壳。
+  - **进近移管高度(F32)**:json 补上移管行(移管点 / 高度 / 席位频率),结果卡每条航路下显示对应的进近移管。
+  - **数据**:移管表更新到 AIRAC 2610(RJOK 进场改版等),STAR 配对按新导航数据修正(RJOO/RJOK 的改名)。
 
 - **v2.0.1 → v2.0.2(✅ 2026-10-23)**:
   - **内存优化**:地图搬进**独立的子进程窗口**(F18),看过地图后主程序 860→300 MB,地图的 GPU 缓存关窗即还,并找回「多张地图并排比对」;航点索引只收 RJ/RO 两区(−约 140 MB)。新增开发工具 `tools/memprobe.py`。

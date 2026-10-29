@@ -141,6 +141,8 @@ class DispatcherApp:
             self.form.scenery_hint.value = ""
         self.form.vstatus.value = VM.volanta_status_text(st.flown_counts, st.volanta_meta)
         self._refresh()
+        if st.navdata_notice:                            # 本机导航数据比 VATJPN 最新移管表旧
+            self._dialog(C.NAVDATA_STALE_TITLE, st.navdata_notice)
         self._selftest()
 
     def _selftest(self):

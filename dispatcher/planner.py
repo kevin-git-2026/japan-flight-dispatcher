@@ -33,6 +33,8 @@ class FlightPlan:
     aip_route_dists: list = None                         # 各 AIP 航路长(NM)，与 aip_routes 顺序对应
     aip_maps: list = None                                # 每条 AIP 航路的 (coords, 标题)，与 aip_routes 一一对应（供分别开图）
     gen_map: object = None                               # 生成航路的 (coords, 标题)
+    aip_xfers: list = None                               # F32：各 AIP 航路对上的进近移管（vatjpn.match_arrival 的结果），与 aip_routes 同序
+    gen_xfer: object = None                              # F32：生成航路的进近移管
     active_sims: object = None                            # 渲染地景标注/警告所用的模拟器集合(None=两者)；问题1
     sb_base: dict = None                                  # SimBrief 基础参数 {orig,dest,airline,fltnum,actype}（F20：选定 SID/STAR 后据此重建带 route 的链接）
 
@@ -101,7 +103,7 @@ def build_flight_plan(dep_obj, arr_obj, route_dist, route_details,
                       user_airline="", user_aircraft="", user_time_range="", flown_count=0,
                       generated_route=None, generated_route_warn=None, timed_route=None,
                       generated_route_dist=None, aip_route_dists=None,
-                      aip_maps=None, gen_map=None):
+                      aip_maps=None, gen_map=None, aip_xfers=None, gen_xfer=None):
     """计算一次规划结果（含 FlightAware 抓取、无排班时降级生成模拟呼号）。无任何打印/UI 依赖。
     模拟呼号的随机数字在此【算一次】，保证显示一致。timed_route(F16)：分时段选出的官方航路串，
     非空则填进 SimBrief 链接的 route 参数（否则留空让 SimBrief 自己算）。"""
@@ -145,7 +147,7 @@ def build_flight_plan(dep_obj, arr_obj, route_dist, route_details,
         generated_route=generated_route, generated_route_warn=generated_route_warn,
         simbrief_url=sb_url,
         generated_route_dist=generated_route_dist, aip_route_dists=aip_route_dists,
-        aip_maps=aip_maps, gen_map=gen_map,
+        aip_maps=aip_maps, gen_map=gen_map, aip_xfers=aip_xfers, gen_xfer=gen_xfer,
         sb_base={"orig": dep_obj.code, "dest": arr_obj.code,
                  "airline": sb_airline, "fltnum": sb_fltnum, "actype": sb_actype},
     )

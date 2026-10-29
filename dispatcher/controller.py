@@ -7,7 +7,7 @@
 import os
 
 from .config import get_real_run_path
-from .navdata import find_navdata_file, check_airac_currency
+from .navdata import find_navdata_file, check_airac_currency, airac_cycle
 from .data import load_japan_icao_set, load_airports_from_navigraph, load_aip_routes_from_csv
 from .scenery import scan_installed_sceneries
 from .airlines import init_airline_data
@@ -18,8 +18,8 @@ from .volanta import (
 from .routing import calculate_distance_nm, find_aip_route, get_random_route
 from .flightaware import fetch_real_flights_with_filter
 from .planner import build_flight_plan, parse_runway_ft, parse_dist
-from .router import generate_route, route_geometry, route_length_nm
-from . import procedures, weather, timed, ntrack
+from .router import generate_route, route_geometry, route_length_nm, reload_transfer_points, transfer_entry
+from . import procedures, weather, timed, ntrack, vatjpn
 
 
 class NavDataMissing(Exception):
@@ -37,6 +37,7 @@ class AppState:
         self.flown_counts = {}
         self.volanta_auto = False
         self.volanta_meta = {}
+        self.navdata_notice = None       # 本机导航数据比 VATJPN 最新移管表旧 → UI 弹窗的文案
 
 
 class LogSink:
@@ -62,7 +63,7 @@ class LogSink:
 # ---------- 初始化 ----------
 
 def init_app():
-    """一次性初始化（后台线程调）：导航数据 → AIRAC → 地景扫描 → 航司 → AIP → Volanta。
+    """一次性初始化（后台线程调）：导航数据 → AIRAC → 地景扫描 → 航司 → AIP → 移管表 → Volanta。
     返回 AppState；未找到导航数据 → 抛 NavDataMissing。"""
     dat = find_navdata_file()
     if not dat:
@@ -85,6 +86,12 @@ def init_app():
     aip_index = {(row[0].strip().upper(), row[1].strip().upper())
                  for row in aip if len(row) >= 2} if aip else set()
 
+    # VATJPN 移管表：按本机导航数据的 AIRAC 选期，期次或本机 AIRAC 变了才重建（STAR 配对按本机 CIFP 现推）。
+    # 必须在任何航路生成之前——router 会缓存它，以及由它派生的进场端点学习。
+    tp = vatjpn.refresh(dat, airac_cycle(dat))
+    if tp["data"] is not None:
+        reload_transfer_points(tp["data"])
+
     auto = volanta_auto_enabled()
     if auto:
         print("🔑 正在用 Volanta 登录会话自动同步已飞数据...")
@@ -102,6 +109,7 @@ def init_app():
     st.flown_counts = flown or {}
     st.volanta_auto = bool(auto)
     st.volanta_meta = vmeta or {}
+    st.navdata_notice = tp["notice"]
     return st
 
 
@@ -110,6 +118,7 @@ NAVDATA_HELP = ("未找到导航数据。\n\n请前往 https://navigraph.com/dow
                 "后重启本程序。")
 NAVDATA_LOG = ("❌ 未找到导航数据。请前往 https://navigraph.com/downloads 下载「X-Plane 12」导航数据，"
                "放入程序目录的 NavData 文件夹后重启。")
+NAVDATA_STALE_TITLE = "导航数据需要更新"       # 正文 = AppState.navdata_notice（vatjpn 按期次拼）
 
 
 # ---------- 规划 ----------
@@ -243,12 +252,14 @@ def plan(state, f):
             print(f"⚠️ 航路生成失败（已忽略）: {e}")   # 绝不让生成中断规划
 
     # 各 AIP 航路：长度（与 find_aip_route 同序）+ 地图航点（每条一份）+ 航点(供 F21 端点预筛复用)
-    matched = aip_dists = aip_maps = aip_pts = None
-    gen_map = None
+    # + 进近移管（F32：这条航路对上 VATJPN 移管表的哪个到着组 → 移管点 / 高度 / 席位）
+    matched = aip_dists = aip_maps = aip_pts = aip_xfers = None
+    gen_map = gen_xfer = None
+    tp_arr = transfer_entry(arr_obj.code)
     if route:
         matched = [r for r in state.aip_data
                    if len(r) > 5 and r[0].strip().upper() == dep_obj.code and r[1].strip().upper() == arr_obj.code]
-        aip_dists, aip_maps, aip_pts = [], [], []
+        aip_dists, aip_maps, aip_pts, aip_xfers = [], [], [], []
         for r in matched:
             rs = r[5].strip()
             try:
@@ -258,15 +269,17 @@ def plan(state, f):
             aip_pts.append(pts)
             aip_dists.append(route_length_nm(pts) if pts else None)
             aip_maps.append((pts, "%s→%s  %s" % (dep_obj.code, arr_obj.code, rs)) if pts else None)
+            aip_xfers.append(vatjpn.match_arrival(tp_arr, rs, [p[0] for p in pts or ()]))
     elif generated and gr and gr.get("coords"):
         gen_map = (gr["coords"], "%s→%s  %s" % (dep_obj.code, arr_obj.code, generated))
+        gen_xfer = vatjpn.match_arrival(tp_arr, generated, [p[0] for p in gr["coords"]])
 
     print("🔎 正在拉取现实排班...")
     fp = build_flight_plan(dep_obj, arr_obj, dist, route,
                            f["airline"], f["aircraft"], f["time"], flown_count,
                            generated_route=generated, generated_route_warn=generated_warn,
                            generated_route_dist=generated_dist, aip_route_dists=aip_dists,
-                           aip_maps=aip_maps, gen_map=gen_map)
+                           aip_maps=aip_maps, gen_map=gen_map, aip_xfers=aip_xfers, gen_xfer=gen_xfer)
     fp.active_sims = active                             # 问题1：渲染按所用模拟器标注地景
     proc = compute_proc(state, dep_obj, arr_obj, generated,   # F20/F21：逐 AIP 候选预筛跑道/SID/STAR + 抓天气
                         matched=matched, aip_dists=aip_dists, aip_pts=aip_pts,

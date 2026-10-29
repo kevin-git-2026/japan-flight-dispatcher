@@ -40,18 +40,55 @@ _MONTH_ABBR = {m: i + 1 for i, m in enumerate(
     ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"])}
 
 
+def _cycle_info(navdata_path):
+    """NavData\\cycle_info.txt 的全文；缺失/读不了 → None。"""
+    try:
+        info_path = os.path.join(os.path.dirname(navdata_path), "cycle_info.txt")
+        if not os.path.exists(info_path):
+            return None
+        with open(info_path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read()
+    except Exception:
+        return None
+
+
+def _cycle_of(text):
+    cm = re.search(r"AIRAC cycle\s*:\s*(\S+)", text or "")
+    return cm.group(1) if cm else None
+
+
+def airac_cycle(navdata_path):
+    """本机导航数据的 AIRAC 周期号（如 '2610'）；读不到 → None。"""
+    return _cycle_of(_cycle_info(navdata_path)) if navdata_path else None
+
+
+_AIRAC_EPOCH = datetime.date(2019, 1, 3)     # AIRAC 1901 的生效日；此后每 28 天一期，期号按年内序号计
+
+
+def airac_start(cycle):
+    """AIRAC 周期号（'2610'）→ 生效日（date）；格式不对 → None。
+    核对：2605=2026-05-14（见下方 cycle_info 样例）、2610=2026-10-01、2014=2020-12-31（2020 年有 14 期）。"""
+    try:
+        yy, nn = int(str(cycle)[:2]), int(str(cycle)[2:4])
+        if len(str(cycle)) != 4 or nn < 1:
+            return None
+        k = -((_AIRAC_EPOCH - datetime.date(2000 + yy, 1, 1)).days // 28)   # 该年第一期 = 元旦起的第一个 28 天节点
+        first = _AIRAC_EPOCH + datetime.timedelta(days=28 * k)
+        start = first + datetime.timedelta(days=28 * (nn - 1))
+        return start if start.year == first.year else None
+    except Exception:
+        return None
+
+
 def check_airac_currency(navdata_path):
     """读 NavData\\cycle_info.txt 自检 AIRAC 周期是否过期并提示更新。
     格式：'AIRAC cycle : 2605' / 'Valid (from/to): 14/MAY/2026 - 11/JUN/2026'。
     解析失败/文件缺失静默跳过，不影响主流程。"""
     try:
-        info_path = os.path.join(os.path.dirname(navdata_path), "cycle_info.txt")
-        if not os.path.exists(info_path):
+        text = _cycle_info(navdata_path)
+        if text is None:
             return
-        with open(info_path, "r", encoding="utf-8", errors="ignore") as f:
-            text = f.read()
-        cm = re.search(r"AIRAC cycle\s*:\s*(\S+)", text)
-        cycle = cm.group(1) if cm else None
+        cycle = _cycle_of(text)
         m = re.search(r"Valid.*?-\s*(\d{1,2})/([A-Za-z]{3})/(\d{4})", text)  # 取有效期结束日期
         if not m:
             return
