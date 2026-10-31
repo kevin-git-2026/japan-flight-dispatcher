@@ -219,8 +219,7 @@ class ProcView:
                 #    挂在框里：实测规划到 RJFE（该场【根本没有 STAR】）时，STAR 框里赫然显示着上一条航线的 REMENW，
                 #    而 model 里 sel_proc 是空的（摘要行显示「/ —」）——纯粹的显示残留。故必须一并回写。
                 cb_proc.text = m.sel_proc[side] or None
-                cb_proc.hint_text = None if labels else ("（该机场无 SID）" if side == "dep"
-                                                         else "（该机场无 STAR）")
+                cb_proc.hint_text = None if labels else m.proc_hint(side)
                 ops.value = m.ops_label[side]
                 ops.visible = bool(m.ops_label[side])
             self.hint.value = m.hint_text()

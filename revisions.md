@@ -16,6 +16,92 @@
 
 ---
 
+## v2.0.3_hotfix1(✅ 2026-10-31)— 生成航路的进场走廊奖励改为按来向统计 · 带 IAP 的跑道可选作落地跑道
+
+### 问题
+用户反馈 RJSR→RJOO 走 `… MBE … IZUMI`，没走 `Y384 ROKKO`：绕远，到 IZUMI 时还有个大拐角。这对航线没有官方 AIP。
+
+### 根因
+- A\* 首轮是对的：`UWE V31 GTC Y45 KMC Y384 ROKKO`，422 NM（大圆 401）。
+- `_prefer_corridor_arrival` 按**全局频次**换门：IZUMI 26 次 > ROKKO 7 次 × 1.5。IZUMI 那 26 次几乎全来自九州 / 四国 / 冲绳，频次不分方向。
+- 换后 `… Y88 KCC Y28 MIDER V28 ITE V55 IZUMI` 466 NM，在 ×1.15 容差内，被采用。航路先到场内 VOR ITE，再往南 20 NM 到 IZUMI。
+- `_dir_filter` 只看距离（IZUMI 离场很近）；`_via_dir_ok` 的上游走廊里有北边的 SANDA，夹角在 90° 内。两道过滤都拦不住。
+- `_check_continuity` 不查「门→机场」这段转弯，所以也没有告警。
+
+### 修复（`router.py`）
+- **按来向统计**：`_learn_routes` 多记 `graph.arr_tail_src`；新增 `_dir_tail_freq`，只数出发机场方位差 ≤45° 的官方航路（离目的场不足 30 NM 的不计，方位无意义）。`arr_tails` 不变，端点候选仍用它。
+- **绝对上限**：换门在 ×1.15 之外再要求最多多飞 25 NM。进场端的局部绕路不随航程变长，只按倍数的话 RJCN→RJOO（717 NM）到了 ROKKO 还能再绕 41 NM 去 IZUMI。
+- **先交接再比较**：`_plan` 在走廊奖励之前也跑一次 `_prefer_star_handoff`。落在本场 VOR 的首轮距离是虚短的（RJOB→RJSI 落 HPE 449 NM，交接到 MORIO 其实 487 NM）；拿它比，官方门 SIOMO（498 NM）就过不了上限，会留在「飞过场站到 MORIO 再折回」。这一条是实现后的回归比对发现的，初版方案没有它。
+
+### 方案对比（留一法：220 个官方机场对假装没有官方航路，看是否落到官方门）
+
+| 方案 | RJSR→RJOO | 命中官方门 | 飞过头 |
+| --- | --- | --- | --- |
+| 原来（全局频次，×1.15） | IZUMI 466 NM | 82.3% | 9 |
+| 只按方向（±45°，×1.15） | AGPUK 450 NM | 86.8% | 0 |
+| 方向 + ×1.05 | ROKKO 422 NM | 84.1% | 0 |
+| 只收容差到 ×1.05 | ROKKO 422 NM | 83.2% | 0 |
+| **方向 + ×1.15 + ≤+25 NM（采用）** | **ROKKO 422 NM** | **85.5%** | **0** |
+| 去掉走廊奖励 | ROKKO 422 NM | 75.5% | 0 |
+
+东北方向的官方主力门其实是 AGPUK（邻场 RJSA / RJSK / RJSC 都走 `GTC Y12 KOHWA Y546 AGPUK`）。RJSR 走 AGPUK 也合理，但要多飞 28 NM，超过上限，所以留在 ROKKO；差得少的（RJSY、RJAH→RJOO）仍换到 AGPUK。
+
+### 结果（全部 3546 对无 AIP 航线，大圆 80–900 NM）
+- 改变 199 对，总距 −5399 NM；变短超过 20 NM 的 116 对，变长超过 20 NM 的 3 对。
+- 飞过头再折回 95 → 50（修 49 对、新增 4 对）；可疑航路 63 不变。
+- `legal_seg` / `seg_pop` / `dep_heads` / `arr_tails` 与改动前完全相同。
+- 变长较多的几对：
+  - RJOW→RJFM（+60）、RJNT→RJSF（+50）：原来被降级为直飞，现在是航路网航路；
+  - RJNS→RJSC（+22）：改走同方向官方门 ELDAK；
+  - RJNK→RJFK（+17）：「本场台离场只作后备」规则生效。
+- 新增飞过头的 4 对：RJOC / RJOW→RJSI（SIOMO 要多 26 / 28 NM，刚过上限，留在 MORIO）、RJNK→RJGG（短程，同为 129 NM）、RJNT→RJSF（原为直飞）。
+
+### 未解决
+仍有 50 对飞过头，集中在 RJNW（18）、RJFG（8）、RJNO（8），不经走廊奖励，多是首轮 A\* 落在场站另一侧的门；`_check_continuity` 也不查「门→机场」这段转弯。
+
+### 带 IAP 的跑道可选作落地跑道
+
+**问题**：用户反馈没有 STAR 的跑道不能选作落地跑道，但带 IAP 的其实能落。`matching_choices` 只按 STAR 产出跑道行，IAP 没参与判断。
+
+**规则**：落地候选 = 能衔接 STAR 的跑道 ∪ 带 IAP 的跑道。两样都没有的跑道不可选；整个机场都没有时才列全部物理跑道（否则面板无跑道可选）。
+
+**改动**
+- `procedures.py`：新增 `_iap_runways`（盘旋进近不限跑道，算全部物理跑道）；`matching_choices` 在 `kind='arr'` 时并入，标签为空。`matched`、离场行、`star_connect_points` 不变，router 不受影响。
+- `viewmodel.py`：`runway_items` 排序加 `not labels`（在 `ok` 之后、顶风之前），并标「无STAR·走IAP」；新增 `_iap_only` / `proc_hint`；`hint_text` 列出该跑道可用的 IAP。
+- `operations.py`（`select_rule`）：候选行变多后要防回归。选规则跑道时优先有程序的（两个分支都是）；`route_ok` 里「无程序也算相容」收窄为「本侧所有跑道都无程序」。
+- `proc_view.py`：占位文字改用 `m.proc_hint(side)`。原来写死的「该机场无 STAR」对 RJCC 这类机场是错的。
+
+**实测（AIRAC 2610，官方表里出发地是真实机场的 733 条航路；其余 678 条从境外管制区或通用行出发，面板规划不到）**
+- 带 STAR 的行、离场行、`matched`、进场门：与改动前完全相同。候选集合全部符合上述规则。
+- 103 条航路多出候选跑道（16 场）；2 条少了（RORK，RW21 无 IAP、该场无 STAR）。
+- 默认跑道（25 种风 × 733 条，18325 例）：17937 例相同；364 例原默认跑道已超限，改为可用的 IAP 跑道；24 例是 RORK 的 RW21 不再列出。
+- RJTT 运行规则（风 × 时段 × 星期）：选择结果全部相同。实测构型分支只有人为构造的「实测落 RW05」变了（经 GODIN 的航路原来 RW05 不在候选里）。
+
+**盘旋进近的影响比预想的大**：初版方案以为现有数据里它不改变结果，回归发现 RJOO 14L/14R（从 ROKKO 进场）、RJTT 04/05（从 GODIN 进场）也因 VOR-A 多了候选，RJDU/36、RJNY/09、RJOT/08 同理。这与现实运行一致（RJOO 就是盘旋落 14），所以保留；风况合规时默认仍是带 STAR 的跑道。
+
+### RJOO 运行规则 + 目视盘旋
+
+**新增规则**：`operation.json` 加入 RJOO 两条。北向落 32；RW32L 顺风 ≥10 节转南向：先飞 32 方向的进场和进近（ILS 32L / RNP 32L / RNP 32R），再目视盘旋落同一条跑道的另一端（32L 落 14R，32R 落 14L）。
+
+**问题**：规则写的 STAR（`ROKKO1` / `IZUM1R` / `AGPU1R`）在 CIFP 里只服务 RW32，规则跑道却是 RW14，对不上。ROKKO 进场时 STAR 留空，IZUMI / AGPUK 进场时落回 `IZUM1C` / `AGPU1C`。地图也取不到 STAR 的点。
+
+**改动**
+- `operations.py`：新增 `_circling_from`。规则的 IAP 全都不落在规则跑道上就是盘旋，STAR 到这些 IAP 所在的跑道上找。判据取自规则本身，不靠规则名，也不写死机场。
+- `viewmodel.py`：`_apply_ops_side` 把这条 STAR 加进该跑道的下拉选项，并去掉「无STAR·走IAP」标注。
+- `procedures.py`：`procedure_coords` 在进场 STAR 没有所选跑道的段时，退回它的跑道段。
+
+**实测**：南风 15 节时三个门都默认 RW14R + 规则里的 STAR（`ROKKO1` / `IZUM1R` / `AGPU1R`），地图画到 IKOMA 再到 14R 跑道头；改选 RW14L 时配 32R；规则里跑道的先后不影响配对；北风回到 RW32L + 同一条 STAR；关掉规则预选时不套用。RJTT 规则结果全部不变（56250 例中差异都不在 RJTT）。
+
+**默认长跑道**：伊丹起飞和落地都默认推荐 32L / 14R，32R / 14L 由用户改选。这是机场数据，写在 `operation.json` 的 `preferred_runways`，由 `operations.preferred_runways` 读取，不写进程序。
+- `runway_items`：同向跑道风况相同时优先它们，否则按字母序取到 14L（规则关闭、或强侧风把规则全部排除时会走到这里）。
+- `select_rule`：一条规则列了多条跑道时优先它们，与规则里的先后无关。
+- `_prune` / `commit_current`：原来只留 `rules`，编辑器一保存就会丢字段，现在保留。
+- 运行规则编辑器：载入机场后，规则区上方多一行「优先跑道」勾选。它是机场级的，不属于某条规则，不用点「应用到所选规则」，点保存即可。同向跑道只留一条（`OpsEditorModel.toggle_preferred`），全部取消后字段从 json 消失。`operations.airports` 也列出只设了优先跑道的机场，否则在下拉框里找不到它。
+
+**SimBrief**：用户确认 SimBrief 不接受目视盘旋。`ProcPanelModel.circling` 记下 {盘旋落地的跑道 B: 飞进近的跑道 A}（`operations.circling_pairs`；A、B 是同一条物理跑道的两端，另一端不在规则的进近里时退回能接上所选 STAR 的进近跑道）；选中的落地跑道属于 B 时，`simbrief_url()` 的 `destrwy` 用 A，`summary_text()` 在 SimBrief 链接正上方提示「推荐 A 跑道目视盘旋 B 落地。SimBrief 无法匹配 B 跑道与 A 跑道进近程序，因此会退回 A 跑道匹配 A 跑道进近程序。」面板、摘要第一行和地图仍显示真实落地跑道 B。改选规则之外的跑道（如 32L / 32R）或关掉规则预选后不算盘旋。提示放摘要而不是 `hint`，因为 `hint` 在滚动区里，常常要滚动才看得到。
+
+---
+
 ## v2.0.3(✅ 2026-10-28)— 移管表一键重建工具 · VATJPN 移管表升级到 AIRAC 2610 · 主程序启动时自动更新移管表（F31）· 进近移管高度（F32）
 
 ### F32：移管表带上移管高度，结果卡每条航路下显示「进近移管」

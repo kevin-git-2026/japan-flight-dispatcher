@@ -30,6 +30,7 @@ _HINT_WIND = ("风分量相对该参照跑道算：顺风超→换向（南風�
 _HINT_WX = ("好天=天气至少这么好才用本规则（如 LDA：云底≥1500ft · SCT 起算[few 不计] · 能见度≥6000m）；"
             "恶天规则不填天气门槛、紧排其下作兜底；留空=不限")
 _HINT_ORDER = "拖拽调序：让「好天 → 恶天」成对相邻（好天在上）。规则本身是均等匹配，不是全局优先级。"
+_HINT_PREF = "同向跑道风况相同时，起飞和落地默认选它；规划时仍可改选。对这个机场的所有规则都生效。"
 
 
 class OpsView:
@@ -57,6 +58,12 @@ class OpsView:
                       ft.OutlinedButton("载入", on_click=lambda e: self._load_airport()),
                       self.lbl_existing],
                      spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+        # —— 优先跑道：机场级，不属于某条规则，所以放在规则区外面；载入机场后才显示 ——
+        self.pref_boxes = ft.Row([], spacing=0, wrap=True)
+        self.pref_row = ft.Row([ft.Text("优先跑道", size=12, width=64), self.pref_boxes,
+                                ft.Text(_HINT_PREF, size=11, color=ft.Colors.GREY, expand=True, no_wrap=False)],
+                               spacing=8, visible=False, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
         # —— 左：规则列表（可拖拽调序）——
         self.rlv = ft.ReorderableListView(controls=[], expand=True, spacing=2,
@@ -102,6 +109,7 @@ class OpsView:
                          ft.Container(width=10)]),
             controls=[ft.Column([
                 top,
+                self.pref_row,
                 ft.Row([left, right], expand=True, spacing=10,
                        vertical_alignment=ft.CrossAxisAlignment.STRETCH),
             ], expand=True, spacing=10)])
@@ -290,9 +298,23 @@ class OpsView:
             self._syncing = False
         self._write_form(self.model.clear_form())
         self._render_rules()
+        self._render_preferred()
         if not has_cifp:
             self._info("运行规则", "%s 没有 CIFP 程序数据，跑道 / SID / STAR / IAP 候选为空。\n"
                                   "仍可为它建规则，只是选不出具体跑道与程序。" % icao)
+        self.page.update()
+
+    def _render_preferred(self):
+        items = self.model.preferred_items()
+        self.pref_boxes.controls = [
+            ft.Checkbox(label=disp, value=sel, width=72, label_style=ft.TextStyle(size=12),
+                        on_change=lambda e, r=rwy: self._toggle_preferred(r))
+            for disp, rwy, sel in items]
+        self.pref_row.visible = bool(items)
+
+    def _toggle_preferred(self, rwy):
+        self.model.toggle_preferred(rwy)
+        self._render_preferred()                           # 同向另一条可能被取消，整行重画
         self.page.update()
 
     # ---------- 规则列表 ----------

@@ -5,6 +5,9 @@
 ## 说明
 - IAP 规划**不是本项目目前实现的重点**；但其中的 **IAF/IF 在 enroute 规划（[enroute.md](enroute.md) case 2/4）有价值**——
   当落地机场无 STAR 时，若 IAP 的 IAF/IF 本身就在某 ATS 航路上（earth_awy 图里有边），可作 enroute 尾。
+- **能否落地也看 IAP**：一条跑道只要有 IAP，没有 STAR 衔接也能选作落地跑道（雷达引导切进近，如 RJSS RW30 的 VOR/DME RWY30）。既无 IAP 也无 STAR 衔接的跑道不能直接落（如 RJSS RW12）。盘旋进近（`VORA` 这类 ident 不含跑道号）不限跑道。
+- **目视盘旋时 STAR 跟进近走，不跟落地跑道**：伊丹南向运行先飞 32 方向的进场和进近（ILS 32L / RNP 32L / RNP 32R），再目视盘旋落同一条跑道的另一端（32L 落 14R，32R 落 14L）。所以选 RW14 时 STAR 仍是 `ROKKO1` / `IZUM1R` / `AGPU1R`，尽管 CIFP 里它们只服务 RW32。
+- **SimBrief 不接受目视盘旋**：它配不上「落 14 + 32 的进近程序」，提交给 SimBrief 时落地跑道要写 32（飞进近的那条）。
 - 数据在 `NavData/CIFP/<ICAO>.dat`。
 
 ## 完整记录（RJTT 的 LDA W 22 程序，真实 CIFP 全字段）

@@ -229,6 +229,15 @@ def enumerate_approaches(icao, dat_path=None):
     return out
 
 
+def _iap_runways(icao, dat_path=None):
+    """带 IAP 的物理跑道集合。盘旋进近（ident 不含跑道，如 VORA）不限跑道 → 全部物理跑道都算。"""
+    physical = set(_parse_runways(icao, dat_path))
+    iaps = enumerate_approaches(icao, dat_path)
+    if any(not a["runway"] for a in iaps):
+        return physical
+    return {a["runway"] for a in iaps} & physical
+
+
 def _connect_points(d, is_dep):
     """一条程序与航路的【合法衔接点】→ `(过渡衔接点 {trans名: ident}, 裸程序衔接点 {ident…})`。
 
@@ -320,8 +329,10 @@ def matching_choices(icao, dat_path, route_fixes, kind):
              进场(STAR)接过渡【首点】(=TRANS)，其【末点】是进场交付点(裸 STAR)。无过渡则用 body 端点。
     返回 (rows, matched)：rows=[(rwy_id, length_ft|None, sorted([label…]))]；
       matched=True 表示按端点筛中；False=端点未命中任何程序端点（端点来自学习/移管/本场VOR），回退列该机场全部程序。
-      **无任何 SID/STAR 时**（很多机场无 STAR，只有 IAP/雷达引导）仍返回全部物理跑道、label 为空 []——
-      让用户能选跑道，不因无程序就弃选（labels 为空即表示该跑道无 SID/STAR，进近走 IAP）。"""
+      **落地跑道（kind='arr'）= 能衔接 STAR 的跑道 ∪ 带 IAP 的跑道**：只带 IAP 的跑道 labels 为空 []，雷达引导切进近即可落
+      （RJSS RW30 没有 STAR，但有 VOR/DME RWY30）；既无 IAP 也无 STAR 衔接的跑道不列（RJSS RW12）。
+      **两样都一条没有时**（很多小场只靠目视/雷达引导）仍返回全部物理跑道、label 为空——让用户能选跑道，不因无程序就弃选。
+      离场同理：无任何 SID → 全部物理跑道。"""
     procs = enumerate_procedures(icao, dat_path)["SID" if kind == "dep" else "STAR"]
     runways = _parse_runways(icao, dat_path)
     all_rw = set(runways)                                  # 物理跑道（RWY 记录）——服务全跑道(ALL/common)的程序挂到这些上
@@ -357,10 +368,14 @@ def matching_choices(icao, dat_path, route_fixes, kind):
             for rw in (d["runways"] or all_rw):
                 rw_labels.setdefault(rw, set()).update(labels)
 
+    if not is_dep:                                          # 带 IAP 的跑道没有 STAR 衔接也能落（标签空）
+        for rw in _iap_runways(icao, dat_path):
+            rw_labels.setdefault(rw, set())
+
     order = _label_order(icao, route_fixes, conn, dat_path)  # 命中时=字母序（conn 空）；回退时=接入点离来向航路由近及远
     rows = [(rw, runway_length_ft(rw, runways), sorted(rw_labels[rw], key=order))
             for rw in sorted(rw_labels, key=_rw_sort_key)]
-    if not rows:                                            # 无任何 SID/STAR（很多机场无 STAR，靠 IAP/雷达引导进近）→
+    if not rows:                                            # 无任何程序（很多小场靠目视/雷达引导）→
         rows = [(rw, runway_length_ft(rw, runways), [])     # 仍列物理跑道（标签空），让用户能选跑道，别因无程序就弃选
                 for rw in sorted(runways, key=_rw_sort_key)]
     return rows, matched
@@ -476,6 +491,8 @@ def procedure_coords(icao, label, rwy_id, kind, dat_path=None):
     name, _dot, trans = (label or "").partition(".")
     legs = _parse_legs(icao, dat_path)["SID" if kind == "dep" else "STAR"].get(name, {})
     rw_group = _match_rw_group(legs, rwy_id) if rwy_id else None
+    if rw_group is None and kind == "arr":             # 盘旋落地：STAR 只服务进近那条跑道（RJOO ROKKO1 只有 RW32B，落的是 14）
+        rw_group = next((g for g in legs if g.startswith("RW")), None)
     seq = []
 
     def _add(g):

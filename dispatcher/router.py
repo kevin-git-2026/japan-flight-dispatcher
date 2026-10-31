@@ -16,6 +16,7 @@ import heapq
 import threading
 
 from .config import get_real_run_path
+from .data import load_airports_from_navigraph
 
 # 日本范围（含周边 FIR 交接区，box 略宽以保连通性）：(lat_min, lat_max, lon_min, lon_max)
 JP_BBOX = (24.0, 46.0, 122.0, 149.0)
@@ -183,6 +184,7 @@ class AirwayGraph:
         self.seg_pop = None                # {(u_key,v_key): int} —— 该有向航段被多少机场对实飞（走廊热度，懒加载，供 A* 加权）
         self.dep_heads = None              # {icao: {head_key: 次数}} —— 各机场从官方航路学到的真实离场过渡点（航路首个图航点）
         self.arr_tails = None              # {icao: {tail_key: 次数}} —— 各机场从官方航路学到的真实进场过渡点（航路末个图航点）
+        self.arr_tail_src = None           # {icao: [(tail_key, 出发 ICAO, head_key), …]} —— 每条官方航路的进场门与来源（走廊奖励按来向统计频次用）
         self.node_items = list(nodes.items())   # 供最近点线性扫
         self.outset = set(adj)             # 有出边的点（可作入航起点）
         self.inset = {nb for nbrs in adj.values() for (nb, _c, _n) in nbrs}  # 有进边的点（可作出航终点/可达）
@@ -1002,7 +1004,7 @@ def _learn_routes(graph, aip_data):
     legal = {}
     seg_pairs = {}                                # (u,v) -> {(dep,arr)} —— 实飞过该有向航段的机场对集合（去重热度）
     traced = {}                                   # (prev,next,W) -> seg 缓存，避免重复 Dijkstra
-    dep_heads, arr_tails = {}, {}
+    dep_heads, arr_tails, arr_src = {}, {}, {}
     for row in aip_data:
         if len(row) < 6:
             continue
@@ -1038,7 +1040,8 @@ def _learn_routes(graph, aip_data):
             dep_heads.setdefault(dep, {})[head] = dep_heads.setdefault(dep, {}).get(head, 0) + 1
         if tail is not None:
             arr_tails.setdefault(arr, {})[tail] = arr_tails.setdefault(arr, {}).get(tail, 0) + 1
-    return legal, {k: len(v) for k, v in seg_pairs.items()}, dep_heads, arr_tails
+            arr_src.setdefault(arr, []).append((tail, dep, head))
+    return legal, {k: len(v) for k, v in seg_pairs.items()}, dep_heads, arr_tails, arr_src
 
 
 def _ensure_directions(graph, aip_data):
@@ -1051,7 +1054,7 @@ def _ensure_directions(graph, aip_data):
         seg = {}
         try:
             if aip_data:
-                seg, graph.seg_pop, graph.dep_heads, graph.arr_tails = _learn_routes(graph, aip_data)
+                seg, graph.seg_pop, graph.dep_heads, graph.arr_tails, graph.arr_tail_src = _learn_routes(graph, aip_data)
                 print(f"🧭 已从 AIP 航路学习：{len(seg)} 航段 / {len(graph.seg_pop or {})} 段走廊 / "
                       f"{len(graph.dep_heads or {})} 机场离场过渡点 / {len(graph.arr_tails or {})} 机场进场过渡点。")
         except Exception as e:
@@ -1068,27 +1071,64 @@ def _ensure_directions(graph, aip_data):
 
 
 _ARR_CORRIDOR_TOL = 1.15    # 走廊奖励：改落常用门的航路 ≤ 此倍×最短 才换
-_CORRIDOR_FREQ_RATIO = 1.5  # 且常用门频次须 >此倍×当前落点频次 才换——避免两门频次相近时按全局频次误换方向
-                            # （如 RJTT→RJOO 当前落 IKOMA(24) ≈ 别向的 IZUMI(26)：不换；RJKN→RJFF 当前落 HONOK(非学到,0) → 换 ISKUP(14)）
+_ARR_CORRIDOR_EXTRA_NM = 25.0   # 且最多多飞这么多海里：进场端的局部绕路不随航程变长，只按倍数的话长航线能白绕很远
+                                # （RJCN→RJOO 717 NM 到 ROKKO，再绕 41 NM 去 IZUMI 也在 ×1.15 内）
+_CORRIDOR_FREQ_RATIO = 1.5  # 且常用门频次须 >此倍×当前落点频次 才换——两门频次相近时不换
+_CORRIDOR_DIR_DEG = 45.0    # 频次只数来向相近的官方航路：目的场看去，官方航路的出发机场与本次出发机场的方位差 ≤ 此值
+_CORRIDOR_MIN_SRC_NM = 30.0 # 官方航路的出发机场离目的场不足此距离 → 方位没有意义，不计
+
+_APT_XY = None
+
+
+def _airport_xy(dat_path):
+    """{ICAO: (lat, lon)}，全部 RJ/RO 机场（不限跑道长度）；读不到 → 空 dict。成功后缓存。"""
+    global _APT_XY
+    if _APT_XY:
+        return _APT_XY
+    try:
+        _APT_XY = {a.code: (a.lat_dd, a.lon_dd) for a in load_airports_from_navigraph(dat_path, None, 0)}
+    except Exception:
+        return {}
+    return _APT_XY
+
+
+def _dir_tail_freq(graph, arr, dep, dat_path):
+    """官方航路里，【来向与本次相近】的那些各落哪个进场门 → {tail_key: 次数}。
+    全局频次不分方向：RJOO 的 IZUMI 26 次几乎全来自九州 / 四国 / 冲绳，不能拿来给东北来的航班选门。
+    `RJXX` 这类非真实机场的通用行没有机场坐标，退回用航路首个图航点；两者都没有就不计。"""
+    xy = _airport_xy(dat_path)
+    b_dep = _bearing(arr.lat_dd, arr.lon_dd, dep.lat_dd, dep.lon_dd)
+    out = {}
+    for tail, src, head in (graph.arr_tail_src or {}).get(arr.code, ()):
+        o = xy.get(src) or (graph.nodes[head][:2] if head else None)
+        if not o or haversine_nm(arr.lat_dd, arr.lon_dd, o[0], o[1]) < _CORRIDOR_MIN_SRC_NM:
+            continue
+        d = abs(b_dep - _bearing(arr.lat_dd, arr.lon_dd, o[0], o[1])) % 360.0
+        if min(d, 360.0 - d) <= _CORRIDOR_DIR_DEG:
+            out[tail] = out.get(tail, 0) + 1
+    return out
 
 
 def _prefer_corridor_arrival(dep, arr, graph, best, exit_dct, run, dat_path=None):
-    """把 A* 纯最短选的进场落点，换成【真实 AIP 最常用的方向合规进场门】——学到尾点(arr_tails)带频次=真实落地热度。
-    仅当【该门≠当前落点】【它比当前落点(含到着尾段的实际末点)显著更常飞(>`_CORRIDOR_FREQ_RATIO`×)】【改落它的航路 ≤ `_ARR_CORRIDOR_TOL`×最短且不含大锐角】时才换；
-    否则保持最短。等价于给常用走廊施奖励、给近场捷径/备选到着施相对惩罚，而不删除后者(仍是合法备选)。"""
+    """把 A* 纯最短选的进场落点，换成【同方向来的官方航路最常用的进场门】——频次见 `_dir_tail_freq`。
+    仅当【该门≠当前落点】【它比当前落点(含到着尾段的实际末点)显著更常飞(>`_CORRIDOR_FREQ_RATIO`×)】
+    【改落它的航路 ≤ `_ARR_CORRIDOR_TOL`×最短、最多多飞 `_ARR_CORRIDOR_EXTRA_NM`、且不含大锐角】时才换；否则保持最短。
+    等价于给常用走廊施奖励、给近场捷径/备选到着施相对惩罚，而不删除后者(仍是合法备选)。
+    实测：RJKN→RJFF 换到 Y25 的 ISKUP；RJSR→RJOO 留在 Y384 ROKKO（曾按全局频次被拽去 IZUMI：飞到场站上空再往南折回，多 44 NM）。"""
     if not best or not best.get("fixes"):
         return best
-    tails = (graph.arr_tails or {}).get(arr.code, {})
+    tails = _dir_tail_freq(graph, arr, dep, dat_path)
     cand = _dir_filter([k for k in tails if k in exit_dct], arr.lat_dd, arr.lon_dd, (dep.lat_dd, dep.lon_dd), graph)
     if not cand:
         return best
-    top = max(cand, key=lambda k: tails[k])                    # 频次最高的方向合规进场门（南向 RJFF 即 Y25 的 ISKUP）
+    top = max(cand, key=lambda k: tails[k])                    # 同方向频次最高的进场门（南向 RJFF 即 Y25 的 ISKUP）
     tk = _arrival_tail_keys(graph, arr, best["fixes"][-1], dat_path)   # 当前航路(含到着尾段)的实际末点
     final = tk[-1] if tk else best["fixes"][-1]
     if final == top or tails[top] <= tails.get(final, 0) * _CORRIDOR_FREQ_RATIO:   # 已落常用门 / 当前落点同等常飞 → 不换
         return best
     alt = run(True, {top: exit_dct[top]})                      # 强制 A* 落到该常用门
-    if alt and not alt["suspect"] and alt["dist_nm"] <= best["dist_nm"] * _ARR_CORRIDOR_TOL:
+    if (alt and not alt["suspect"] and alt["dist_nm"] <= best["dist_nm"] * _ARR_CORRIDOR_TOL
+            and alt["dist_nm"] <= best["dist_nm"] + _ARR_CORRIDOR_EXTRA_NM):
         return alt
     return best
 
@@ -1184,8 +1224,8 @@ def _direct_route(dep, arr, graph, dat_path):
     """case 1–4：SID/STAR/VOR/IAF/官方门 端点间直接 A*。
     离场门质量门控：用官方离场头算出的航路若含大锐角(suspect) 或 >_GATE_GIVEUP_RATIO×大圆 → 弃门重算
     （退回 SID/本场 VOR/几何，即允许「本场台离场 + VOR 程序」），取更优者。
-    进场走廊奖励：A* 纯最短的落点换成真实 AIP 最常用的方向合规进场门（容差内）。
-    进场交接偏好：再把落点换成能交接给 STAR 的点（容差内）——否则本场 VOR 会因代价≈0 恒胜。
+    进场交接偏好：把落点换成能交接给 STAR 的点（容差内）——否则本场 VOR 会因代价≈0 恒胜。
+    进场走廊奖励：再把落点换成同方向来的官方航路最常用的进场门（容差内）；换后的门若不是 STAR 衔接点，再交接一次。
     本场台离场只作后备：最终航路从本场 VOR 起飞时，把上面整套流程在【不用本场台】下重跑一遍，满足三条就改用它——
     不可疑、全程不再经过本场台（否则是「飞出去又绕回场上空」）、最多多飞 `_VOR_DEP_EXTRA_NM`。
     要比整套流程的【最终】结果：只比首轮会看走眼（RJNK→RJFK 首轮两边打平，走完进场偏好后不用本场台的反而多 68 NM）。无解 → None。"""
@@ -1213,7 +1253,10 @@ def _direct_route(dep, arr, graph, dat_path):
                 alt = run(False)
                 if alt and ((best["suspect"] and not alt["suspect"]) or alt["dist_nm"] < best["dist_nm"]):
                     best = alt
-        best = _prefer_corridor_arrival(dep, arr, graph, best, exit_dct, run, dat_path)  # 进场走廊奖励（常用门 ≤1.15×最短则优先）
+        # 先收到 STAR 衔接点，走廊奖励才有公平的比较基准：落在本场 VOR 的首轮航路距离是虚短的
+        # （RJOB→RJSI 落 HPE 449 NM，交接到 MORIO 其实 487 NM；拿 449 比，官方门 SIOMO 498 NM 就过不了绝对上限）。
+        best = _prefer_star_handoff(dep, arr, graph, best, exit_dct, run, dat_path)
+        best = _prefer_corridor_arrival(dep, arr, graph, best, exit_dct, run, dat_path)  # 进场走廊奖励（同向常用门 ≤1.15×最短且 ≤+25 NM 则优先）
         return _prefer_star_handoff(dep, arr, graph, best, exit_dct, run, dat_path)      # 进场交接偏好（收在 STAR 起点，≤1.20×最短）
 
     best = _plan(vor=True)

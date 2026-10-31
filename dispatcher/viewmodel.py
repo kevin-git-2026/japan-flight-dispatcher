@@ -592,13 +592,20 @@ def wx_text(prefix, icao, wx):
     return head
 
 
-def runway_items(rows, wind, in_use=None):
+IAP_ONLY_TAG = "无STAR·走IAP"
+
+
+def runway_items(rows, wind, in_use=None, prefer=()):
     """跑道行 → 显示项（长度[米] + 风分量 + 适航），并排序。
     rows=[(rwy_id, length_ft, labels)]；返回 [{disp, rwy, labels, ok, hw, in_use}]。
 
     `in_use` = 实测正在使用的跑道集合（ntrack，仅羽田）。命中的标「✅在用」并**排在最前**——
-    于是「按风默认」自然落在实测在用的跑道里。其余跑道仍在下拉里可选（用户永远能改选）。"""
+    于是「按风默认」自然落在实测在用的跑道里。其余跑道仍在下拉里可选（用户永远能改选）。
+
+    风况合规时**能衔接程序的跑道排在只有 IAP 的前面**：只有前者全部超限，才默认选后者。
+    否则风向略偏就会默认丢掉 STAR（RJSS 西北风默认到 VOR/DME RWY30，而不是有 STAR 的 RW27）。"""
     used = set(in_use or ())
+    any_proc = any(r[2] for r in rows)
     items = []
     for rwy_id, length_ft, labels in rows:
         short = rwy_id.replace("RW", "")
@@ -609,10 +616,12 @@ def runway_items(rows, wind, in_use=None):
         hit = rwy_id in used
         if hit:
             parts.append("✅在用")
+        if any_proc and not labels:
+            parts.append(IAP_ONLY_TAG)
         items.append({"disp": " · ".join(parts), "rwy": rwy_id, "labels": list(labels),
                       "ok": ok, "hw": hw, "in_use": hit})
-    items.sort(key=lambda it: (not it["in_use"], not it["ok"], -it["hw"],
-                               procedures._rw_sort_key(it["rwy"])))
+    items.sort(key=lambda it: (not it["in_use"], not it["ok"], not it["labels"], -it["hw"],
+                               it["rwy"] not in prefer, procedures._rw_sort_key(it["rwy"])))
     return items
 
 
@@ -732,6 +741,7 @@ class ProcPanelModel:
         self.proc_labels = {"dep": [], "arr": []}
         self.sel_proc = {"dep": "", "arr": ""}
         self.ops_label = {"dep": "", "arr": ""}
+        self.circling = None                             # 目视盘旋规则生效时：{盘旋落地的跑道: 飞进近的跑道}
         self.nt_label = {"dep": self._nt_text("dep"), "arr": self._nt_text("arr")}
         self.select_candidate(proc.get("selected", 0))
 
@@ -756,16 +766,43 @@ class ProcPanelModel:
     def aip_labels(self):
         return [aip_label(i, c) for i, c in enumerate(self.candidates)]
 
+    def _circling_from_rwy(self):
+        """当前选的落地跑道属于生效中的目视盘旋规则 → 飞进近的跑道；否则 None（用户改选别的跑道后就不算盘旋了）。"""
+        return (self.circling or {}).get(self.sel_rwy["arr"])
+
+    def _iap_only(self, side):
+        """当前选中的跑道只能走 IAP：本侧别的跑道有程序，唯独它没有。"""
+        items = self.items[side]
+        sel = next((i for i in items if i["rwy"] == self.sel_rwy[side]), None)
+        return bool(sel) and not sel["labels"] and any(i["labels"] for i in items)
+
     def hint_text(self):
         notes = proc_notes(self.candidates[self.sel_idx]) if self.candidates else []
+        if self._iap_only("arr") and not self._circling_from_rwy():
+            rwy = self.sel_rwy["arr"]
+            names = [a["name"] for a in procedures.enumerate_approaches(self.arr_icao, self.dat_path)
+                     if a["runway"] == rwy or not a["runway"]]
+            notes.append("%s 没有能衔接本航路的 STAR，请按 IAP 进近（%s）" % (rwy, " / ".join(names)))
         return ("ℹ️ " + "；".join(notes)) if notes else ""
+
+    def proc_hint(self, side):
+        """SID/STAR 下拉框为空时的占位文字。"""
+        if self._iap_only(side):
+            return "（该跑道无可衔接的 STAR）"
+        return "（该机场无 SID）" if side == "dep" else "（该机场无 STAR）"
 
     def summary_text(self):
         dep_rwy = (self.sel_rwy["dep"] or "").replace("RW", "") or "—"
         arr_rwy = (self.sel_rwy["arr"] or "").replace("RW", "") or "—"
-        return ("已选：%s 跑道 %s / %s    →    %s 跑道 %s / %s"
+        text = ("已选：%s 跑道 %s / %s    →    %s 跑道 %s / %s"
                 % (self.dep_icao, dep_rwy, self.sel_proc["dep"].strip() or "—",
                    self.arr_icao, arr_rwy, self.sel_proc["arr"].strip() or "—"))
+        src = self._circling_from_rwy()
+        if src:
+            a = src.replace("RW", "")
+            text += ("\n⚠️ 推荐 %s 跑道目视盘旋 %s 落地。SimBrief 无法匹配 %s 跑道与 %s 跑道进近程序，"
+                     "因此会退回 %s 跑道匹配 %s 跑道进近程序。" % (a, arr_rwy, arr_rwy, a, a, a))
+        return text
 
     def route_str(self):
         """SimBrief 的 route：SID + enroute + STAR（过渡点已隐含在 enroute 首/末 token）。"""
@@ -780,8 +817,10 @@ class ProcPanelModel:
         if not self.sb_base:
             return None
         rwy = lambda s: (self.sel_rwy[s] or "").replace("RW", "") or None   # 裸跑道号（SimBrief origrwy/destrwy）
+        # SimBrief 不接受目视盘旋：落地跑道配不上另一条跑道的进近程序，链接要用飞进近的那条跑道
+        dest = (self._circling_from_rwy() or "").replace("RW", "") or rwy("arr")
         return _planner_simbrief_url(self.sb_base, self.route_str(), eobt_utc_min(self.eobt),
-                                     origrwy=rwy("dep"), destrwy=rwy("arr"))
+                                     origrwy=rwy("dep"), destrwy=dest)
 
     def preview_coords(self):
         """当前选定的 SID + enroute + STAR 全段坐标（供地图预览）；失败/不足 → (None, 提示串)。"""
@@ -865,7 +904,8 @@ class ProcPanelModel:
     # ---- 内部 ----
     def _fill_rwy(self, side, rows):
         # 实测在用的跑道标 ✅ 并排最前 → 按风默认自然落在其中；其余跑道仍可选（用户能改选）
-        items = runway_items(rows, self.wind[side], in_use=self._nt_rwys(side))
+        items = runway_items(rows, self.wind[side], in_use=self._nt_rwys(side),
+                             prefer=operations.preferred_runways(self.ops_data, self._icao(side)))
         self.items[side] = items
         if items:
             self.sel_rwy[side] = items[0]["rwy"]
@@ -916,6 +956,7 @@ class ProcPanelModel:
         """v1.6.0：按 operation.json 运行规则预选跑道/SID·STAR（覆盖按风默认）。
         离场按 EOBT、到达按 ETA(=EOBT+航程) 匹配时段；关开关或无规则 → 保持按风预选。"""
         self.ops_label = {"dep": "", "arr": ""}
+        self.circling = None
         if not self.apply_ops or not self.ops_data or not self.candidates:
             return
         c = self.candidates[self.sel_idx]
@@ -952,7 +993,8 @@ class ProcPanelModel:
         if not rules:
             return
         try:
-            sel = operations.select_rule(rules, side, ctx, rows, config=cfg)
+            sel = operations.select_rule(rules, side, ctx, rows, config=cfg,
+                                         prefer=operations.preferred_runways(self.ops_data, icao))
         except Exception as e:                            # noqa: BLE001
             print("⚠️ 运行规则匹配失败:", e)
             return
@@ -964,6 +1006,13 @@ class ProcPanelModel:
                  "（超限跑道已排除，保持按风合规跑道）" % icao))
             return
         rule, rwy, proc_label = sel
+        pairs = operations.circling_pairs(rule, side, rows, proc_label)
+        if pairs:
+            self.circling = pairs
+            for it in self.items[side]:                   # STAR 服务的是进近那条跑道，盘旋落地的各跑道下拉框里也要有
+                if proc_label and it["rwy"] in pairs and proc_label not in it["labels"]:
+                    it["labels"].insert(0, proc_label)
+                    it["disp"] = it["disp"].replace(" · " + IAP_ONLY_TAG, "")
         item = next((i for i in self.items[side] if i["rwy"] == rwy), None)
         if item:
             self.sel_rwy[side] = rwy
@@ -1263,6 +1312,8 @@ class OpsEditorModel:
         self.ms = {k: MultiSelectModel() for k in
                    ("dep_rwy", "dep_sid", "arr_rwy", "arr_star", "arr_iap")}
         self.runway_choices = []                         # 换向门槛的参照跑道（短名）
+        self.airport_runways = []                        # 当前机场的物理跑道（RW..）
+        self.preferred = []                              # 当前机场的 preferred_runways（机场级，不属于某条规则）
 
     # ---- 查 ----
     def existing_airports(self):
@@ -1271,6 +1322,19 @@ class OpsEditorModel:
     def existing_text(self):
         aps = self.existing_airports()
         return ("已有规则：" + " ".join(aps)) if aps else "（暂无机场规则；键入 ICAO + 载入即可新建）"
+
+    def preferred_items(self):
+        """优先跑道勾选项 [(显示, 跑道, 是否已选)]。"""
+        return [(r.replace("RW", ""), r, r in self.preferred) for r in self.airport_runways]
+
+    def toggle_preferred(self, rwy):
+        """切换一条优先跑道。同向跑道只留一条：两条都优先等于没有优先。"""
+        if rwy in self.preferred:
+            self.preferred.remove(rwy)
+        else:
+            num = procedures._rw_sort_key(rwy)[0]
+            self.preferred = [r for r in self.preferred if procedures._rw_sort_key(r)[0] != num] + [rwy]
+        self.dirty = True
 
     def load_airport(self, icao):
         """查·机场级：提交当前机场 → 读该机场 CIFP 候选填四类多选 + 载入其规则。返回 True/False（是否有 CIFP 数据）。"""
@@ -1300,6 +1364,8 @@ class OpsEditorModel:
         self.ms["arr_iap"].set_items([(a["name"], a["ident"]) for a in iaps])   # 显示合成名、存回 ident
         self.runway_choices = [""] + [r.replace("RW", "") for r in rwys]
         self.rules = operations.airport_rules(self.all, icao)
+        self.airport_runways = rwys
+        self.preferred = list((self.all.get(icao) or {}).get("preferred_runways") or [])
         self.sel = None
         self.form_dirty = False
         has_cifp = bool(rwys or sids or stars or iaps)
@@ -1419,7 +1485,11 @@ class OpsEditorModel:
     def commit_current(self):
         """把当前机场工作副本写回全量 dict（切机场/保存前调，隔离多机场）。"""
         if self.icao:
-            self.all[self.icao] = {"rules": list(self.rules)}
+            entry = {**(self.all.get(self.icao) or {}), "rules": list(self.rules)}
+            entry.pop("preferred_runways", None)
+            if self.preferred:
+                entry["preferred_runways"] = list(self.preferred)
+            self.all[self.icao] = entry
 
     def save(self, fd=None):
         """持久化：提交当前表单 + 当前机场 → 整体原子写 operation.json（剔除空机场）。返回机场数｜None（失败）。"""

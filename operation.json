@@ -1773,5 +1773,97 @@
         }
       }
     ]
+  },
+  "RJOO": {
+    "preferred_runways": [
+      "RW32L",
+      "RW14R"
+    ],
+    "rules": [
+      {
+        "name": "北向运行",
+        "cond": {
+          "time_jst": [],
+          "days": [],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW32L",
+            "RW32R"
+          ],
+          "sids": [
+            "ASUKA4",
+            "IZUMI1",
+            "MINAC4",
+            "PANAS1",
+            "TIGER2"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW32L",
+            "RW32R"
+          ],
+          "stars": [
+            "AGPU1R",
+            "IZUM1R",
+            "ROKKO1"
+          ],
+          "iaps": [
+            "I32L",
+            "R32L",
+            "R32R"
+          ]
+        }
+      },
+      {
+        "name": "南向运行（32目视盘旋14）",
+        "cond": {
+          "time_jst": [],
+          "days": [],
+          "ref_runway": "RW32L",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW14L",
+            "RW14R"
+          ],
+          "sids": [
+            "ASUKA4",
+            "IZUMI1",
+            "MINAC4",
+            "PANAS1",
+            "TIGER2"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW14L",
+            "RW14R"
+          ],
+          "stars": [
+            "AGPU1R",
+            "IZUM1R",
+            "ROKKO1"
+          ],
+          "iaps": [
+            "I32L",
+            "R32L",
+            "R32R"
+          ]
+        }
+      }
+    ]
   }
 }

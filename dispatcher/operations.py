@@ -1,6 +1,7 @@
 # ================= 机场运行规则存取（operation.json，F23）=================
 # 用户用「⚙️ 编辑机场运行规则」可视化编辑，存运行目录的 operation.json（按机场 ICAO 键）。
 # 每机场一组 rules，每条 = {name, cond, dep(runways/sids), arr(runways/stars/iaps)}。
+# 机场还可带 preferred_runways：同向跑道风况相同时默认选哪条（伊丹的长跑道 32L/14R），不填按字母序。
 # cond = {time_jst, days, ref_runway, wind_kind, wind_min_kt, ceiling_min_ft, ceiling_cover, visibility_min_m}：
 #   · time_jst=JST HHMM-HHMM 串列表；days=生效星期(1=周一…7=周日 ISO，空=每天；深夜运用常按星期几不同)。
 #   · 风门槛：相对 ref_runway 的【wind_kind(tailwind 顺风 / headwind 逆风 / crosswind 侧风) 分量 ≥ wind_min_kt 节】触发。
@@ -41,13 +42,13 @@ def load_operations():
 
 
 def _prune(data):
-    """规整：_comment 置顶补默认；剔除没有 rules 的机场（保持文件干净）。"""
+    """规整：_comment 置顶补默认；剔除既没有 rules 也没有 preferred_runways 的机场（保持文件干净）。"""
     out = {"_comment": (data or {}).get("_comment") or _COMMENT}
     for k, v in (data or {}).items():
         if k == "_comment":
             continue
-        if isinstance(v, dict) and v.get("rules"):
-            out[k.upper()] = {"rules": list(v["rules"])}
+        if isinstance(v, dict) and (v.get("rules") or v.get("preferred_runways")):
+            out[k.upper()] = {**v, "rules": list(v.get("rules") or [])}
     return out
 
 
@@ -80,10 +81,17 @@ def airport_rules(data, icao):
         return []
 
 
+def preferred_runways(data, icao):
+    """某机场 preferred_runways 的集合（缺失 / 脏值 → 空集）。"""
+    v = (data or {}).get((icao or "").upper())
+    rwys = v.get("preferred_runways") if isinstance(v, dict) else None
+    return {r for r in rwys if isinstance(r, str)} if isinstance(rwys, list) else set()
+
+
 def airports(data):
-    """有规则的机场 ICAO 列表（排除 _comment 及无 rules 的项），按字母序。"""
+    """有规则或优先跑道的机场 ICAO 列表（排除 _comment 及两样都没有的项），按字母序。"""
     return sorted(k for k, v in (data or {}).items()
-                  if k != "_comment" and isinstance(v, dict) and v.get("rules"))
+                  if k != "_comment" and isinstance(v, dict) and (v.get("rules") or v.get("preferred_runways")))
 
 
 # ================= 应用引擎（v1.6.0）：规划时按 时段+星期+风+天气 匹配规则 =================
@@ -169,10 +177,31 @@ def _pick_by_wind(rwys, wind):
     return sorted(rwys, key=key)[0] if rwys else None
 
 
-def select_rule(rules, side, ctx, rows, config=None):
+def _circling_from(blk, rwys):
+    """规则的 IAP 全都不落在规则跑道上 = 目视盘旋（RJOO 南向：飞 32 的进近，盘旋落 14）→ 这些 IAP 所在的跑道（按规则里的顺序）；否则空列表。"""
+    iap_rwys = ["RW" + m.group(1) for m in map(procedures._RWNUM_RE.search, blk.get("iaps") or []) if m]
+    return [] if set(iap_rwys) & set(rwys) else iap_rwys
+
+
+def circling_pairs(rule, side, rows, proc_label=None):
+    """这条规则若是目视盘旋 → {盘旋落地的跑道 B: 飞进近的跑道 A}；否则 {}。
+    A、B 默认是同一条物理跑道的两端（32L 盘旋落 14R、32R 盘旋落 14L）；另一端不在规则的进近里时，
+    退回能接上所选 STAR 的那条。"""
+    blk = (rule or {}).get(side) or {}
+    rwys = blk.get("runways") or []
+    circ = _circling_from(blk, rwys)
+    if not circ:
+        return {}
+    labels = {r[0]: r[2] for r in rows or []}
+    fallback = next((r for r in circ if proc_label in labels.get(r, ())), circ[0])
+    return {b: (procedures._reciprocal(b) if procedures._reciprocal(b) in circ else fallback) for b in rwys}
+
+
+def select_rule(rules, side, ctx, rows, config=None, prefer=()):
     """为 side('dep'/'arr') 选一条命中规则 → (rule, runway_id, proc_label|None) 或 None。
     rows = procedures.matching_choices 的行 [(rwy,len,labels)]（端点预筛后本侧候选跑道+程序标签）。
     取舍词典序 min：(路线不相容, −时段/星期具体度, −实测进近命中, −有满足风门槛, 所选跑道侧风, 顺风, −有天气门槛, 列表序)。
+    `prefer` = 该机场的 preferred_runways：一条规则列了多条跑道时优先取它们，与规则里的先后无关。
 
     **`config` = 实测运用状况**（ntrack，目前仅羽田）：`{"runways": {在用跑道}, "iaps": {在用进近 ident}}`。
     给了它，就从「按风/天气**推断**构型」切换成「按实测构型**认**规则」：
@@ -184,13 +213,14 @@ def select_rule(rules, side, ctx, rows, config=None):
       · 时段/星期闸门仍生效：ntrack 不告诉我们是 A/B/C 哪一档，那得靠 EOBT。"""
     rows = rows or []
     row_by_rwy = {r[0]: r for r in rows}
+    with_proc = {r[0] for r in rows if r[2]}      # rows 里还有只带 IAP 的落地跑道（标签空）
     wind = ctx.get("wind") or (None, 0, None)
     used = set((config or {}).get("runways") or ())
     used_iaps = set((config or {}).get("iaps") or ())
     cands = []
     for idx, rule in enumerate(rules or []):
         blk = (rule or {}).get(side) or {}
-        rwys = blk.get("runways") or []
+        rwys = sorted(blk.get("runways") or [], key=lambda r: r not in prefer)
         if side == "dep":
             want = set(blk.get("sids") or [])
             if not (rwys or want):
@@ -207,14 +237,23 @@ def select_rule(rules, side, ctx, rows, config=None):
             continue
         cond = rule.get("cond") or {}
         if used:                                  # 实测在用 ∩ 本航路端点候选 → 再按风挑一条
-            rwy = _pick_by_wind([r for r in inter_r if r in row_by_rwy] or inter_r, wind)
-        else:
-            rwy = next((r for r in rwys if r in row_by_rwy), rwys[0] if rwys else None)
+            rwy = _pick_by_wind([r for r in inter_r if r in with_proc]
+                                or [r for r in inter_r if r in row_by_rwy] or inter_r, wind)
+        else:                                     # 盘旋：首选进近那条跑道的另一端；否则能衔接程序的优先，只带 IAP 的其次
+            ends = [procedures._reciprocal(a) for a in _circling_from(blk, rwys)]
+            ends.sort(key=lambda r: r not in prefer)
+            rwy = next((r for r in ends if r in rwys and r in row_by_rwy), None) or next(
+                (r for r in rwys if r in with_proc),
+                next((r for r in rwys if r in row_by_rwy), rwys[0] if rwys else None))
         row = row_by_rwy.get(rwy)
         if row is not None:
             labels = row[2]
             inter = [lb for lb in labels if lb.split(".")[0] in want]  # bare 名 ↔ NAME.TRANS 标签对齐
-            route_ok = bool(inter) or not want or not labels          # 交集非空 / 规则没指定 SID / 该跑道无程序
+            if not inter and side == "arr":           # 盘旋落地：STAR 跟进近走，服务的是进近那条跑道
+                circ = _circling_from(blk, rwys)
+                inter = [lb for r in rows if r[0] in circ for lb in r[2] if lb.split(".")[0] in want]
+            # 交集非空 / 规则没指定程序 / 本侧根本没有程序。规则指定了 STAR、这条跑道却只带 IAP → 不相容
+            route_ok = bool(inter) or not want or not with_proc
         else:
             labels, inter, route_ok = [], [], False                  # 规则跑道不在本航路端点候选 → 路线不相容（方向不对）
         proc_label = inter[0] if inter else None
