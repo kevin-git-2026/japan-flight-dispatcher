@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | 日本航班智能搜索与规划脚本 (Japan Flight Dispatcher) |
-| 当前版本 | **v2.0.3_hotfix1**（生成航路的进场走廊奖励改为按来向统计 · 带 IAP 的跑道可选作落地跑道）；v2.0.3（F31 移管表随导航数据自动更新 + F32 进近移管高度）；v2.0.2（地图独立子窗口 · 底图可选 · Navigraph 式画法 · 本场台离场只作后备）；v2.0.1（F27 严格基于现实航班：FlightAware 逐候选核实 + F28 按地理地域限定：经纬度 9 地域分类）；v2.0.0_alpha1（F26 羽田实测运用状况：ntrack 实测优先于规则推断）；v2.0.0（F25 UI 迁移 tkinter → Flet：Flutter 渲染，业务逻辑零改动）；v1.6.0（运行规则应用引擎 F24）；v1.5.0（天气网格回退 F22 + 运行规则编辑器 F23）；v1.4.x（本地航路生成 + SimBrief + 机型库 + 交互地图） |
+| 当前版本 | **v2.1.0**（F33 实时天气与 ATIS：SWIM 真实 ATIS + 生成 ATIS + Fenix A320）；v2.0.3_hotfix1（生成航路的进场走廊奖励改为按来向统计 · 带 IAP 的跑道可选作落地跑道）；v2.0.3（F31 移管表随导航数据自动更新 + F32 进近移管高度）；v2.0.2（地图独立子窗口 · 底图可选 · Navigraph 式画法 · 本场台离场只作后备）；v2.0.1（F27 严格基于现实航班：FlightAware 逐候选核实 + F28 按地理地域限定：经纬度 9 地域分类）；v2.0.0_alpha1（F26 羽田实测运用状况：ntrack 实测优先于规则推断）；v2.0.0（F25 UI 迁移 tkinter → Flet：Flutter 渲染，业务逻辑零改动）；v1.6.0（运行规则应用引擎 F24）；v1.5.0（天气网格回退 F22 + 运行规则编辑器 F23）；v1.4.x（本地航路生成 + SimBrief + 机型库 + 交互地图） |
 | 交付形态 | PyInstaller 打包的 `flight_dispatcher.exe`（v1.3.1 起**仅 tkinter 图形界面**；命令行版已移除） |
 | 运行平台 | Windows 为主(全盘扫描逻辑针对盘符),兼容类 Unix |
 | 技术栈 | Python 标准库为主；**v1.4.0 起引入第三方库 `tkintermapview` + `Pillow`（交互地图）**——缺失时地图功能自动禁用、其它仍纯标准库可用 |
@@ -73,6 +73,7 @@
 | F30 | 模拟呼号贴近真实编号规律（✅ v2.0.1_hotfix3） | 按日本航司的航班号范式生成模拟呼号：**奇偶按走向**（离开东京方向为奇数；先比东京 > 大阪 > 名古屋 > 福冈四个始发枢纽，其余机场含札幌、那霸按离东京远近，全量实测 98.7%），**锁定该航司同地区航线惯用的百位段**，并按**确切号码**避开随包号段表 `flight_blocks.json` 里实测出现过的真实航班号（空号藏在号段内部的空洞里，不能按区间扣），在剩下的小集合里逐个核验；同一段连撞 5 个真号就换下一段。既像真的、核验次数也少：同样 20 组航线，每抽撞真号 78%→64%，平均核验 4.5→2.8 次，ANA 11.8→6.0 次。号段表由 `tools/build_flight_blocks.py` 从 FlightAware 生成，每个航季可重跑。 |
 | F31 | 移管表随导航数据自动更新（✅ v2.0.3） | 程序**启动时**联网读 VATJPN 以 Google 表格公开发布的「空港別移管高度表」，按**本机导航数据的 AIRAC** 选期（「≤ 本机周期」里最新的一期），并用**本机 CIFP** 重新推算进场门 ↔ STAR 配对，自动更新 `transfer_points.json`——用户换了导航数据后**不必再等新版发行包**。期次与本机 AIRAC 都没变 → 只读一次目录（约 0.4 s）即「已是最新」；本机导航数据比 VATJPN 最新一期旧（且那一期已生效）→ **弹窗提醒升级导航数据**；断网 / 表格改版 → 沿用现有文件。详见 §8.2 |
 | F32 | 进近移管高度（✅ v2.0.3） | 移管表 json 补上 VATJPN 表上每个进场组下面的**移管行**（移管点、移管高度、移管元 → 移管先的席位与频率；离场一侧的移管行也一并存下，暂不显示）。规划后在结果卡**每条 AIP 航路 / 生成航路下方**列出这条航路对应的进近移管，如 `SPENS  FL220  TG T40 (123.70) → TT APP (119.10)`；按「门及门之前的点 / 航路名全在航路上」匹配到着组，实测 AIP 航路 91% 完全匹配。详见 §8.2 |
+| F33 | 实时天气与 ATIS（✅ v2.1.0） | 右栏新标签页实时显示监视机场的 ATIS / METAR / TAF：METAR 5 分钟、TAF 30 分钟自动刷新。用户自备 SWIM 账号时，可查日本 23 场的**真实 ATIS**，**用户发起一次查一次**（点按钮或 MCDU 按 SEND）；真实 ATIS 还用于预选跑道和进近。没有真实 ATIS 时按 METAR 和运行规则生成，并标注非官方。Fenix A320 的 MCDU 可经本机 57698 端口收到这些 ATIS（默认关闭）。账号密码 DPAPI 加密落盘、运行时不缓存。详见 §8.2 |
 
 ### 2.2 交互输入项(每轮规划)
 
@@ -182,6 +183,12 @@ v1.2.0 起,原本约 1100 行的单文件 `flight_dispatcher.py` 已**按功能�
 | `dispatcher/planner.py` (F13) | `build_flight_plan`→`FlightPlan`、`parse_runway_ft`/`parse_dist`、`simbrief_url` | 一次规划的计算(FlightAware 抓取 + 模拟呼号 + SimBrief 链接),供 UI 调用;渲染由 UI 负责 |
 | **`dispatcher/ntrack.py`** (F26,✅ v2.0.0_alpha1) | `fetch_latest`、`parse_config`、`match_iaps`、`supports` | 国土交通省 ntrack 的**实测运用状况**（羽田）。一次 GET，表格内联在首页 HTML（`<table id='atistable'>`），无 ajax / 无 JS / 无认证；30 分钟缓存＝其更新周期。进近串→CIFP ident 逐字匹配（唯一别名 `RNP`↔`RNAV`）。纯标准库，失败→`None` |
 | **`dispatcher/vatjpn.py`** (F31/F32,✅ v2.0.3) | `refresh`、`pick_tab`、`list_tabs`、`build`、`Stars` | VATJPN「空港別移管高度表」→ `transfer_points.json`。读发布页目录（标签页名 → gid）与单页 HTML 表（按 rowspan/colspan 展开）；门 = 到着串里最后一个航路名之后的点；STAR 配对按本机 CIFP 现推（与 `matching_choices` 同一套衔接判据）。`refresh` 供启动时调用、绝不抛异常；`match_arrival` 把一条航路对到移管表的到着组（F32）；json 里的 `_vatjpn` 记录 {发布 ID, gid, 期名, 本机 AIRAC} 用来判断要不要重建。`tools/build_transfer_points.py` 是它的命令行外壳。纯标准库 |
+| **`dispatcher/swim_creds.py`** (F33,✅ v2.1.0) | `save`、`load`、`exists`、`clear`、`CredentialError` | SWIM 账号的 DPAPI 加密存储。没有明文后备,不支持加密的系统拒绝保存;异常信息不带账号和密码。纯标准库(ctypes) |
+| **`dispatcher/swim_client.py`** (F33,✅ v2.1.0) | `SwimClient.fetch`、`reset` | SWIM Web API 客户端:登录拿 Cookie,一个请求查多场。账号只在登录时解密到局部变量,Cookie 只放内存;会话过期重新登录一次;账号或密码错误后不再自动重试。不跟随重定向。绝不抛异常 |
+| **`dispatcher/swim_atis.py`** (F33,✅ v2.1.0) | `SWIM_AIRPORTS`、`AtisStore`、`store`、`parse_report` | 解析 SWIM 响应并保存最新报文,90 分钟后过期;`store.config` 给出和 `ntrack.fetch_latest` 同样结构的运行构型,供 `compute_proc` 优先使用 |
+| **`dispatcher/atis.py`** (F33,✅ v2.1.0) | `generate`、`mag_correction`、`operating_config`、`load_template`、`render` | 生成 ATIS:风向按最近 VOR 的磁差修正,运行构型取 ntrack > 运行规则 > 按风选,版式来自 `atis_template.json`。标注非官方 |
+| **`dispatcher/atis_server.py`** (F33,✅ v2.1.0) | `LoopbackService`、`fenix_service`、`FENIX_PORT` | 只绑定本机回环地址的 HTTP 服务,响应 `GET /acars/atis/<ICAO>` |
+| **`dispatcher/live.py`** (F33,✅ v2.1.0) | `LiveService` | 守护线程刷新 METAR / TAF,决定 ATIS 来源,发起 SWIM 查询(进行中的查询可并入),给模拟器提供文本。回调在后台线程上调用,marshal 由 UI 负责 |
 | **`dispatcher/controller.py`** (F25,✅ v2.0.0) | `AppState`、`init_app`、`plan`、`compute_proc`、`volanta_sync`、`LogSink`、`NavDataMissing` | **编排层(零 GUI 依赖)**:应用状态 + 后台任务 + 日志。**绝不 import 任何 GUI 框架;只抛异常、只返回值、只回调**,跨线程 marshal 交给 UI |
 | **`dispatcher/viewmodel.py`** (F25,✅ v2.0.0) | `result_spans`、`map_model`、`ProcPanelModel`、`OpsEditorModel`、`AipTableModel`、`AircraftModel`、`MultiSelectModel`、`form_to_rule`/`rule_to_form`、`enabled_controls` | **各界面的纯数据 Model(零 GUI 依赖)**:**每个界面 = 一个可 headless 单测的 Model + 一层薄渲染**。两套 UI 共用同一 Model → 行为天然一致;这也是这些逻辑**第一次**能脱离 GUI 单测 |
 | **`dispatcher/ui_flet/`** (F25,✅ v2.0.0) | `run_flet`;`shell` / `theme` / `app` / `form_view` / `result_view` / `log_view` / `proc_view` / `aip_dialog` / `ops_view` / `map_view` | **Flet 前端(Flutter 渲染)**——v2.0.0 起的正式前端。**`shell.py` 是唯一允许碰 `page` 的模块**(Flet 的 `page.update()` 非线程安全,marshal 强制经 `page.run_task`) |
@@ -397,6 +404,14 @@ class Airport:
   - **选期(用户定)**:取「AIRAC ≤ 本机周期」里最新的一期;本机比各期都旧取最旧一期;本机导航数据比 VATJPN 最新一期旧、且那一期已生效 → 弹窗「本机导航数据与最新的 VATJPN 移管数据表不匹配，请升级导航数据到最新版本」。「已生效」这一条防 VATJPN 提前发布下期表:那时 Navigraph 多半还没出数据,提醒了也无从升级。
   - **触发(用户定)**:启动时自动检查,不加按钮。json 的 `_vatjpn` 记着上次用的发布 ID / gid / 期名 / 本机 AIRAC,全一致 → 只读目录、不下载整张表。
   - **兜底**:断网 → 一行日志、沿用现有文件;解析失败或机场数不足原有 80% → 视为表格改版、不覆盖;写不进程序目录 → 本次在内存里用新表。
+- **F33 实时天气与 ATIS(✅ v2.1.0)**:用户提出「程序启动时,METAR、TAF 和 ATIS 改成动态更新,这样就可以实时查看天气和运行信息了,模拟器也能收到 ATIS」。
+  - **ATIS 来源**:未过期的 SWIM 真实报文 > 生成 ATIS。真实报文的运行构型也进入进离场面板,优先于 ntrack 和运行规则。
+  - **查询时机(用户定)**:「真实世界查 ATIS 是发出一次请求返回最新的」,所以用户发起一次查一次:点「更新 ATIS」或 MCDU 按 SEND。启动时不查,没有后台定时查询。一个请求带全部 23 场,实测约 0.5 秒。
+  - **SWIM 访问**:S2005 服务的官方概要列出 WebAPI 提供方式,サービス利用審査 無し。程序用用户自己的账号登录。
+  - **账号安全(用户定)**:「账号和密码存储一定要加密,一定不要明文落盘,一定在运行时不要缓存,只走内存」。DPAPI 加密落盘;只在登录时解密到局部变量;Cookie 只放内存;密码框保存后立即清空。局限:防不住同一 Windows 账号下运行的恶意程序;Python 字符串无法主动清零,只能不保留引用。
+  - **生成 ATIS**:只写 METAR 里有的内容。真实 ATIS 的英寸气压不能由 hPa 换算(Q1019 算出约 A3009,真实是 A3011),所以只写 Q。没有运行规则和实测构型时按风选跑道,并写 `RWY BY WIND`。
+  - **Fenix**:NETWORK 选 BEYONDATC 时,Fenix 请求 `GET http://localhost:57698/acars/atis/<ICAO>`(黑盒实测)。200 纯文本显示,404 显示 `NO ATIS AVAILABLE`,无服务显示 `INVALID ATIS MESSAGE`。24 列、每页 7 行,`#` 显示不了。接口未公开,失效后再更新。
+  - **边界**:Fenix 服务默认关闭,只绑定本机回环地址;SWIM 查询失败或超过 4 秒时,MCDU 先收到已有报文或生成版。
 - **F32 进近移管高度(✅ v2.0.3)**:用户提出「现在的表是大幅简化过的产物，缺少了原来 JPN 移管表上的重要信息，优先级最高的是移管高度——要求飞机在指定航点下降到一个高度，方便管制交接」。
   - **数据**:每个机场加 `arr_xfer` / `dep_xfer`(表中各组的到着 / 出発串 + 其下的移管行原文 {移管点, 条件, 高度, 移管元, 移管先});`_vatjpn.schema`=2,旧文件启动时自动重建补字段。现有字段逐字不变。
   - **匹配**:门必须在航路上,「门及门之前的点 / 航路名全在航路上」优先,其次命中多、到着串更具体的。全部 AIP 航路(目的场在表里的 669 条):完全匹配 608、部分 28、无对应 33。
@@ -444,6 +459,9 @@ class Airport:
   - **UI 迁移 tkinter → Flet(F25)**:界面换成 **Flutter 渲染**,业务逻辑零改动。**主版本号跳到 2.0.0**——不是因为功能变了,而是因为**前端整个换了**(tkinter 将被删除)、**exe 体积由约 15MB 涨到 54MB**(内含 Flutter 预制客户端)、并有一处**永久功能倒退**(地图不能并排多开)。
   - **架构重构(迁移的前置,也是本次最大的工程价值)**:`gui.py` 的**控制逻辑与数据处理全部剥离**到 `controller.py`(编排) + `viewmodel.py`(各界面纯数据 Model)。剥离后 `gui.py` 1,925→1,186 行、只剩渲染;**17 个逻辑模块零编辑**;这些逻辑**第一次**能脱离 GUI 单测。用**黄金基准(oracle)逐字 diff** 保证剥离不改行为。
   - **收益**:彩色 emoji、深色模式跟随系统、Material 3 观感;**甩掉 `tkintermapview` + `Pillow` 两个第三方依赖**(Flet 的地图 marker 可用任意控件绘制)。
+
+- **v2.0.3_hotfix1 → v2.1.0(✅ 2026-11-01)**:
+  - **实时天气与 ATIS(F33)**:新标签页显示 ATIS / METAR / TAF 并自动刷新天气;用户自备 SWIM 账号可查 23 场真实 ATIS,发起一次查一次;其他情况生成 ATIS 并标注非官方;Fenix A320 的 MCDU 可收到这些 ATIS。新增 6 个逻辑模块和 `atis_template.json`。
 
 - **v2.0.3 → v2.0.3_hotfix1(✅ 2026-10-31)**:
   - **航路生成(F15)**:进场走廊奖励按全局频次选门、不分方向,东北来的航班被拽去西南向的 IZUMI(RJSR→RJOO 466 NM、飞到场站上空再折回)。改为只统计来向相近(±45°)的官方航路,换门最多多飞 25 NM,并先做 STAR 交接再比较(落本场 VOR 的首轮距离是虚短的)。RJSR→RJOO 回到 `UWE V31 GTC Y45 KMC Y384 ROKKO`(422 NM)。

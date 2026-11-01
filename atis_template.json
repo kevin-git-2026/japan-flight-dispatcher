@@ -1,0 +1,16 @@
+{
+  "_comment": "生成式 ATIS 的版式。{变量} 全为空的行会整行删除。变量：icao letter hhmm apch ldg dep using note wx tag model",
+  "lines": [
+    "ATIS {icao} {letter}",
+    "M{hhmm}",
+    "{apch}",
+    "{ldg}",
+    "{dep}",
+    "{using}",
+    "{note}",
+    "M",
+    "{wx}",
+    "{tag}",
+    "{model}"
+  ]
+}

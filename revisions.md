@@ -16,6 +16,63 @@
 
 ---
 
+## v2.1.0(✅ 2026-11-01)— 实时天气与 ATIS（F33）：SWIM 真实 ATIS · 生成 ATIS · Fenix A320
+
+### 新增模块
+
+| 文件 | 说明 |
+| --- | --- |
+| `dispatcher/swim_creds.py` | DPAPI 加密存储账号（`swim_credentials.dat`，运行时生成）。无明文后备，异常不带账号和密码 |
+| `dispatcher/swim_client.py` | `POST /swim/webapi/login` 拿 `MSMSI`、`MSMAI`，`GET /f2atrq/web/FLV402001?location=A,B&dispcnt=1` 查询 |
+| `dispatcher/swim_atis.py` | 解析响应（字段 `atisInfo`）、`AtisStore`、`MAX_AGE_SEC`=5400；`config()` 与 `ntrack.fetch_latest` 同结构 |
+| `dispatcher/atis.py` | `generate`、`mag_correction`（最近 VOR 磁差四舍五入到 10°，恰好 5° 取 0）、`operating_config`（ntrack > `select_rule` > 按风）、`letter_for`（内容变化时字母 +1） |
+| `dispatcher/atis_server.py` | `LoopbackService`（绑 127.0.0.1 + ::1，`allow_reuse_address=False`），`_FenixHandler` |
+| `dispatcher/live.py` | `LiveService`：METAR 300 s、TAF 1800 s；`start_query`、`text_for_sim` |
+| `dispatcher/ui_flet/live_view.py` | 标签页内容：账号行、开关、每个机场的 ATIS / METAR / TAF |
+| `atis_template.json` | 生成 ATIS 的版式；缺失或损坏时用内置版式 |
+
+### 修改
+
+**`dispatcher/controller.py` · `compute_proc`（修改）**：运行构型优先用 SWIM。
+
+```python
+# after
+cfg = swim_atis.store.config(obj.code)
+if not cfg and ntrack.supports(obj.code):
+    cfg = ntrack.fetch_latest(obj.code)
+```
+
+**`dispatcher/weather.py`（修改）**：`fetch_metar` / `fetch_taf` / `resolve_airport_wx` 增加 `max_age` 参数，刷新线程据此强制更新；强制刷新失败时返回旧值。
+
+**`dispatcher/viewmodel.py`（新增 + 修改）**：`live_section`、`live_status_text`、`live_blocked_text`、`ProcPanelModel.update_wx`（只换天气和风况文字，不改已选的跑道和程序）。
+
+**`dispatcher/ui_flet/proc_view.py` · `sync_wx`（新增）**：天气刷新只更新天气文字和跑道风况，不碰已选项和 SID/STAR 搜索框。
+
+**`dispatcher/ui_flet/app.py`（修改）**：右栏顶部两个标签（规划结果 / 实时天气与 ATIS）；初始化完成后启动 `LiveService`。
+
+```python
+# _on_close：不能同步停服务
+if self.live_svc:
+    threading.Thread(target=self.live_svc.stop, daemon=True).start()
+```
+
+同步停会阻塞事件循环：窗口进程趁机退出 → 连接被重置 → asyncio 关连接时抛异常 → Flet 的 `wait_closed` 永远等不到结束，程序退不出去。
+
+**`dispatcher/config.py`（新增）**：`load_live_settings`、`save_live_settings`（`live_settings.json`：监视机场、Fenix / SWIM 开关；运行时生成）。
+
+### 查询规则
+
+用户发起一次查一次，一个请求带全部 23 场。进行中的查询可并入，多个 SEND 同时到达只查一次。`text_for_sim` 最多等 4 秒，超时返回已有报文或生成版。账号或密码错误后 `bad_login=True`，不再尝试登录，直到用户重新保存。
+
+### 验证
+
+- 假 SWIM 服务器 + 真实 DPAPI：磁盘无明文（含 UTF-16）；密文被改动后解不开；凭据只在登录时读取、不留在客户端对象；日志里没有账号、密码和 Cookie；启动不登录也不查询；每次 SEND 查一次；并发 SEND 共用一次查询；慢响应约 4 秒返回；错误密码只试一次。
+- 真实窗口 + 真实 57698 端口 + 假 SWIM：用真实鼠标和键盘消息完成切换标签页、打开开关、输入账号密码、保存和更新；查询中提示、增删机场、端口被占用、规划后面板选用 SWIM 跑道都正常；关窗后约 0.5 秒退出，端口释放。
+- 真实账号：登录 0.94 s、查询 1.30 s，返回 `ATIS RJTT B`；用户在程序内实测通过。
+- 生成 ATIS：108 条真实 METAR 无异常，羽田的风向和 QNH 与真实 ATIS 一致。
+
+---
+
 ## v2.0.3_hotfix1(✅ 2026-10-31)— 生成航路的进场走廊奖励改为按来向统计 · 带 IAP 的跑道可选作落地跑道
 
 ### 问题

@@ -228,6 +228,22 @@ class ProcView:
             self._syncing = False
         self.sync_derived()
 
+    def sync_wx(self):
+        """实时天气刷新：只改天气文字和跑道的风况显示。不动已选的跑道和程序，也不碰 SID/STAR 搜索框。"""
+        m = self.model
+        if not m:
+            return
+        self._syncing = True
+        try:
+            for side, wx, cb_rwy in (("dep", self.dep_wx, self.dep_rwy),
+                                     ("arr", self.arr_wx, self.arr_rwy)):
+                wx.value = m.wx_text(side)
+                cb_rwy.options = [ft.DropdownOption(key=it["rwy"], text=it["disp"])
+                                  for it in m.items[side]]
+                cb_rwy.value = m.sel_rwy[side]
+        finally:
+            self._syncing = False
+
     def sync_derived(self):
         """只刷派生（摘要 / Zulu 提示）—— 不动下拉候选，免踩掉正在输入的搜索过滤。"""
         m = self.model

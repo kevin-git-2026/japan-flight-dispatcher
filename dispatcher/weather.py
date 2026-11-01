@@ -38,10 +38,11 @@ _MPS_TO_KT = 1.94384
 _WIND_RE = re.compile(r"\b(\d{3}|VRB)(\d{2,3})(?:G(\d{2,3}))?(KT|MPS)\b")
 
 
-def _fetch_noaa(url, timeout=5):
-    """GET NOAA TXT → (时间戳, 报文体)；报文体=第 2 行起合并。超时/失败/格式不符 → None。仅缓存成功。"""
+def _fetch_noaa(url, timeout=5, max_age=_TTL):
+    """GET NOAA TXT → (时间戳, 报文体)；报文体=第 2 行起合并。超时/失败/格式不符 → None。仅缓存成功。
+    max_age 比默认短（实时刷新）时，这次取不到就退回旧值：一次网络失败不该让天气跳成模型合成。"""
     hit = _CACHE.get(url)
-    if hit and time.time() - hit[0] < _TTL:
+    if hit and time.time() - hit[0] < max_age:
         return hit[1]
     try:
         req = urllib.request.Request(url, headers={"User-Agent": _UA})
@@ -54,18 +55,18 @@ def _fetch_noaa(url, timeout=5):
             return result
     except Exception:
         pass
-    return None
+    return hit[1] if hit and max_age < _TTL else None
 
 
-def fetch_metar(icao):
+def fetch_metar(icao, max_age=_TTL):
     """→ (raw_metar, obs_time) 或 None。"""
-    r = _fetch_noaa(_METAR_URL % icao.upper())
+    r = _fetch_noaa(_METAR_URL % icao.upper(), max_age=max_age)
     return (r[1], r[0]) if r else None
 
 
-def fetch_taf(icao):
+def fetch_taf(icao, max_age=_TTL):
     """→ (raw_taf, issue_time) 或 None（raw 为多行合并后的整段 TAF）。"""
-    r = _fetch_noaa(_TAF_URL % icao.upper())
+    r = _fetch_noaa(_TAF_URL % icao.upper(), max_age=max_age)
     return (r[1], r[0]) if r else None
 
 
@@ -338,11 +339,11 @@ def grid_to_metar(icao, grid):
     return (" ".join(p for p in parts if p), obs_time)
 
 
-def resolve_airport_wx(icao, lat, lon):
+def resolve_airport_wx(icao, lat, lon, metar_max_age=_TTL, taf_max_age=_TTL):
     """统一天气解析：METAR 新鲜→用实测；缺测/过期→Open-Meteo 网格合成 METAR（清楚标注非实测）。
     → {source:'metar'|'grid'|None, wind:(dir,spd,gust), metar_raw, metar_age_sec, taf_raw, model}。"""
-    m = fetch_metar(icao)
-    taf = fetch_taf(icao)
+    m = fetch_metar(icao, max_age=metar_max_age)
+    taf = fetch_taf(icao, max_age=taf_max_age)
     taf_raw = taf[0] if taf else None
     age = metar_age_sec(m[1]) if m else None
     if m and (age is None or age <= _METAR_STALE_SEC):     # 实测新鲜（或时间无法解析→当新鲜）

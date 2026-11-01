@@ -11,10 +11,13 @@ import flet as ft
 
 from .. import __version__
 from .. import controller as C
+from .. import swim_atis
 from .. import viewmodel as VM
+from ..live import LiveService
 from .aip_dialog import AipDialog
 from .form_view import FormView
 from . import map_window
+from .live_view import LiveView
 from .log_view import LogView
 from .ops_view import OpsView
 from .proc_view import ProcView
@@ -76,12 +79,22 @@ class DispatcherApp:
         self.ops_view = OpsView(self.page, on_close=self._pop_view)
         self.aip_dialog = AipDialog(self.page, on_select=self.proc.select_candidate)
         self._plan_maps = []
+        self.live_svc = None
+        self.live = LiveView(can_update=swim_atis.SWIM_AIRPORTS, on_add=self._live_add,
+                             on_update=self._live_update, on_remove=self._live_remove,
+                             on_fenix=self._live_fenix, on_swim=self._live_swim,
+                             on_save_login=self._live_save_login, on_clear_login=self._live_clear_login)
+        self.tab_result = ft.TextButton("规划结果", on_click=lambda e: self._show_tab("result"))
+        self.tab_live = ft.TextButton("实时天气与 ATIS", on_click=lambda e: self._show_tab("live"))
+        self._show_tab("result")
 
-        # 右栏：结果卡 + 进离场面板（规划后才显示，贴在结果卡下方，同 tk 版结构）。
+        # 右栏：结果卡 / 实时标签页 + 进离场面板（规划后才显示，贴在结果卡下方，同 tk 版结构）。
         # · 两者各占一份高度、【各自内部滚动】——外层不能设 scroll，否则 expand 子控件高度无界。
         # · horizontal_alignment=STRETCH 必须给：Column 默认 START，子控件会取【自身内容宽度】
         #   而不是拉满，于是宽内容（如面板那排下拉）会把卡片顶出右栏、横向溢出窗口。
-        right = ft.Column([self.result.control, self.proc.control], expand=True, spacing=8,
+        right = ft.Column([ft.Row([self.tab_result, self.tab_live], spacing=4),
+                           self.result.control, self.live.control, self.proc.control],
+                          expand=True, spacing=8,
                           horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 
         self.page.add(
@@ -93,6 +106,100 @@ class DispatcherApp:
             ], expand=True, spacing=10))
         self.page.on_view_pop = self._on_view_pop               # 系统返回键 / 手势
         self._refresh()
+
+    def _show_tab(self, name):
+        on = ft.ButtonStyle(bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY))
+        self.tab_result.style = on if name == "result" else None
+        self.tab_live.style = on if name == "live" else None
+        self.result.control.visible = name == "result"
+        self.live.control.visible = name == "live"
+
+    # ---------- 实时天气与 ATIS ----------
+    def _start_live(self):
+        """启动实时服务（F33）。失败不影响规划功能。"""
+        try:
+            self.live_svc = LiveService(self.state.dat_path,
+                                        lambda icao: self.shell.post(self._on_live_change, icao))
+            errors = self.live_svc.start()
+        except Exception as e:                          # noqa: BLE001
+            print(f"⚠️ 实时天气启动失败: {e}")
+            self.live_svc = None
+            return
+        self.live.fenix.value = self.live_svc.fenix_on
+        self.live.swim.value = self.live_svc.swim_on
+        self.live.set_note("；".join(errors))
+        self.live.set_airports(self.live_svc.watch)
+        self._live_refresh_all()
+
+    def _live_refresh_all(self):
+        querying = self.live_svc.querying()
+        for icao in self.live_svc.watch:
+            self.live.show_section(icao, VM.live_section(
+                self.live_svc.snapshot(icao) or {"icao": icao},
+                querying and icao in swim_atis.SWIM_AIRPORTS))
+        self._live_status()
+
+    def _live_status(self):
+        status = swim_atis.store.status()
+        self.live.status.value = VM.live_status_text(
+            self.live_svc.fenix_on, self.live_svc.swim_on, self.live_svc.has_credentials(), status)
+        self.live.show_login(self.live_svc.has_credentials(), status in ("bad_login", "no_creds"))
+
+    def _on_live_change(self, icao):
+        """后台线程经 Shell.post 回到这里。icao=None → SWIM 状态或查询结果变了，全部刷新。"""
+        if not self.live_svc:
+            return
+        self._live_refresh_all()
+        snap = self.live_svc.snapshot(icao) if icao else None
+        if snap and self.proc.model and self.proc.model.update_wx(icao, snap.get("wx")):
+            self.proc.sync_wx()
+
+    def _live_update(self, _icao):
+        """点「更新 ATIS」：查一次 SWIM（一个请求带全部 23 场）。结果回来时走 _on_live_change。"""
+        if not self.live_svc:
+            return
+        if not self.live_svc.can_query_swim():
+            self.live.set_note(VM.live_blocked_text(self.live_svc.swim_on, self.live_svc.has_credentials()))
+            return
+        self.live.set_note("")
+        self.live_svc.start_query()
+        self._live_refresh_all()
+
+    def _live_save_login(self, user, password):
+        if self.live_svc:
+            self.live.set_note(self.live_svc.save_credentials(user, password))
+            self._live_status()
+
+    def _live_clear_login(self):
+        if self.live_svc:
+            self.live.set_note(self.live_svc.clear_credentials())
+            self._live_status()
+
+    def _live_add(self, icao):
+        if not self.live_svc or not self.live_svc.known(icao):
+            self.live.set_note("%s 不是导航数据里的日本机场" % icao if icao else "")
+            return False
+        self.live.set_note("")
+        self.live_svc.add(icao)
+        self.live.set_airports(self.live_svc.watch)
+        self._live_refresh_all()
+        return True
+
+    def _live_remove(self, icao):
+        if self.live_svc:
+            self.live_svc.remove(icao)
+            self.live.set_airports(self.live_svc.watch)
+
+    def _live_fenix(self, on):
+        if self.live_svc:
+            self.live.set_note(self.live_svc.set_fenix(on))
+            self.live.fenix.value = self.live_svc.fenix_on
+            self._live_status()
+
+    def _live_swim(self, on):
+        if self.live_svc:
+            self.live_svc.set_swim(on)
+            self._live_status()
 
     # ---------- 状态 / 通用 ----------
     def _set_status(self, text):
@@ -143,11 +250,14 @@ class DispatcherApp:
         self._refresh()
         if st.navdata_notice:                            # 本机导航数据比 VATJPN 最新移管表旧
             self._dialog(C.NAVDATA_STALE_TITLE, st.navdata_notice)
+        self._start_live()
         self._selftest()
 
     def _selftest(self):
         """真客户端自测钩子（DISPATCHER_SELFTEST="RJTT>RJOO"）：初始化完就自动跑一次规划。
         用来抓「控件构造得出、但 Flutter 端渲染抛错」这类 headless 冒烟看不见的问题。"""
+        if os.environ.get("DISPATCHER_SELFTEST_LIVE"):           # 打开实时标签页
+            self._show_tab("live")
         ops = os.environ.get("DISPATCHER_SELFTEST_OPS")          # =ICAO：直接开运行规则编辑器
         if ops:
             print("🧪 SELFTEST: 打开运行规则编辑器 → %s" % ops)
@@ -206,6 +316,10 @@ class DispatcherApp:
         self.result.render(VM.result_spans(plan, has_map=True))
         self._plan_maps = VM.plan_maps(plan)             # 本次规划的全部航路（地图标签页用）
         self._populate_proc(plan, proc)
+        self._show_tab("result")
+        if self.live_svc and self.live_svc.add(plan.dep.code, plan.arr.code):
+            self.live.set_airports(self.live_svc.watch)
+            self._live_refresh_all()
         if os.environ.get("DISPATCHER_SELFTEST_MAP") and self._plan_maps:
             # 地图子进程继承环境变量：DISPATCHER_SELFTEST_MAP_OFF（验标注开关）/ _MAPTOUR（自动漫游后关窗）在那边生效
             print("🧪 SELFTEST: 自动打开地图（%d 条航路）" % len(self._plan_maps))
@@ -260,6 +374,8 @@ class DispatcherApp:
         if len(self.page.views) > 1:
             self.page.views.pop()
             self.page.update()
+            if self.live_svc:                            # 规则编辑器可能改了 operation.json
+                self.live_svc.reload_operations()
 
     def _on_view_pop(self, _e=None):
         """系统返回键 / 手势。栈顶若是规则编辑器，得先走它的未保存守卫，不能直接弹掉。"""
@@ -333,6 +449,10 @@ class DispatcherApp:
     # ---------- 关闭 ----------
     def _on_close(self, _e=None):
         self._cancel_evt.set()
+        # 不能在这里同步停：会阻塞事件循环，窗口进程趁机退出 → 连接被重置 →
+        # asyncio 关连接时抛异常，Flet 的 wait_closed 永远等不到结束，程序退不出去。
+        if self.live_svc:
+            threading.Thread(target=self.live_svc.stop, daemon=True).start()
         try:
             sys.stdout, sys.stderr = self._orig_stdout, self._orig_stderr
         except Exception:

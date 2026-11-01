@@ -90,6 +90,35 @@ def save_map_settings(**kv):
         pass
 
 
+def _live_settings_path():
+    """live_settings.json（实时面板：监视机场、Fenix / SWIM 开关）路径，锚定到运行目录。"""
+    return os.path.join(get_real_run_path(), "live_settings.json")
+
+
+def load_live_settings():
+    """读取 live_settings.json。文件缺失/损坏返回空 dict，绝不崩。"""
+    try:
+        with open(_live_settings_path(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_live_settings(**kv):
+    """更新指定字段并原子写回；只有主窗口写这个文件，所以不会和地图子进程抢。"""
+    data = load_live_settings()
+    data.update(kv)
+    path = _live_settings_path()
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
+    except Exception:
+        pass
+
+
 def _update_sim_config(**kv):
     """读出 → 更新指定字段 → 写回（保留其它字段）。"""
     cfg = load_sim_config()

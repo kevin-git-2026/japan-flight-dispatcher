@@ -14,6 +14,7 @@
 import copy
 import math
 import re
+import time
 
 from . import ntrack, operations, procedures, router, timed, weather
 from .aircraft import aircraft_choices
@@ -608,21 +609,76 @@ def runway_items(rows, wind, in_use=None, prefer=()):
     any_proc = any(r[2] for r in rows)
     items = []
     for rwy_id, length_ft, labels in rows:
-        short = rwy_id.replace("RW", "")
-        parts = [short] + (["%.0fm" % (length_ft * 0.3048)] if length_ft else [])   # 东亚习惯：显示层用米（数据底层为英尺）
-        wdesc, ok, hw = wind_desc(wind, rwy_id)
-        if wdesc:
-            parts.append(wdesc)
-        hit = rwy_id in used
-        if hit:
-            parts.append("✅在用")
-        if any_proc and not labels:
-            parts.append(IAP_ONLY_TAG)
-        items.append({"disp": " · ".join(parts), "rwy": rwy_id, "labels": list(labels),
-                      "ok": ok, "hw": hw, "in_use": hit})
+        it = {"rwy": rwy_id, "len": length_ft, "labels": list(labels), "in_use": rwy_id in used}
+        _set_item_wind(it, wind, any_proc)
+        items.append(it)
     items.sort(key=lambda it: (not it["in_use"], not it["ok"], not it["labels"], -it["hw"],
                                it["rwy"] not in prefer, procedures._rw_sort_key(it["rwy"])))
     return items
+
+
+def _set_item_wind(it, wind, any_proc):
+    """按风算一条跑道的显示文字和风况。实时天气刷新时也走这里（不重新排序）。"""
+    short = it["rwy"].replace("RW", "")
+    parts = [short] + (["%.0fm" % (it["len"] * 0.3048)] if it["len"] else [])   # 东亚习惯：显示层用米（数据底层为英尺）
+    wdesc, ok, hw = wind_desc(wind, it["rwy"])
+    if wdesc:
+        parts.append(wdesc)
+    if it["in_use"]:
+        parts.append("✅在用")
+    if any_proc and not it["labels"]:
+        parts.append(IAP_ONLY_TAG)
+    it.update(disp=" · ".join(parts), ok=ok, hw=hw)
+
+
+def live_section(snap, querying=False):
+    """实时标签页一个机场的文字（snap = LiveService.snapshot）。"""
+    snap = snap or {}
+    wx = snap.get("wx") or {}
+    src = {"swim": "✅ 真实 ATIS（SWIM）", "generated": "⚠️ 生成 ATIS（非官方）"}.get(
+        snap.get("source"), "暂无 ATIS")
+    at = snap.get("fetched_at")
+    title = "%s  ·  %s" % (snap.get("icao", ""), src)
+    if snap.get("report_z"):
+        title += " %s" % snap["report_z"]
+    if snap.get("received_at"):
+        title += "  ·  查询于 %s" % time.strftime("%H:%M", time.localtime(snap["received_at"]))
+    if at:
+        title += "  ·  天气刷新 %s" % time.strftime("%H:%M", time.localtime(at))
+    if querying:
+        title += "  ·  查询中…"
+    raw = wx.get("metar_raw")
+    metar = ("METAR %s" % raw) if raw else "METAR 暂无"
+    if wx.get("source") == "grid":
+        metar += "\n《Open-Meteo 模型合成·非实测》"
+    taf = wx.get("taf_raw") or ""
+    return {"title": title, "atis": snap.get("atis") or "—", "metar": metar, "taf": taf}
+
+
+def live_status_text(fenix_on, swim_on, has_creds, swim_status):
+    """实时标签页的服务状态行。"""
+    fenix = "Fenix：已开启（在 MCDU 的 ATIS 页把 NETWORK 选 BEYONDATC）" if fenix_on else "Fenix：未开启"
+    if not swim_on:
+        swim = "SWIM：未开启"
+    elif not has_creds:
+        swim = "SWIM：请先保存账号"
+    else:
+        swim = {"bad_login": "SWIM：账号或密码错误，请重新保存",
+                "auth": "SWIM：登录被拒，稍后再试",
+                "no_creds": "SWIM：无法读取账号，请重新保存",
+                "error": "SWIM：查询出错，下次查询重试",
+                "ok": "SWIM：已就绪",
+                "none": "SWIM：已就绪，点「更新 ATIS」或在 MCDU 按 SEND 查询"}.get(swim_status, "SWIM：已就绪")
+    return "%s    %s" % (fenix, swim)
+
+
+def live_blocked_text(swim_on, has_creds):
+    """点「更新 ATIS」但查不了时的提示。开关和账号都没问题时，只剩账号或密码错误这一种情况。"""
+    if not swim_on:
+        return "无法查询 SWIM：请打开「SWIM 真实 ATIS」开关"
+    if not has_creds:
+        return "无法查询 SWIM：请先保存账号"
+    return "无法查询 SWIM：账号或密码错误，请重新输入并保存"
 
 
 def filter_labels(all_labels, typed):
@@ -762,6 +818,25 @@ class ProcPanelModel:
         return wx_text("🛫 出发" if side == "dep" else "🛬 到达",
                        self.dep_icao if side == "dep" else self.arr_icao,
                        self.dep_wx if side == "dep" else self.arr_wx)
+
+    def update_wx(self, icao, wx):
+        """实时天气刷新：更新天气文字和跑道风况。不改用户选的跑道和程序，也不重新匹配规则。
+        → 有没有更新到这个面板。"""
+        changed = False
+        for side, code in (("dep", self.dep_icao), ("arr", self.arr_icao)):
+            if code != icao or not wx:
+                continue
+            if side == "dep":
+                self.dep_wx = wx
+            else:
+                self.arr_wx = wx
+            self.wind[side] = wx.get("wind")
+            self.sky[side] = weather.parse_sky(wx.get("metar_raw"))
+            any_proc = any(it["labels"] for it in self.items[side])
+            for it in self.items[side]:
+                _set_item_wind(it, self.wind[side], any_proc)
+            changed = True
+        return changed
 
     def aip_labels(self):
         return [aip_label(i, c) for i, c in enumerate(self.candidates)]

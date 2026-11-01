@@ -19,7 +19,7 @@ from .routing import calculate_distance_nm, find_aip_route, get_random_route
 from .flightaware import fetch_real_flights_with_filter
 from .planner import build_flight_plan, parse_runway_ft, parse_dist
 from .router import generate_route, route_geometry, route_length_nm, reload_transfer_points, transfer_entry
-from . import procedures, weather, timed, ntrack, vatjpn
+from . import procedures, weather, timed, ntrack, vatjpn, swim_atis
 
 
 class NavDataMissing(Exception):
@@ -344,13 +344,17 @@ def compute_proc(state, dep_obj, arr_obj, generated, matched=None,
                            "arr_gate": gate})
 
     print("🌦️ 正在获取机场天气（METAR / 网格回退）…")
-    # 实测运用状况（国土交通省 ntrack，目前仅羽田）：取到就是进离场预选的首选依据，取不到就走规则引擎
+    # 实测运用状况：SWIM 真实 ATIS（23 场）优先，其次国土交通省 ntrack（羽田）。
+    # 取到就是进离场预选的首选依据，取不到就走规则引擎
     nt = {}
     for obj in (dep_obj, arr_obj):
-        if ntrack.supports(obj.code) and obj.code not in nt:
+        if obj.code in nt:
+            continue
+        cfg = swim_atis.store.config(obj.code)
+        if not cfg and ntrack.supports(obj.code):
             cfg = ntrack.fetch_latest(obj.code)
-            if cfg:
-                nt[obj.code] = cfg
+        if cfg:
+            nt[obj.code] = cfg
     return {
         "aip_candidates": candidates, "selected": 0, "strict_ops": bool(strict_ops),
         "dep_wx": weather.resolve_airport_wx(dep_obj.code, dep_obj.lat_dd, dep_obj.lon_dd),
