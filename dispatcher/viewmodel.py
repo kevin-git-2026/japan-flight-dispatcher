@@ -67,6 +67,41 @@ def xfer_lines(rows):
     return lines
 
 
+def rule_basis_lines(ops):
+    """生成航路的端点依据 → [(文字, span 类别)]：按哪条运行规则 / 哪份实测接的哪几条程序；没限定的一侧不写。"""
+    if not ops:
+        return []
+    out = []
+    eobt = ops.get("eobt_min")
+    for side, name, word in (("dep", "离场", "SID"), ("arr", "进场", "STAR")):
+        e = ops.get(side)
+        if not e:
+            continue
+        icao = ops.get(side + "_icao", "")
+        used = ops.get(side + "_used") or []
+        pt = ops.get(side + "_point")
+        if side in (ops.get("unreached") or []):
+            continue                                     # 接不上的一侧由 note 说明
+        tail = ("→ 接 %s（%s）" % (" / ".join(used), pt)) if used and pt else ("→ 在 %s 衔接" % pt if pt else "")
+        rwys = "/".join(r.replace("RW", "") for r in e.get("runways") or [])
+        seen = ops.get("nt", {}).get(icao)
+        measured = ("实测（%s）" % seen) if seen else "实测"
+        when = (" EOBT %02d:%02d" % (eobt // 60, eobt % 60)) if (side == "dep" and eobt is not None) else ""
+        rules = "、".join("「%s」" % r for r in e.get("rules") or [])
+        if e["source"] == "measured":
+            text = "🎯 %s：%s %s 在用 %s，未匹配到运行规则 → 按实测运行%s" % (name, icao, measured, rwys, tail)
+        elif e.get("measured"):
+            text = "🎯 %s：按 %s %s 匹配运行规则%s %s" % (name, icao, measured, rules, tail)
+        else:
+            text = "🎯 %s：按 %s 运行规则%s（%s%s）%s" % (name, icao, rules, "风/天气" if not when else "风/天气 ·", when, tail)
+        if e["source"] == "rule+measured":
+            text += "；实测 %s 未匹配到规则，也按实测运行" % "/".join(r.replace("RW", "") for r in e.get("unmatched") or [])
+        out.append((text, "muted"))
+    if ops.get("note"):
+        out.append(("ℹ️ " + ops["note"], "warn"))
+    return out
+
+
 def result_spans(plan, has_map=True):
     """FlightPlan → span 列表（结果卡的全部内容）。UI 只负责把 span 画成 Tk tag 或 ft.TextSpan。
     这是结果卡在两套 UI 下逐字一致的关键——文案与配色语义全在这里定死。"""
@@ -149,6 +184,8 @@ def result_spans(plan, has_map=True):
         _gd = _dev(plan.generated_route_dist)
         if _gd:
             ins("  " + _gd + "\n", "muted")
+        for text, kind in rule_basis_lines(getattr(plan, "generated_route_ops", None)):
+            ins("  " + text + "\n", kind)
         _xfer(getattr(plan, "gen_xfer", None), "  ")
         _map_link(plan.gen_map)
         ins("  ⚠️ 起讫点取自 SID/STAR 衔接点、中间为 A* 连出的 enroute 航路；仅供参考，未含具体 SID/STAR 程序段。\n", "warn")
@@ -706,22 +743,10 @@ def eobt_zulu_text(text):
     return ("→ SimBrief %02d%02dZ" % (u // 60, u % 60)) if u is not None else ""
 
 
-# EOBT 默认＝此刻 + 30 分钟：启动模拟器 + 做航前一般要半小时左右，直接拿「此刻」当撤轮挡时刻不现实（用户反馈）。
-EOBT_PREP_MIN = 30
-
-
-def default_eobt_min():
-    """默认 EOBT（当日 JST 分钟）＝此刻 + EOBT_PREP_MIN；过了午夜就落到次日凌晨（取模）。"""
-    return (weather.now_jst()[0] + EOBT_PREP_MIN) % 1440
-
-
-def eobt_weekday(eobt_min, now_min, now_wd):
-    """EOBT 只有钟点、不带日期 → 它是星期几（运行规则的星期闸门要用）。
-    默认按「今天」；但若它刚过午夜、且就在此刻之后 EOBT_PREP_MIN 分钟内——默认 EOBT 在 23:30 后跨午夜时正是如此——
-    那是明天，星期 +1。其余（含用户手填的更早钟点）照旧按今天。"""
-    if eobt_min < now_min and eobt_min + 1440 - now_min <= EOBT_PREP_MIN:
-        return now_wd % 7 + 1
-    return now_wd
+# EOBT 默认值与星期推算放在 operations（生成航路按运行规则定端点也要用同一份），这里保留原名
+EOBT_PREP_MIN = operations.EOBT_PREP_MIN
+default_eobt_min = operations.default_eobt_min
+eobt_weekday = operations.eobt_weekday
 
 
 def aip_label(i, c):
@@ -788,8 +813,12 @@ class ProcPanelModel:
                 self.nt_iaps[icao] = []
 
         self.apply_ops = True
-        nm = default_eobt_min()                          # EOBT 默认＝当前 JST + 30 分钟（可改）
+        # EOBT 默认＝当前 JST + 30 分钟（可改）。规划时已按它定了生成航路的端点 → 用同一个值，免得分钟跳变对不上
+        nm = proc.get("eobt_min")
+        if nm is None:
+            nm = default_eobt_min()
         self.eobt = "%02d%02d" % (nm // 60, nm % 60)
+        self.regen_request = None                        # 生成航路要按新的运行规则重算：{eobt, apply_ops}（UI 取走后清空）
 
         self.sel_idx = 0
         self.items = {"dep": [], "arr": []}              # [{disp,rwy,labels,ok,hw}]
@@ -938,15 +967,57 @@ class ProcPanelModel:
         self.sel_proc[side] = label or ""
 
     def set_eobt(self, text):
-        """EOBT 改动：开关开则按新时段重选（含重置按风默认），否则仅影响 SimBrief 派生值。"""
+        """EOBT 改动：开关开则按新时段重选（含重置按风默认），否则仅影响 SimBrief 派生值。
+        生成航路的端点是按规划时的运行规则定的；新时段下生效的规则变了 → 置 regen_request，由 UI 重新生成航路。"""
         self.eobt = text or ""
         if self.apply_ops:
             self.select_candidate(self.sel_idx)
+            self._check_regen()
 
     def set_apply_ops(self, on):
-        """勾/取消「按运行规则预选」：重跑当前候选（开→应用规则、关→回按风预选）。"""
+        """勾/取消「按运行规则预选」：重跑当前候选（开→应用规则、关→回按风预选）。
+        生成航路也跟着换：关掉＝不按规则定端点（最短），打开＝按规则。"""
         self.apply_ops = bool(on)
         self.select_candidate(self.sel_idx)
+        self._check_regen()
+
+    def replace_generated(self, candidate):
+        """重新生成的航路换进来：保留 EOBT 与开关，按新候选重填跑道 / 程序并应用规则。"""
+        if not self.candidates:
+            return
+        self.candidates[self.sel_idx] = candidate
+        self.select_candidate(self.sel_idx)
+
+    # ---- 内部：生成航路按运行规则定端点 ----
+    def _is_generated(self):
+        return bool(self.candidates) and bool(self.candidates[self.sel_idx].get("generated"))
+
+    def _ops_ctxs(self):
+        """(离场 ctx, 到达 ctx)：离场按 EOBT、到达按 ETA。与 controller 生成航路时用同一个函数。"""
+        c = self.candidates[self.sel_idx]
+        j = eobt_jst_min(self.eobt)
+        dep_jst = j if j is not None else default_eobt_min()          # EOBT 被清空 → 同默认值
+        dist = c.get("dist") or self.dist_nm or 0
+        return operations.rule_contexts(dep_jst, dist, self.wind["dep"], self.sky["dep"],
+                                        self.wind["arr"], self.sky["arr"])
+
+    def ends_key(self):
+        """当前 EOBT / 开关下，生成航路两端该受的限定 → (离场 fixes, 到达 fixes)，不限定的一侧为 None。
+        与 controller.plan 生成航路时的算法相同（operations.route_endpoints），比较它就知道要不要重新生成。"""
+        if not self.apply_ops or not self.candidates:
+            return (None, None)
+        dctx, actx = self._ops_ctxs()
+        out = []
+        for side, icao, ctx in (("dep", self.dep_icao, dctx), ("arr", self.arr_icao, actx)):
+            e = operations.route_endpoints(self.ops_data, icao, side, ctx, self.ntrack.get(icao), self.dat_path)
+            out.append(frozenset(e["fixes"]) if e else None)
+        return tuple(out)
+
+    def _check_regen(self):
+        if not self._is_generated():
+            return
+        if self.ends_key() != self.candidates[self.sel_idx].get("ends_key"):
+            self.regen_request = {"eobt": self.eobt, "apply_ops": self.apply_ops}
 
     # ---- 内部：实测运用状况（ntrack）----
     def _icao(self, side):
@@ -1035,47 +1106,50 @@ class ProcPanelModel:
         if not self.apply_ops or not self.ops_data or not self.candidates:
             return
         c = self.candidates[self.sel_idx]
-        j = eobt_jst_min(self.eobt)
-        now_min, now_wd = weather.now_jst()
-        dep_jst = j if j is not None else default_eobt_min()          # EOBT 被清空 → 同默认值
-        dep_wd = eobt_weekday(dep_jst, now_min, now_wd)              # 默认 EOBT 跨午夜 → 是明天
-        try:
-            dist = c.get("dist") or self.dist_nm or 0
-            _eu, eta_utc = timed.plan_times_utc(dep_jst, dist)
-            eta_jst = (eta_utc + 540) % 1440
-        except Exception:
-            eta_jst = dep_jst
-        arr_wd = dep_wd if eta_jst >= dep_jst else (dep_wd % 7 + 1)   # 到达跨午夜 → 星期 +1
-        self._apply_ops_side("dep", self.dep_icao, c.get("dep_rows", []),
-                             {"jst_min": dep_jst, "weekday": dep_wd, "wind": self.wind["dep"],
-                              "sky_layers": self.sky["dep"][0], "vis_m": self.sky["dep"][1]}, "SID")
-        self._apply_ops_side("arr", self.arr_icao, c.get("arr_rows", []),
-                             {"jst_min": eta_jst, "weekday": arr_wd, "wind": self.wind["arr"],
-                              "sky_layers": self.sky["arr"][0], "vis_m": self.sky["arr"][1]}, "STAR")
+        dctx, actx = self._ops_ctxs()
+        self._apply_ops_side("dep", self.dep_icao, c.get("dep_rows", []), dctx, "SID")
+        self._apply_ops_side("arr", self.arr_icao, c.get("arr_rows", []), actx, "STAR")
+
+    def _measured_text(self, side):
+        """实测构型的简短说明：离场「离场 05/34R」，进场「落地 34L（ILS Y RWY34L）」。"""
+        nt = self._nt_cfg(side) or {}
+        if side == "dep":
+            return "离场 %s" % "/".join(r.replace("RW", "") for r in nt.get("dep") or [])
+        apps = " / ".join(nt.get("approaches") or [])
+        return "落地 %s%s" % ("/".join(r.replace("RW", "") for r in nt.get("ldg") or []),
+                              ("（%s）" % apps) if apps else "")
 
     def _apply_ops_side(self, side, icao, rows, ctx, proc_name):
         """单侧应用：命中规则 → 设跑道 + 级联程序 + 设 SID/STAR + 标注；无规则不动、无命中给提示。
 
-        有实测运用状况（ntrack）时，把它作为 `config` 传给规则引擎：**ntrack 定「用哪些跑道 + 什么进近」
-        （硬约束），规则定「在其中怎么选 + 配什么 SID/STAR」**（SID/STAR 正是 ntrack 给不了的）。
-        风闸/天气闸由实测取代、时段/星期闸门保留——详见 operations.select_rule 的说明。"""
+        有实测运用状况（SWIM 真实 ATIS / 羽田 ntrack）时，把它作为 `config` 传给规则引擎：
+        **实测定「用哪些跑道 + 什么进近」（硬约束，进场要对上具体进近），规则定「在其中怎么选 + 配什么 SID/STAR」**。
+        一条规则都对不上 → 以实测为主（在实测跑道里按风预选）。
+        风闸/天气闸由实测取代、时段/星期闸门保留——详见 operations.select_rule 的说明。
+        生成航路只在【此刻生效的那组规则】里选（operations.active_rules）：航路的端点就是按这组规则定的。"""
         nt = self._nt_cfg(side)
-        cfg = None
-        if nt:
-            cfg = {"runways": set(nt.get("dep" if side == "dep" else "ldg") or ()),
-                   "iaps": set(self.nt_iaps.get(icao) or ())}
         rules = operations.airport_rules(self.ops_data, icao)
         if not rules:
             return
         try:
+            iaps = procedures.enumerate_approaches(icao, self.dat_path) if nt else []
+            cfg = operations.measured_config(nt, side, iaps)
+            if self._is_generated():
+                active, _cfgs, _rows = operations.airport_active_rules(self.ops_data, icao, ctx, nt, self.dat_path)
+                if active[side]:
+                    rules = [r for r, _w in active[side]]
             sel = operations.select_rule(rules, side, ctx, rows, config=cfg,
                                          prefer=operations.preferred_runways(self.ops_data, icao))
         except Exception as e:                            # noqa: BLE001
             print("⚠️ 运行规则匹配失败:", e)
             return
+        if sel and cfg and sel[2] is None and ((sel[0].get(side) or {}).get(
+                "sids" if side == "dep" else "stars")):
+            sel = None              # 有实测、规则的程序却接不上这条航路（航路走的是没有规则对上的实测跑道）→ 以实测为主
         if not sel:
             self.ops_label[side] = (
-                ("🎯 %s 运行规则：实测在用的跑道未匹配到规则，已按风在【实测跑道】中预选" % icao)
+                ("🎯 %s 实测%s 未匹配到运行规则 → 按实测运行（已在实测跑道中按风预选）"
+                 % (icao, self._measured_text(side)))
                 if nt else
                 ("🎯 %s 运行规则：当前风/时段/天气无【可用】匹配规则"
                  "（超限跑道已排除，保持按风合规跑道）" % icao))

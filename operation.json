@@ -1775,10 +1775,6 @@
     ]
   },
   "RJOO": {
-    "preferred_runways": [
-      "RW32L",
-      "RW14R"
-    ],
     "rules": [
       {
         "name": "北向运行",
@@ -1861,6 +1857,166 @@
             "I32L",
             "R32L",
             "R32R"
+          ]
+        }
+      }
+    ],
+    "preferred_runways": [
+      "RW32L",
+      "RW14R"
+    ]
+  },
+  "RJCC": {
+    "rules": [
+      {
+        "name": "北向运行（日间）",
+        "cond": {
+          "time_jst": [
+            "0700-2159"
+          ],
+          "days": [],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW01L"
+          ],
+          "sids": [
+            "KURIS7",
+            "SAVIT3",
+            "TO3BOK",
+            "TO3RAK",
+            "TOBBY9"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW01R"
+          ],
+          "stars": [
+            "KURI1Y",
+            "NAVE1Y"
+          ],
+          "iaps": [
+            "I01RY"
+          ]
+        }
+      },
+      {
+        "name": "南向运行（日间）",
+        "cond": {
+          "time_jst": [
+            "0700-2159"
+          ],
+          "days": [],
+          "ref_runway": "RW01L",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 5,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW19R"
+          ],
+          "sids": [
+            "DALBI2",
+            "JUGGL2",
+            "KURIS7",
+            "TO3BOK",
+            "TO3RAK"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW19L"
+          ],
+          "stars": [
+            "NAVE1K",
+            "NAVE1P"
+          ],
+          "iaps": [
+            "I19LZ"
+          ]
+        }
+      },
+      {
+        "name": "北向运行（夜间）",
+        "cond": {
+          "time_jst": [
+            "2200-0659"
+          ],
+          "days": [],
+          "ref_runway": null,
+          "wind_kind": "tailwind",
+          "wind_min_kt": null,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW01L"
+          ],
+          "sids": [
+            "HOKUT7",
+            "NAGAN5"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW01L"
+          ],
+          "stars": [
+            "MKE1A",
+            "NAVE1A"
+          ],
+          "iaps": [
+            "I01LY"
+          ]
+        }
+      },
+      {
+        "name": "南向运行（夜间）",
+        "cond": {
+          "time_jst": [
+            "2200-0659"
+          ],
+          "days": [],
+          "ref_runway": "RW01L",
+          "wind_kind": "tailwind",
+          "wind_min_kt": 10,
+          "ceiling_min_ft": null,
+          "ceiling_cover": null,
+          "visibility_min_m": null
+        },
+        "dep": {
+          "runways": [
+            "RW19R"
+          ],
+          "sids": [
+            "HOKUT7",
+            "YUFUT5"
+          ]
+        },
+        "arr": {
+          "runways": [
+            "RW19R"
+          ],
+          "stars": [
+            "CHE1A",
+            "KURI1N",
+            "NAVE1R"
+          ],
+          "iaps": [
+            "I19RX",
+            "I19RY"
           ]
         }
       }

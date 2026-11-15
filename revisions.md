@@ -16,6 +16,110 @@
 
 ---
 
+## v2.1.0_hotfix1(✅ 2026-11-15)— MCDU 第一次按 SEND 拿到生成版 ATIS（F33 修复）
+
+### 问题
+没加进「实时天气与 ATIS」列表的机场，MCDU 按 SEND 有时拿到生成版而不是 SWIM 真实报文；加上机场、点「更新 ATIS」之后才正常。
+
+### 根因
+- 与监视列表无关：`text_for_sim` 先查 `swim_atis.store`，不看列表；每次查询都带回全部 23 场。
+- MCDU 只等 `_SWIM_WAIT_SEC`=4 秒。要先登录的那次查询（启动后第一次 / 会话过期后）常超过 4 秒，超时且手上没有报文 → 生成版。「更新 ATIS」按钮不设时限，查回来就填满 23 场，之后 SEND 直接命中。
+- 会话过期时 `fetch` 在 403 后关掉查询连接，重新登录后再新建连接，多握手一次。
+- 附带：没在列表里的机场，要等 SWIM 超时之后才开始抓天气，再等 3 秒；天气没到 → 404（NO ATIS AVAILABLE）。
+
+实测（本机，未登录）：
+
+| 项目 | 结果 |
+| --- | --- |
+| 往返时延 | 0.19 秒 |
+| TLS 握手（web / top 各 5 次） | 0.2–1.1 秒，有一次 3.4 秒 |
+| 服务器空闲连接 | `Keep-Alive: timeout=15`（Apache） |
+| 未登录请求 | 403 |
+| 冷启动（v2.1.0 时用户实测） | 登录 0.94 + 查询 1.30 秒 |
+
+Fenix 的等待（黑盒探测服务按机场延时回复，用户在 MCDU 逐个 SEND）：
+
+| 延时 | 服务端 | MCDU |
+| --- | --- | --- |
+| 5.1 / 8.1 / 12.2 / 20.2 秒 | 发出 | 显示 |
+| 40.2 秒 | 发出成功（连接未断开） | 不显示 |
+
+### 修改
+| 文件 | 改动 |
+| --- | --- |
+| `dispatcher/live.py` | `_SWIM_WAIT_SEC` 4 → 12 秒（Fenix 至少等 20 秒）；`_PLAN_WAIT_SEC` 与之相同；`text_for_sim` 一开始就登记临时机场并叫醒天气刷新，生成版与 SWIM 并行准备，生成版的等待截止到同一总时限；日志写明是否含登录 |
+| `dispatcher/swim_client.py` | 被拒后不关查询连接（响应已读完，服务器保持连接；关了 `http.client` 会自动重连）；只读属性 `logged_in` |
+
+用户决定不在启动时预先登录：守住「用户发起一次才访问一次 SWIM」。
+
+### 验证
+假 SWIM 服务器（登录 / 查询延时可调、统计 TCP 连接数）+ 假账号，天气用桩函数：
+
+| 情形 | 改前 | 改后 |
+| --- | --- | --- |
+| 登录 4.5 秒，第一次 SEND | 生成版（4.3 秒） | 真实报文（4.7 秒） |
+| 同上，经真实 HTTP 走 Fenix 服务 | 生成版 | 真实报文 |
+| 登录 15 秒（超过上限） | 生成版（4.3 秒） | 生成版（12.0 秒） |
+| 登录 15 秒 + 天气 5 秒 | 404（7.0 秒） | 生成版（12.0 秒） |
+| 会话过期后，新建查询连接 | 1 | 0 |
+| SWIM 很快失败 / 非 SWIM 机场 | 生成版 | 生成版（不变） |
+
+F34 的回归照跑：405 对生成航路逐字相同；面板 540 例在改 RJCC 时段之前的规则下逐字相同（用当前规则有 82 例不同，全是 RJCC 日 / 夜南向的预期变化）；规则测试 42 项全过。
+
+---
+
+## v2.1.0_hotfix1(✅ 2026-11-15)— 生成航路按运行规则 / 实测定进离场端点（F34）· 新千岁运行规则
+
+### 问题
+RJCC→RJBD(无官方 AIP)日间应走 `SAVIT3.SHUYU` → `DALBI Y120 TAPPI Y12 …`，程序给了 `HWE Y14 ARIKA Y12 RAYJO`。
+
+### 根因
+- `router.py` 不读 operation.json:端点 = 学到的官方离场头 ∪ 移管门 ∪ CIFP，A* 取最短(HWE 643 NM < DALBI 650 NM)。
+- 规则由面板在航路定了之后套用，只能在「接得上这条航路的 SID」里挑:接 HWE 的只有 `HWE8`，不在规则里。
+
+### 修改
+| 文件 | 改动 |
+| --- | --- |
+| `dispatcher/operations.py` | 新增 `rule_contexts` / `measured_config` / `active_rules` / `airport_active_rules` / `route_endpoints`；`default_eobt_min` / `eobt_weekday` 从 viewmodel 搬来；`select_rule` 拆出 `_rule_candidates`，有实测时按 `_measured_ok` / `_apch_matches` 要求对上具体跑道与进近 |
+| `dispatcher/router.py` | `generate_route(dep_fixes=, arr_fixes=)`、`_limit_cands`；接不上 → 该侧不限定 + `ops_note`；不限定时会降级直飞的短程保持直飞 |
+| `dispatcher/procedures.py` | `connect_idents`（与 `matching_choices` 同用 `_connect_points`） |
+| `dispatcher/ntrack.py` | `approaches_by_runway`：实测进近按跑道分组，换不成 CIFP ident 的（HIGHWAY VSL）单独记 |
+| `dispatcher/controller.py` | `plan(refresh_measured=)` 在生成航路前取天气与实测；`measured_configs` / `rule_endpoints` / `generate_by_rules` / `generated_candidate` / `regenerate_generated`；`_prefilter` 提成模块函数 |
+| `dispatcher/live.py` | `ensure_fresh`：规划时查一次 SWIM（30 分钟内查过不查，最多等 `_PLAN_WAIT_SEC`；原定 5 秒，随下面的 MCDU 修复改为 12 秒） |
+| `dispatcher/viewmodel.py` | `rule_basis_lines`；`ProcPanelModel` 用 `proc["eobt_min"]`、`_ops_ctxs` / `ends_key` / `_check_regen` / `replace_generated`；生成航路只在生效的那组规则里选；实测对不上规则时的标注 |
+| `dispatcher/planner.py` | `FlightPlan.generated_route_ops` |
+| `operation.json` | 新增新千岁（RJCC）4 条规则：日间 0700-2159 / 夜间 2200-0659 各北向、南向一条；RW01L 顺风日间 ≥5 节、夜间 ≥10 节转南向（先看风向定南北，再看时段定日夜，用户定） |
+| `dispatcher/ui_flet/app.py`、`proc_view.py` | 注入 `ensure_fresh`；`on_regen` → `_regen_route` 后台重算（序号丢弃过期结果）→ 更新结果卡 / 地图 / SimBrief / 面板 |
+
+```python
+# operations.active_rules：两侧候选一起排序，第一条定运行方向
+if whole is None:
+    ok = True                       # 排第一的：定下运行方向
+elif any(r is rule for r, _ in out[other]):
+    ok = not (rwys & taken[side])   # 同一条规则的另一侧（深夜「离场 16L，进场 34R」本就方向相反）
+elif whole or _complete(rule):
+    ok = False                      # 完整构型与别的规则互为替代方案
+else:
+    ok = not (rwys & taken[side] or _reciprocal_any(rwys, taken["dep"] | taken["arr"]))
+```
+
+### 验证
+- 回归:405 个随机机场对，不传限定时新旧 `generate_route` 逐字相同；60 个有 AIP 的规则机场对 × 3 时刻 × 3 风(540 例)，面板预选新旧逐字相同。
+- 新功能 42 项全过(RJCC 日 / 夜 / 南风；SWIM 实测吻合 / 风闸被取代 / 对不上以实测为主；羽田深夜 ILS Y 34L、日间 ILS Z / ILS X + HIGHWAY VSL、离场 05/34R；伊丹盘旋；改 EOBT 重算；规划时查 SWIM 的次数与超时)。
+- 抽样 182 个无 AIP 机场对 × 日 / 夜 × 无风 / 北风 12 / 南风 12(1,092 次):
+
+| 结果 | 次数 |
+| --- | --- |
+| 落在规则端点上（面板接得上规则程序） | 968（88.6%） |
+| 短程直飞，规则不适用 | 124（11.4%） |
+| 一端接不上，退回最短 | 12（1.1%） |
+| 新增大角度转弯 | 0 |
+
+  改了端点的 256 次:多飞中位 +8、p90 +55、最多 +63 NM(羽田深夜 `DAIGO Y108 MESSE`)。
+- 真实窗口:规划 RJCC→RJBD → `DALBI Y120 TAPPI Y12 RAYJO` + `SAVIT3.SHUYU`；EOBT 改 2330 → 自动重算为 `CHE Y12 HWE Y14 ARIKA Y12 RAYJO` + `NAGAN5`；关规则开关 → `HWE Y14 ARIKA Y12 RAYJO`。
+
+---
+
 ## v2.1.0(✅ 2026-11-01)— 实时天气与 ATIS（F33）：SWIM 真实 ATIS · 生成 ATIS · Fenix A320
 
 ### 新增模块

@@ -35,6 +35,7 @@ class FlightPlan:
     gen_map: object = None                               # 生成航路的 (coords, 标题)
     aip_xfers: list = None                               # F32：各 AIP 航路对上的进近移管（vatjpn.match_arrival 的结果），与 aip_routes 同序
     gen_xfer: object = None                              # F32：生成航路的进近移管
+    generated_route_ops: dict = None                     # 生成航路按哪条运行规则 / 哪份实测定的端点（controller.generate_by_rules 的 ops）
     active_sims: object = None                            # 渲染地景标注/警告所用的模拟器集合(None=两者)；问题1
     sb_base: dict = None                                  # SimBrief 基础参数 {orig,dest,airline,fltnum,actype}（F20：选定 SID/STAR 后据此重建带 route 的链接）
 

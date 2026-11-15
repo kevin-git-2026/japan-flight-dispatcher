@@ -1220,7 +1220,14 @@ def _maybe_dct(dep, arr, graph, dat_path, exit_dct, best):
     }
 
 
-def _direct_route(dep, arr, graph, dat_path):
+def _limit_cands(cands, fixes):
+    """把端点候选限定在运行规则 / 实测给的衔接点（fixes = ident 集合）上；限定后为空 → []（调用方退回不限定）。
+    只在原有候选（已按航向、官方来向过滤）里筛，不另补：补进来的多是这个来向上不该用的入口——
+    实测千岁基地→新千岁会因此从 10 NM 变成经 KURIS 的 45 NM，这类超短航段用户定的是退回最短。"""
+    return [c for c in cands if c[0][0] in fixes]
+
+
+def _direct_route(dep, arr, graph, dat_path, limit=None):
     """case 1–4：SID/STAR/VOR/IAF/官方门 端点间直接 A*。
     离场门质量门控：用官方离场头算出的航路若含大锐角(suspect) 或 >_GATE_GIVEUP_RATIO×大圆 → 弃门重算
     （退回 SID/本场 VOR/几何，即允许「本场台离场 + VOR 程序」），取更优者。
@@ -1228,16 +1235,34 @@ def _direct_route(dep, arr, graph, dat_path):
     进场走廊奖励：再把落点换成同方向来的官方航路最常用的进场门（容差内）；换后的门若不是 STAR 衔接点，再交接一次。
     本场台离场只作后备：最终航路从本场 VOR 起飞时，把上面整套流程在【不用本场台】下重跑一遍，满足三条就改用它——
     不可疑、全程不再经过本场台（否则是「飞出去又绕回场上空」）、最多多飞 `_VOR_DEP_EXTRA_NM`。
-    要比整套流程的【最终】结果：只比首轮会看走眼（RJNK→RJFK 首轮两边打平，走完进场偏好后不用本场台的反而多 68 NM）。无解 → None。"""
+    要比整套流程的【最终】结果：只比首轮会看走眼（RJNK→RJFK 首轮两边打平，走完进场偏好后不用本场台的反而多 68 NM）。无解 → None。
+
+    `limit` = {"dep": fixes|None, "arr": fixes|None}：按运行规则 / 实测把两端限定在这些衔接点上
+    （见 generate_route）；某侧在这个方向上一个都接不上 → 该侧不限定，记进 limit["unreached"]。"""
+    limit = limit if limit is not None else {}
+    unreached = limit.setdefault("unreached", [])
     arr_cands = _arrival_candidates(arr, graph, dat_path, toward=(dep.lat_dd, dep.lon_dd))
+    if limit.get("arr") and arr_cands:
+        lim = _limit_cands(arr_cands, limit["arr"])
+        if lim:
+            arr_cands = lim
+        else:
+            unreached.append("arr")
     if not arr_cands:
         return None
     exit_dct = {k: d for k, d in arr_cands}
+    dep_fixes = limit.get("dep")
+    if dep_fixes and not _limit_cands(_departure_candidates(dep, graph, dat_path, toward=(arr.lat_dd, arr.lon_dd)),
+                                      dep_fixes):
+        unreached.append("dep")
+        dep_fixes = None
 
     def _plan(vor):
         def run(use_dep_gate, exits=exit_dct):
             dep_cands = _departure_candidates(dep, graph, dat_path, toward=(arr.lat_dd, arr.lon_dd),
                                               use_gates=use_dep_gate, vor=vor)
+            if dep_fixes:
+                dep_cands = _limit_cands(dep_cands, dep_fixes)
             if not dep_cands:
                 return None
             res = _astar(graph, {k: d for k, d in dep_cands}, exits, arr.lat_dd, arr.lon_dd)
@@ -1293,17 +1318,43 @@ def _corridor_dbg(graph, res):
           + (f"；离走廊: {' '.join(offsegs)}" if offsegs else ""))
 
 
-def generate_route(dep_airport, arr_airport, dat_path=None, aip_data=None, airports=None):
+def generate_route(dep_airport, arr_airport, dat_path=None, aip_data=None, airports=None,
+                   dep_fixes=None, arr_fixes=None):
     """无直连 AIP 航路时，用本地导航数据生成一条参考航路 = SID/STAR/VOR/IAF/官方门 端点间的直接 A*（case 1–4）。
     端点取自【官方航路学到的真实进/离场过渡点】∪【VATJPN 移管表官方门】∪【CIFP】（见 _departure_candidates/_arrival_candidates），
     enroute 走 RNAV 优先 + 走廊加权 + 方向合法 + 航路连续性平滑。基于这套真值的直接航路即理论最优——
     旧 Rule 5「借邻近机场官方 AIP 航路」桥接是其近似手段，端点学习落地后已删除（它会借入邻场离场过渡点造成倒飞/绕远）。
-    返回 {route_str,fixes,dist_nm,source,suspect,warn,coords} 或 None。`airports` 形参保留（向后兼容，现未用）。异常尽量自保不外抛。"""
+
+    `dep_fixes` / `arr_fixes`：按机场运行规则 / 实测运用状况，把两端限定在这些程序的衔接点上
+    （operations.route_endpoints 算出；RJCC 日间北向 → 只从 SAVIT3 / KURIS7 … 的出口起飞，于是走 DALBI 而不是夜间专用的 HWE）。
+    接得上就照规则走、多绕也保留（羽田深夜经 DAIGO Y108 MESSE 的海上进场正是如此）；
+    某侧在这个方向上一个都接不上（新千岁旁的千岁基地飞新千岁这类超短航段）→ 该侧不限定，ops_note 写明；
+    结果降级为短程直飞 → 程序不适用，同样写明。都不传 → 行为与以前完全一样。
+
+    返回 {route_str,fixes,dist_nm,source,suspect,warn,coords,ops_unreached,ops_note} 或 None。
+    `airports` 形参保留（向后兼容，现未用）。异常尽量自保不外抛。"""
     graph = get_graph(dat_path)
     if not graph.adj:
         return None
     _ensure_directions(graph, aip_data)          # 懒加载：首次从 AIP 航路学习 合法正向 + 走廊热度 + 真实进离场端点
-    res = _direct_route(dep_airport, arr_airport, graph, dat_path)
+    limit = {"dep": set(dep_fixes) if dep_fixes else None, "arr": set(arr_fixes) if arr_fixes else None}
+    res = _direct_route(dep_airport, arr_airport, graph, dat_path, limit)
+    if (dep_fixes or arr_fixes) and res and res.get("source") != "direct" and haversine_nm(
+            dep_airport.lat_dd, dep_airport.lon_dd, arr_airport.lat_dd, arr_airport.lon_dd) <= _DCT_MAX_NM:
+        # 不限定时本就降级为直飞的短程航段，限定后别绕着规则入口飞（千岁基地→新千岁 10 NM 会变成经 KURIS 的 45 NM）
+        free = _direct_route(dep_airport, arr_airport, graph, dat_path)
+        if free and free.get("source") == "direct":
+            res = free
+    if res and (dep_fixes or arr_fixes):
+        notes = []
+        side_name = {"dep": "离场", "arr": "进场"}
+        for side in limit.get("unreached") or ():
+            notes.append("%s %s 的运行规则程序在这个方向接不上航路网，已按最短规划"
+                         % ((dep_airport if side == "dep" else arr_airport).code, side_name[side]))
+        if res.get("source") == "direct":
+            notes.append("短程航段已降级为直飞，运行规则的进离场程序不适用")
+        res["ops_unreached"] = list(limit.get("unreached") or ())
+        res["ops_note"] = "；".join(notes) or None
     if DEBUG_CORRIDOR and res:
         _corridor_dbg(graph, res)
     return res

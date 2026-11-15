@@ -15,7 +15,7 @@ import os
 import json
 
 from .config import get_real_run_path
-from . import weather, procedures, timed
+from . import weather, procedures, timed, ntrack
 
 _FILENAME = "operation.json"
 _COMMENT = ("机场运行规则：用「⚙️ 编辑机场运行规则」可视化编辑。每机场一组 rules，"
@@ -197,26 +197,53 @@ def circling_pairs(rule, side, rows, proc_label=None):
     return {b: (procedures._reciprocal(b) if procedures._reciprocal(b) in circ else fallback) for b in rwys}
 
 
-def select_rule(rules, side, ctx, rows, config=None, prefer=()):
-    """为 side('dep'/'arr') 选一条命中规则 → (rule, runway_id, proc_label|None) 或 None。
-    rows = procedures.matching_choices 的行 [(rwy,len,labels)]（端点预筛后本侧候选跑道+程序标签）。
-    取舍词典序 min：(路线不相容, −时段/星期具体度, −实测进近命中, −有满足风门槛, 所选跑道侧风, 顺风, −有天气门槛, 列表序)。
-    `prefer` = 该机场的 preferred_runways：一条规则列了多条跑道时优先取它们，与规则里的先后无关。
+def _iap_runway(ident):
+    """进近 ident 落在哪条跑道（I34LY → RW34L、X22-W → RW22）；盘旋进近（VORA）不属任何跑道 → None。"""
+    m = procedures._RWNUM_RE.search(ident or "")
+    return ("RW" + m.group(1)) if m else None
 
-    **`config` = 实测运用状况**（ntrack，目前仅羽田）：`{"runways": {在用跑道}, "iaps": {在用进近 ident}}`。
-    给了它，就从「按风/天气**推断**构型」切换成「按实测构型**认**规则」：
-      · 跑道对不上实测在用集合的规则，直接排除（它不是当前在跑的那条）；
-      · **风闸与天气闸交给实测取代**（见 evaluate_gates 的 skip_* 说明）——它们本就是构型的代理指标；
-      · **不再做顺/侧风超限剔除**：实测在用的跑道就是现实，我们的风模型说它勉强也没用；
-      · **实测进近（IAP）成为好天/恶天的判别依据**——比云底/能见度门槛直接得多
-        （`LDA W RWY22` ⇒ 好天那条；`ILS RWY22` ⇒ 恶天那条）；
-      · 时段/星期闸门仍生效：ntrack 不告诉我们是 A/B/C 哪一档，那得靠 EOBT。"""
+
+def _apch_matches(blk, rwy, apch):
+    """规则在跑道 rwy 上写的进近，与实测在这条跑道上用的进近**完全吻合**吗（用户要求：具体到程序）。
+    apch = ntrack.approaches_by_runway 的结果；盘旋进近（不属任何跑道）算进每条跑道。
+      · 实测对这条跑道没给进近 → 跑道对上即可；
+      · 规则在这条跑道上没写 IAP（羽田「34R 好天」= HIGHWAY VSL 目视进近）→ 只在实测用的不是 CIFP 程序时吻合；
+      · 规则写了 IAP → 实测的 CIFP 进近非空、且全都在规则里（深夜 ILS Y 34L 对不上写着 ILS X / Z 34L 的规则）。"""
+    got = apch.get(rwy) or {"idents": set(), "other": []}
+    loose = apch.get(None) or {"idents": set(), "other": []}
+    m_r = set(got["idents"]) | set(loose["idents"])
+    if not m_r and not (got["other"] or loose["other"]):
+        return True
+    rule_r = {i for i in blk.get("iaps") or [] if _iap_runway(i) in (rwy, None)}
+    if not rule_r:
+        return not m_r
+    return bool(m_r) and m_r <= rule_r
+
+
+def _measured_ok(blk, side, rwys, inter_r, apch):
+    """有实测时一条规则在本侧的吻合跑道（按规则跑道顺序）；对不上 → 空列表。
+    离场：规则跑道在实测 DEP 里即可（羽田按单条跑道写规则，05 / 34R 各一条）。
+    进场：还要逐条跑道核对具体进近；目视盘旋规则（伊丹南向）核对的是进近所在跑道上的程序。"""
+    if side == "dep" or not apch:
+        return inter_r
+    circ = _circling_from(blk, rwys)
+    if circ:
+        flown = set().union(*(set(v["idents"]) for v in apch.values()))
+        rule_iaps = set(blk.get("iaps") or [])
+        return inter_r if (not flown or flown <= rule_iaps) else []
+    return [r for r in inter_r if _apch_matches(blk, r, apch)]
+
+
+def _rule_candidates(rules, side, ctx, rows, config=None, prefer=()):
+    """select_rule / active_rules 共用：过闸、吻合实测、风况合规的规则 → [(key, rule, rwy, proc_label)]。
+    key 的第一位是「路线不相容」，其余是与路线无关的取舍（见 select_rule）。"""
     rows = rows or []
     row_by_rwy = {r[0]: r for r in rows}
     with_proc = {r[0] for r in rows if r[2]}      # rows 里还有只带 IAP 的落地跑道（标签空）
     wind = ctx.get("wind") or (None, 0, None)
     used = set((config or {}).get("runways") or ())
     used_iaps = set((config or {}).get("iaps") or ())
+    apch = (config or {}).get("apch") or {}
     cands = []
     for idx, rule in enumerate(rules or []):
         blk = (rule or {}).get(side) or {}
@@ -230,8 +257,10 @@ def select_rule(rules, side, ctx, rows, config=None, prefer=()):
             if not (rwys or want or blk.get("iaps")):
                 continue
         inter_r = [r for r in rwys if r in used] if used else []
-        if used and not inter_r:
-            continue                              # 跑道对不上实测构型 → 不是当前在跑的这条规则
+        if used:
+            inter_r = _measured_ok(blk, side, rwys, inter_r, apch)
+            if not inter_r:
+                continue                          # 跑道或进近对不上实测构型 → 不是当前在跑的这条规则
         if not evaluate_gates(rule.get("cond") or {}, ctx,
                               skip_wind=bool(used), skip_weather=bool(used)):
             continue
@@ -268,7 +297,191 @@ def select_rule(rules, side, ctx, rows, config=None, prefer=()):
         key = (not route_ok, -specificity, -iap_hit,
                0 if has_wind else 1, xw, -hw, 0 if has_wx else 1, idx)
         cands.append((key, rule, rwy, proc_label))
+    return cands
+
+
+def select_rule(rules, side, ctx, rows, config=None, prefer=()):
+    """为 side('dep'/'arr') 选一条命中规则 → (rule, runway_id, proc_label|None) 或 None。
+    rows = procedures.matching_choices 的行 [(rwy,len,labels)]（端点预筛后本侧候选跑道+程序标签）。
+    取舍词典序 min：(路线不相容, −时段/星期具体度, −实测进近命中, −有满足风门槛, 所选跑道侧风, 顺风, −有天气门槛, 列表序)。
+    `prefer` = 该机场的 preferred_runways：一条规则列了多条跑道时优先取它们，与规则里的先后无关。
+
+    **`config` = 实测运用状况**（SWIM 真实 ATIS / 羽田 ntrack）：`measured_config` 的结果
+    `{"runways": {在用跑道}, "iaps": {在用进近 ident}, "apch": {跑道: 在用进近}}`。
+    给了它，就从「按风/天气**推断**构型」切换成「按实测构型**认**规则」：
+      · 跑道对不上实测在用集合的规则，直接排除（它不是当前在跑的那条）；
+      · 进场还要**逐条跑道对上具体进近**（`_apch_matches`）：深夜 34R 维护、34L 用 ILS Y 时，
+        写着 ILS X / ILS Z 34L 的规则不算吻合；对不上的规则也直接排除；
+      · **风闸与天气闸交给实测取代**（见 evaluate_gates 的 skip_* 说明）——它们本就是构型的代理指标；
+      · **不再做顺/侧风超限剔除**：实测在用的跑道就是现实，我们的风模型说它勉强也没用；
+      · 时段/星期闸门仍生效：实测反映的是此刻，航班按 EOBT / ETA 出发（用户决定）。
+    一条都对不上 → None，由调用方以实测为主。"""
+    cands = _rule_candidates(rules, side, ctx, rows, config, prefer)
     if not cands:
         return None
     cands.sort(key=lambda c: c[0])
     return cands[0][1:]      # (rule, runway_id, proc_label)
+
+
+def _reciprocal_any(a, b):
+    """两组跑道里有没有方向相反的（01 对 19、05 对 23、16 对 34）：那是另一种运行方向。"""
+    for x in a:
+        for y in b:
+            hx, hy = procedures.runway_heading_deg(x), procedures.runway_heading_deg(y)
+            if hx is not None and hy is not None and abs((hx - hy + 180) % 360 - 180) >= 150:
+                return True
+    return False
+
+
+def active_rules(rules, ctx, rows, config=None, prefer=()):
+    """此刻【同时生效】的一组规则 → {"dep": [(rule, runway_id)…], "arr": […]}（各按取舍键排序）——生成航路要在其中按航向选。
+    rows / config 都是 {"dep": …, "arr": …}（config 可为 None）。
+
+    不能只挑一条：羽田离场 05（西行）与 34R（北、东行）是两条同时生效的规则，进场 34L / 34R 也是，
+    要等航路定了才知道用哪条（面板就是这样：先看路线相容）。生成航路之前还没有航路，所以：
+      · 离场、进场两侧的候选放在一起排序，排第一的定下运行方向；与已选入的规则（**两侧都算**）跑道方向相反的
+        → 另一种运行方向，不要。只看本侧不够：南风时离场 05 与 16L 只差 110°，要和进场的 23 比才看得出是北风构型；
+      · 本侧与已选入的规则共用跑道的 → 被它取代（好天 / 恶天对子、深夜规则对全天规则），不要；
+      · 交叉或平行的跑道（05 与 34R、34L 与 34R）→ 一并生效；
+      · 但排第一的若是【同时写了离场和进场】的规则（羽田深夜「离场 05，进场 34L」、RJCC / 伊丹的规则），
+        它本身就是整座机场的完整构型——只写一侧的规则（羽田白天按单条跑道写的那些）此时都不生效，
+        否则深夜还会混进白天全天有效的「34R 进场」。
+    取舍键与 select_rule 相同，只是去掉「路线不相容」（还没有航路）。"""
+    allc = []
+    for side in ("dep", "arr"):
+        for key, rule, rwy, _lb in _rule_candidates(rules, side, ctx, (rows or {}).get(side),
+                                                     (config or {}).get(side), prefer):
+            allc.append((key[1:], side, rule, rwy))
+    allc.sort(key=lambda c: c[0])
+    out = {"dep": [], "arr": []}
+    taken = {"dep": set(), "arr": set()}
+    whole = None
+    for _key, side, rule, rwy in allc:
+        rwys = set(((rule or {}).get(side) or {}).get("runways") or ())
+        other = "arr" if side == "dep" else "dep"
+        if whole is None:
+            ok = True                       # 排第一的：定下运行方向
+        elif any(r is rule for r, _ in out[other]):
+            # 同一条规则的另一侧已选入：照它写的来（羽田深夜「离场 16L，进场 34R」两侧本就方向相反）
+            ok = not (rwys & taken[side])
+        elif whole or _complete(rule):
+            # 完整构型与别的规则互为替代方案（深夜的好天 / 恶天两套、白天按跑道拆写的规则 vs 深夜构型）
+            ok = False
+        else:
+            ok = not (rwys & taken[side] or _reciprocal_any(rwys, taken["dep"] | taken["arr"]))
+        if not ok:
+            continue
+        if whole is None:
+            whole = _complete(rule)
+        out[side].append((rule, rwy))
+        taken[side] |= rwys
+    return out
+
+
+def _complete(rule):
+    """同时写了离场和进场跑道的规则 = 一整套机场构型。"""
+    return bool(((rule or {}).get("dep") or {}).get("runways")) and bool(((rule or {}).get("arr") or {}).get("runways"))
+
+
+# ================= 生成航路按运行规则 / 实测定端点（v2.1.0 hotfix）=================
+# 共用的上下文、实测构型、端点——面板（viewmodel）与生成航路（controller）用同一份，免得两边各写一份走样。
+
+# EOBT 默认＝此刻 + 30 分钟：启动模拟器 + 做航前一般要半小时左右，直接拿「此刻」当撤轮挡时刻不现实（用户反馈）。
+EOBT_PREP_MIN = 30
+
+
+def default_eobt_min():
+    """默认 EOBT（当日 JST 分钟）＝此刻 + EOBT_PREP_MIN；过了午夜就落到次日凌晨（取模）。"""
+    return (weather.now_jst()[0] + EOBT_PREP_MIN) % 1440
+
+
+def eobt_weekday(eobt_min, now_min, now_wd):
+    """EOBT 只有钟点、不带日期 → 它是星期几（运行规则的星期闸门要用）。
+    默认按「今天」；但若它刚过午夜、且就在此刻之后 EOBT_PREP_MIN 分钟内——默认 EOBT 在 23:30 后跨午夜时正是如此——
+    那是明天，星期 +1。其余（含用户手填的更早钟点）照旧按今天。"""
+    if eobt_min < now_min and eobt_min + 1440 - now_min <= EOBT_PREP_MIN:
+        return now_wd % 7 + 1
+    return now_wd
+
+
+def rule_contexts(eobt_jst, dist_nm, dep_wind, dep_sky, arr_wind, arr_sky):
+    """规则匹配上下文 → (dep_ctx, arr_ctx)：离场按 EOBT、到达按 ETA（EOBT + 滑出 + 航程 ÷ 巡航速度）。
+    sky = weather.parse_sky 的 (layers, vis_m)。到达跨午夜时星期 +1。"""
+    now_min, now_wd = weather.now_jst()
+    dep_wd = eobt_weekday(eobt_jst, now_min, now_wd)              # 默认 EOBT 跨午夜 → 是明天
+    try:
+        _eu, eta_utc = timed.plan_times_utc(eobt_jst, dist_nm or 0)
+        eta_jst = (eta_utc + 540) % 1440
+    except Exception:                                             # noqa: BLE001
+        eta_jst = eobt_jst
+    arr_wd = dep_wd if eta_jst >= eobt_jst else (dep_wd % 7 + 1)  # 到达跨午夜 → 星期 +1
+    dep_sky, arr_sky = dep_sky or ([], None), arr_sky or ([], None)
+    return ({"jst_min": eobt_jst, "weekday": dep_wd, "wind": dep_wind,
+             "sky_layers": dep_sky[0], "vis_m": dep_sky[1]},
+            {"jst_min": eta_jst, "weekday": arr_wd, "wind": arr_wind,
+             "sky_layers": arr_sky[0], "vis_m": arr_sky[1]})
+
+
+def measured_config(nt_cfg, side, iap_list):
+    """实测运用状况（SWIM 报文 / ntrack，形如 {approaches, ldg, dep}）→ 规则引擎的 config；无实测 → None。
+    离场只看 DEP 跑道；进场看 LDG 跑道 + 按跑道分组的具体进近（iap_list = procedures.enumerate_approaches）。"""
+    if not nt_cfg:
+        return None
+    rwys = set(nt_cfg.get("dep" if side == "dep" else "ldg") or ())
+    if not rwys:
+        return None
+    if side == "dep":
+        return {"runways": rwys, "iaps": set(), "apch": {}}
+    apps = nt_cfg.get("approaches") or []
+    return {"runways": rwys, "iaps": set(ntrack.match_iaps(apps, iap_list)),
+            "apch": ntrack.approaches_by_runway(apps, iap_list)}
+
+
+def airport_active_rules(ops_data, icao, ctx, nt_cfg, dat_path=None):
+    """一个机场此刻生效的规则（两侧）→ (active, configs, rows)。nt_cfg = 该机场的实测运用状况（SWIM / ntrack）或 None。
+    面板（生成航路的候选）和生成航路都用它，保证两边认的是同一组规则。"""
+    rows = {s: procedures.matching_choices(icao, dat_path, [], s)[0] for s in ("dep", "arr")}
+    iaps = procedures.enumerate_approaches(icao, dat_path) if nt_cfg else []
+    configs = {s: measured_config(nt_cfg, s, iaps) for s in ("dep", "arr")}
+    rules = airport_rules(ops_data, icao)
+    active = (active_rules(rules, ctx, rows, configs, preferred_runways(ops_data, icao))
+              if rules else {"dep": [], "arr": []})
+    return active, configs, rows
+
+
+def route_endpoints(ops_data, icao, side, ctx, nt_cfg, dat_path=None):
+    """生成航路的端点限定 → {source, rules, runways, unmatched, procs, fixes} 或 None（不限定）。
+    nt_cfg = 该机场的实测运用状况（SWIM 报文 / ntrack）或 None。优先级（用户定）：
+      1. 有实测：用实测匹配（跑道 + 具体进近）此刻生效的规则 → 这些规则的程序；
+      2. 实测在用、却没有规则对上的跑道 → 以实测为主：这条跑道上的全部程序（全都对不上时 source='measured'）；
+      3. 无实测：按 EOBT / ETA、风、天气此刻生效的规则（source='rule'）；
+      4. 都没有 → None。
+    规则没写本侧程序时，用它选中跑道上的全部程序。fixes = 这些程序能与航路衔接的点（procedures.connect_idents）。"""
+    kind = "SID" if side == "dep" else "STAR"
+    act, configs, rows_by = airport_active_rules(ops_data, icao, ctx, nt_cfg, dat_path)
+    active, config = act[side], configs[side]
+    labels_on = {r[0]: [lb.split(".")[0] for lb in r[2]] for r in rows_by[side]}
+    fixes, procs, rwys, unmatched = set(), [], [], []
+
+    def add(names, rwy):
+        nonlocal fixes
+        fixes |= procedures.connect_idents(icao, kind, names, rwy if side == "dep" else None, dat_path)
+        procs.extend(n for n in names if n not in procs)
+        if rwy and rwy not in rwys:
+            rwys.append(rwy)
+
+    covered = set()
+    for rule, rwy in active:
+        blk = rule.get(side) or {}
+        add(list(blk.get("sids" if side == "dep" else "stars") or []) or labels_on.get(rwy, []), rwy)
+        covered |= set(blk.get("runways") or ())
+    if config:
+        # 实测在用、却没有任何规则对上的跑道 → 这条跑道以实测为主（实测离场 05/34R、只有 34R 对上规则时，05 也照样能用）
+        for rwy in sorted(set(config.get("runways") or ()) - covered):
+            unmatched.append(rwy)
+            add(labels_on.get(rwy, []), rwy)
+    if not fixes:
+        return None
+    source = ("rule" if not unmatched else "rule+measured") if active else "measured"
+    return {"source": source, "measured": bool(config), "rules": [r.get("name", "") for r, _ in active],
+            "runways": rwys, "unmatched": unmatched, "procs": procs, "fixes": fixes}

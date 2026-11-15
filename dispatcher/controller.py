@@ -17,9 +17,9 @@ from .volanta import (
 )
 from .routing import calculate_distance_nm, find_aip_route, get_random_route
 from .flightaware import fetch_real_flights_with_filter
-from .planner import build_flight_plan, parse_runway_ft, parse_dist
+from .planner import build_flight_plan, parse_runway_ft, parse_dist, simbrief_url
 from .router import generate_route, route_geometry, route_length_nm, reload_transfer_points, transfer_entry
-from . import procedures, weather, timed, ntrack, vatjpn, swim_atis
+from . import procedures, weather, timed, ntrack, vatjpn, swim_atis, operations
 
 
 class NavDataMissing(Exception):
@@ -123,9 +123,10 @@ NAVDATA_STALE_TITLE = "导航数据需要更新"       # 正文 = AppState.navda
 
 # ---------- 规划 ----------
 
-def plan(state, f):
-    """一次完整规划（后台线程调）：选机场 → AIP/生成航路 → 各航路几何 → FlightAware+SimBrief → 进离场预筛+天气。
-    返回 (FlightPlan, proc)；任何硬错误抛异常，由 UI 显示。"""
+def plan(state, f, refresh_measured=None):
+    """一次完整规划（后台线程调）：选机场 → 天气与实测运用 → AIP/生成航路（按运行规则定端点）→ 各航路几何
+    → FlightAware+SimBrief → 进离场预筛。返回 (FlightPlan, proc)；任何硬错误抛异常，由 UI 显示。
+    refresh_measured(icaos)：UI 注入的「规划前查一次 SWIM」（LiveService.ensure_fresh）；controller 不碰 UI。"""
     min_rwy = parse_runway_ft(f["runway"])
     dmin, dmax = parse_dist(f["dmin"], f["dmax"])
     all_airports = load_airports_from_navigraph(state.dat_path, state.scenery_map, min_rwy)
@@ -232,12 +233,23 @@ def plan(state, f):
             dep_region=dep_region, arr_region=arr_region,
             accept_fn=accept_fn, on_verify=on_verify, on_giveup=on_giveup)
 
+    # 天气与实测运用状况放在航路生成之前：生成航路要按运行规则 / 实测定端点（面板也用这同一份）
+    eobt_min = operations.default_eobt_min()
+    if refresh_measured:
+        try:
+            refresh_measured([dep_obj.code, arr_obj.code])   # 规划也算一次用户发起的 SWIM 查询（用户定）
+        except Exception as e:                          # noqa: BLE001
+            print(f"⚠️ 查询 SWIM 失败（已忽略）: {e}")
+    print("🌦️ 正在获取机场天气（METAR / 网格回退）…")
+    dep_wx = weather.resolve_airport_wx(dep_obj.code, dep_obj.lat_dd, dep_obj.lon_dd)
+    arr_wx = weather.resolve_airport_wx(arr_obj.code, arr_obj.lat_dd, arr_obj.lon_dd)
+    nt = measured_configs(dep_obj, arr_obj)
+
     # F15：无 AIP 航路且非严格模式 → 用本地导航数据 A* 生成一条参考航路（两分支统一在此处理）
     generated = generated_warn = generated_dist = gr = None
     if route is None and not strict:
         try:
-            gr = generate_route(dep_obj, arr_obj, dat_path=state.dat_path,
-                                aip_data=state.aip_data, airports=all_airports)
+            gr = generate_by_rules(state, dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, all_airports)
             if gr:
                 generated = gr["route_str"]
                 generated_dist = gr["dist_nm"]
@@ -281,71 +293,17 @@ def plan(state, f):
                            generated_route_dist=generated_dist, aip_route_dists=aip_dists,
                            aip_maps=aip_maps, gen_map=gen_map, aip_xfers=aip_xfers, gen_xfer=gen_xfer)
     fp.active_sims = active                             # 问题1：渲染按所用模拟器标注地景
-    proc = compute_proc(state, dep_obj, arr_obj, generated,   # F20/F21：逐 AIP 候选预筛跑道/SID/STAR + 抓天气
+    fp.generated_route_ops = (gr or {}).get("ops")
+    proc = compute_proc(state, dep_obj, arr_obj, generated,   # F20/F21：逐 AIP 候选预筛跑道/SID/STAR
                         matched=matched, aip_dists=aip_dists, aip_pts=aip_pts,
-                        strict_ops=f.get("strict_ops"))
+                        strict_ops=f.get("strict_ops"), gr=gr,
+                        dep_wx=dep_wx, arr_wx=arr_wx, nt=nt, eobt_min=eobt_min)
     return fp, proc
 
 
-def compute_proc(state, dep_obj, arr_obj, generated, matched=None,
-                 aip_dists=None, aip_pts=None, strict_ops=False):
-    """F20/F21（后台线程）：为每条 AIP 航路（或生成航路）预算端点预筛的跑道/SID·STAR，并抓 dep/arr 的 METAR+TAF。
-    matched=该航线全部 AIP 原始行（>1 条→用户在弹窗按 EOBT/机型/高度选或定唯一）；aip_pts/aip_dists 与之同序
-    （复用 plan() 已算几何、免重算）。任一步失败都不影响主规划（返回空/None，UI 优雅降级）。"""
-    def _prefilter(base_route, pts):
-        """一条航路串 → (dep_rows, dep_matched, arr_rows, arr_matched, arr_gate)。pts 有则复用其航点、否则现算。"""
-        route_fixes = []
-        try:
-            if pts is None and base_route:
-                pts = route_geometry(dep_obj, arr_obj, base_route, state.dat_path)
-            if pts:
-                route_fixes = [p[0] for p in pts[1:-1]]  # 去首尾机场，留 enroute
-        except Exception:
-            route_fixes = []
-        # 端点从航路串的【航路名结构】定：SID 出口=第一个航路名前的点、STAR 入口=最后一个航路名后的点。
-        # 不能拿 route_fixes[0]/[-1]——串开头的 SID 机体被逐点展开(TIGER SUMAR AYAME SETOH)会让
-        # 预筛只匹配到裸 SID(无过渡)；真正的 SID 出口是它们之后、第一个航路名前的那个点(SOUJA)。
-        dep_exit, arr_entry = procedures.sid_star_endpoints(base_route)
-
-        def _order(fixes, end):                          # 把端点排到 [0]（在则切片去掉端点前的终端区点，不在则前插）
-            if end and end in fixes:
-                return fixes[fixes.index(end):]
-            return ([end] if end else []) + fixes
-        try:
-            dr, dm = procedures.matching_choices(dep_obj.code, state.dat_path, _order(route_fixes, dep_exit), "dep")
-        except Exception:
-            dr, dm = [], False
-        try:
-            ar, am = procedures.matching_choices(arr_obj.code, state.dat_path,
-                                                 _order(list(reversed(route_fixes)), arr_entry), "arr")
-        except Exception:
-            ar, am = [], False
-        # STAR 入口 = 本次实际用的【进场门】。带上它，面板才能查 VATJPN 的「门↔STAR 配对」去预选 STAR
-        gate = arr_entry or (route_fixes[-1] if route_fixes else None)
-        return dr, dm, ar, am, gate
-
-    candidates = []
-    if matched:                                          # AIP 分支：逐条候选（含时段/高度/机型 + 端点预筛）
-        for i, anno in enumerate(timed.annotate_routes(matched)):
-            pts = aip_pts[i] if (aip_pts and i < len(aip_pts)) else None
-            dist = aip_dists[i] if (aip_dists and i < len(aip_dists)) else None
-            dr, dm, ar, am, gate = _prefilter(anno["route"], pts)
-            candidates.append({**anno, "dist": dist, "pts": pts,   # pts 供全段航路预览复用 enroute 几何
-                               "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am,
-                               "arr_gate": gate})
-    elif generated:                                      # 生成航路：单候选（无时段/机型/高度）
-        try:
-            gpts = route_geometry(dep_obj, arr_obj, generated, state.dat_path)
-        except Exception:
-            gpts = None
-        dr, dm, ar, am, gate = _prefilter(generated, gpts)
-        candidates.append({"route": generated, "restr": "", "alt": "", "aircraft": "", "dist": None, "pts": gpts,
-                           "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am,
-                           "arr_gate": gate})
-
-    print("🌦️ 正在获取机场天气（METAR / 网格回退）…")
-    # 实测运用状况：SWIM 真实 ATIS（23 场）优先，其次国土交通省 ntrack（羽田）。
-    # 取到就是进离场预选的首选依据，取不到就走规则引擎
+def measured_configs(dep_obj, arr_obj):
+    """实测运用状况 {ICAO: cfg}：SWIM 真实 ATIS（23 场，未过期的报文）优先，其次国土交通省 ntrack（羽田）。
+    cfg 形如 {time_jst, approaches, ldg, dep}。取到就是选规则 / 定端点 / 进离场预选的首选依据。"""
     nt = {}
     for obj in (dep_obj, arr_obj):
         if obj.code in nt:
@@ -355,12 +313,145 @@ def compute_proc(state, dep_obj, arr_obj, generated, matched=None,
             cfg = ntrack.fetch_latest(obj.code)
         if cfg:
             nt[obj.code] = cfg
+    return nt
+
+
+def _wind_sky(wx):
+    wx = wx or {}
+    return wx.get("wind"), weather.parse_sky(wx.get("metar_raw"))
+
+
+def rule_endpoints(dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, dat_path, apply_ops=True):
+    """生成航路两端的限定 (离场, 到达)：operations.route_endpoints 的结果或 None。
+    离场按 EOBT、到达按 ETA（大圆航程推算，与面板一致）；实测优先、对不上以实测为主、没有实测按规则（用户定）。
+    apply_ops=False（面板关了「按机场运行规则预选」）→ 都不限定。"""
+    if not apply_ops:
+        return None, None
+    try:
+        ops = operations.load_operations()
+        dw, ds = _wind_sky(dep_wx)
+        aw, asky = _wind_sky(arr_wx)
+        dctx, actx = operations.rule_contexts(eobt_min, calculate_distance_nm(dep_obj, arr_obj), dw, ds, aw, asky)
+        ed = operations.route_endpoints(ops, dep_obj.code, "dep", dctx, (nt or {}).get(dep_obj.code), dat_path)
+        ea = operations.route_endpoints(ops, arr_obj.code, "arr", actx, (nt or {}).get(arr_obj.code), dat_path)
+        return ed, ea
+    except Exception as e:                              # noqa: BLE001
+        print(f"⚠️ 运行规则定端点失败（已按最短规划）: {e}")
+        return None, None
+
+
+def generate_by_rules(state, dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, airports=None, apply_ops=True):
+    """按运行规则 / 实测定端点后生成航路；附上 ops（依据，给结果卡）与 ends_key（面板据此判断改 EOBT 后要不要重算）。"""
+    ed, ea = rule_endpoints(dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, state.dat_path, apply_ops)
+    gr = generate_route(dep_obj, arr_obj, dat_path=state.dat_path, aip_data=state.aip_data, airports=airports,
+                        dep_fixes=ed["fixes"] if ed else None, arr_fixes=ea["fixes"] if ea else None)
+    if gr:
+        gr["ends_key"] = (frozenset(ed["fixes"]) if ed else None, frozenset(ea["fixes"]) if ea else None)
+        # 实际接上的是哪几条程序（结果卡写依据用）：航路起点 / 终点能衔接的规则程序
+        exit_, entry = procedures.sid_star_endpoints(gr["route_str"])
+        used = {}
+        for side, e, icao, kind, pt in (("dep", ed, dep_obj.code, "SID", exit_), ("arr", ea, arr_obj.code, "STAR", entry)):
+            used[side] = [n for n in (e or {}).get("procs", [])
+                          if pt and pt in procedures.connect_idents(icao, kind, [n], dat_path=state.dat_path)]
+        gr["ops"] = {"dep": ed, "arr": ea, "dep_icao": dep_obj.code, "arr_icao": arr_obj.code,
+                     "eobt_min": eobt_min, "nt": {k: v.get("time_jst", "") for k, v in (nt or {}).items()},
+                     "dep_point": exit_, "arr_point": entry, "dep_used": used["dep"], "arr_used": used["arr"],
+                     "unreached": gr.get("ops_unreached") or [], "note": gr.get("ops_note")}
+    return gr
+
+
+def _prefilter(state, dep_obj, arr_obj, base_route, pts):
+    """一条航路串 → (dep_rows, dep_matched, arr_rows, arr_matched, arr_gate)。pts 有则复用其航点、否则现算。"""
+    route_fixes = []
+    try:
+        if pts is None and base_route:
+            pts = route_geometry(dep_obj, arr_obj, base_route, state.dat_path)
+        if pts:
+            route_fixes = [p[0] for p in pts[1:-1]]      # 去首尾机场，留 enroute
+    except Exception:
+        route_fixes = []
+    # 端点从航路串的【航路名结构】定：SID 出口=第一个航路名前的点、STAR 入口=最后一个航路名后的点。
+    # 不能拿 route_fixes[0]/[-1]——串开头的 SID 机体被逐点展开(TIGER SUMAR AYAME SETOH)会让
+    # 预筛只匹配到裸 SID(无过渡)；真正的 SID 出口是它们之后、第一个航路名前的那个点(SOUJA)。
+    dep_exit, arr_entry = procedures.sid_star_endpoints(base_route)
+
+    def _order(fixes, end):                              # 把端点排到 [0]（在则切片去掉端点前的终端区点，不在则前插）
+        if end and end in fixes:
+            return fixes[fixes.index(end):]
+        return ([end] if end else []) + fixes
+    try:
+        dr, dm = procedures.matching_choices(dep_obj.code, state.dat_path, _order(route_fixes, dep_exit), "dep")
+    except Exception:
+        dr, dm = [], False
+    try:
+        ar, am = procedures.matching_choices(arr_obj.code, state.dat_path,
+                                             _order(list(reversed(route_fixes)), arr_entry), "arr")
+    except Exception:
+        ar, am = [], False
+    # STAR 入口 = 本次实际用的【进场门】。带上它，面板才能查 VATJPN 的「门↔STAR 配对」去预选 STAR
+    gate = arr_entry or (route_fixes[-1] if route_fixes else None)
+    return dr, dm, ar, am, gate
+
+
+def generated_candidate(state, dep_obj, arr_obj, gr):
+    """生成航路 → 面板的单个候选（无时段/机型/高度）。带 generated / ends_key，面板据此在改 EOBT 时判断要不要重算。"""
+    generated = gr["route_str"]
+    try:
+        gpts = route_geometry(dep_obj, arr_obj, generated, state.dat_path)
+    except Exception:
+        gpts = None
+    dr, dm, ar, am, gate = _prefilter(state, dep_obj, arr_obj, generated, gpts)
+    return {"route": generated, "restr": "", "alt": "", "aircraft": "", "dist": None, "pts": gpts,
+            "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am, "arr_gate": gate,
+            "generated": True, "ends_key": gr.get("ends_key", (None, None))}
+
+
+def compute_proc(state, dep_obj, arr_obj, generated, matched=None,
+                 aip_dists=None, aip_pts=None, strict_ops=False, gr=None,
+                 dep_wx=None, arr_wx=None, nt=None, eobt_min=None):
+    """F20/F21（后台线程）：为每条 AIP 航路（或生成航路）预算端点预筛的跑道/SID·STAR。
+    matched=该航线全部 AIP 原始行（>1 条→用户在弹窗按 EOBT/机型/高度选或定唯一）；aip_pts/aip_dists 与之同序
+    （复用 plan() 已算几何、免重算）。天气 / 实测运用 / EOBT 由 plan() 先取好传进来（没传就现取）。
+    任一步失败都不影响主规划（返回空/None，UI 优雅降级）。"""
+    candidates = []
+    if matched:                                          # AIP 分支：逐条候选（含时段/高度/机型 + 端点预筛）
+        for i, anno in enumerate(timed.annotate_routes(matched)):
+            pts = aip_pts[i] if (aip_pts and i < len(aip_pts)) else None
+            dist = aip_dists[i] if (aip_dists and i < len(aip_dists)) else None
+            dr, dm, ar, am, gate = _prefilter(state, dep_obj, arr_obj, anno["route"], pts)
+            candidates.append({**anno, "dist": dist, "pts": pts,   # pts 供全段航路预览复用 enroute 几何
+                               "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am,
+                               "arr_gate": gate})
+    elif generated:                                      # 生成航路：单候选
+        candidates.append(generated_candidate(state, dep_obj, arr_obj, gr or {"route_str": generated}))
+
+    if dep_wx is None or arr_wx is None:
+        print("🌦️ 正在获取机场天气（METAR / 网格回退）…")
+        dep_wx = weather.resolve_airport_wx(dep_obj.code, dep_obj.lat_dd, dep_obj.lon_dd)
+        arr_wx = weather.resolve_airport_wx(arr_obj.code, arr_obj.lat_dd, arr_obj.lon_dd)
+    if nt is None:
+        nt = measured_configs(dep_obj, arr_obj)
     return {
         "aip_candidates": candidates, "selected": 0, "strict_ops": bool(strict_ops),
-        "dep_wx": weather.resolve_airport_wx(dep_obj.code, dep_obj.lat_dd, dep_obj.lon_dd),
-        "arr_wx": weather.resolve_airport_wx(arr_obj.code, arr_obj.lat_dd, arr_obj.lon_dd),
-        "ntrack": nt,
+        "dep_wx": dep_wx, "arr_wx": arr_wx, "ntrack": nt,
+        "eobt_min": eobt_min,
     }
+
+
+def regenerate_generated(state, dep_obj, arr_obj, eobt_text, dep_wx, arr_wx, nt, apply_ops):
+    """面板改了 EOBT / 运行规则开关、生效的规则跟着变了 → 按新的 EOBT 重新生成航路（后台线程调）。
+    → {gr, candidate, gen_map, gen_xfer}；生成失败 → None。"""
+    j = timed.parse_hhmm(eobt_text) if eobt_text else None
+    eobt_min = j if j is not None else operations.default_eobt_min()
+    gr = generate_by_rules(state, dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, apply_ops=apply_ops)
+    if not gr:
+        return None
+    generated = gr["route_str"]
+    gen_map = (gr["coords"], "%s→%s  %s" % (dep_obj.code, arr_obj.code, generated)) if gr.get("coords") else None
+    gen_xfer = (vatjpn.match_arrival(transfer_entry(arr_obj.code), generated, [p[0] for p in gr["coords"]])
+                if gr.get("coords") else None)
+    return {"gr": gr, "candidate": generated_candidate(state, dep_obj, arr_obj, gr),
+            "gen_map": gen_map, "gen_xfer": gen_xfer}
 
 
 # ---------- Volanta ----------

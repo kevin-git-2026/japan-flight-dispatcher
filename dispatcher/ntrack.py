@@ -111,6 +111,27 @@ def _norm(s):
     return s
 
 
+_APCH_RWY_RE = re.compile(r"RWY\s*(\d\d[LRC]?)")
+
+
+def approaches_by_runway(approaches, iap_list):
+    """实测进近串按跑道分组 → {"RW34L": {"idents": {CIFP ident…}, "other": [换不成 ident 的原文…]}, …}。
+    能对上 CIFP 的（`ILS Y RWY34L` → I34LY）进 idents；对不上的（`HIGHWAY VSL RWY34R` 这类目视进近）按原文里的
+    RWYxx 进 other——它说明这条跑道在用、但用的不是 CIFP 程序。没有 RWYxx 的（盘旋 `VOR A`）归在 None 下。"""
+    by_name = {_norm(a.get("name")): a for a in (iap_list or [])}
+    out = {}
+    for name in approaches or []:
+        a = by_name.get(_norm(name))
+        if a:
+            rwy = a.get("runway")
+            out.setdefault(rwy, {"idents": set(), "other": []})["idents"].add(a.get("ident"))
+        else:
+            m = _APCH_RWY_RE.search(_norm(name))
+            rwy = ("RW" + m.group(1)) if m else None
+            out.setdefault(rwy, {"idents": set(), "other": []})["other"].append(name)
+    return out
+
+
 def match_iaps(approaches, iap_list):
     """ntrack 的进近串 → CIFP 的进近 ident。
     `iap_list` = `procedures.enumerate_approaches(icao)` 的返回（含合成显示名 `name`）。

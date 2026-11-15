@@ -15,9 +15,10 @@ from .theme import MONO, panel
 
 
 class ProcView:
-    def __init__(self, on_open_url, on_preview_route, on_open_aip_dialog):
+    def __init__(self, on_open_url, on_preview_route, on_open_aip_dialog, on_regen=None):
         self.model = None
         self._syncing = False
+        self._on_regen = on_regen                        # 生成航路要按新的运行规则重算 → app 在后台重新生成
         self._on_open_url = on_open_url
         self._on_preview = on_preview_route
         self._on_aip_dialog = on_open_aip_dialog
@@ -131,11 +132,25 @@ class ProcView:
         self.model.set_eobt(self.eobt.value)
         # 开关开着时 set_eobt 会按新时段重选跑道/程序 → 得全量回写
         self.sync() if self.model.apply_ops else self.sync_derived()
+        self._take_regen()
 
     def _on_apply_ops(self):
         if self._syncing or not self.model:
             return
         self.model.set_apply_ops(bool(self.apply_ops.value))
+        self.sync()
+        self._take_regen()
+
+    def _take_regen(self):
+        req, self.model.regen_request = self.model.regen_request, None
+        if req and self._on_regen:
+            self._on_regen(req)
+
+    def replace_generated(self, candidate):
+        """重新生成的航路回来了：换进面板（保留 EOBT 与开关），全量回写。"""
+        if not self.model:
+            return
+        self.model.replace_generated(candidate)
         self.sync()
 
     def _on_aip_select(self):

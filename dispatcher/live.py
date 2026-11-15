@@ -17,8 +17,12 @@ METAR_SEC = 300                  # METAR 5 分钟刷新一次
 TAF_SEC = 1800                   # TAF 30 分钟
 _TICK_SEC = 15
 _TEMP_KEEP_SEC = 1800            # 只被模拟器请求过的机场，30 分钟后不再刷新
-_FIRST_WAIT_SEC = 3.0            # 模拟器请求一个还没数据的机场时最多等这么久
-_SWIM_WAIT_SEC = 4.0             # MCDU 按 SEND 时最多等 SWIM 这么久，超时用已有的报文或生成版
+_FIRST_WAIT_SEC = 3.0            # 模拟器请求一个还没数据的非 SWIM 机场时最多等这么久
+# MCDU 按 SEND 时最多等 SWIM 这么久，超时用已有的报文或生成版。要先登录的那次（启动后第一次 / 会话过期后）
+# 本机实测 2–4 秒、TLS 握手偶尔 3 秒以上，原来的 4 秒常不够。Fenix 实测至少等 20 秒（40 秒时 MCDU 不再显示）
+_SWIM_WAIT_SEC = 12.0
+_PLAN_FRESH_SEC = 1800           # 规划航线时：30 分钟内查到过报文就不再查
+_PLAN_WAIT_SEC = _SWIM_WAIT_SEC  # 规划航线时最多等 SWIM 这么久（同样会遇到要先登录的那次）
 _FAIL_TEXT = {"bad_login": "账号或密码错误", "auth": "登录被拒", "no_creds": "没有可用的账号"}
 
 
@@ -166,13 +170,40 @@ class LiveService:
         self._query_thread = None
         self._notify(None)
 
+    def ensure_fresh(self, icaos, max_age=_PLAN_FRESH_SEC, timeout=_PLAN_WAIT_SEC):
+        """规划航线前调（规划也算一次用户发起的查询，用户定）：起降机场里有 SWIM 机场、且它们都没有
+        max_age 秒内查到的报文 → 查一次（一个请求带全部 23 场；进行中的查询直接并入），最多等 timeout 秒。
+        开关没开 / 没账号 / 账号密码错误 → 不查。查不到或超时只是没有实测，规划照常走规则。"""
+        icaos = [i for i in icaos if i in swim_atis.SWIM_AIRPORTS]
+        if not icaos or not self.can_query_swim():
+            return
+        now = time.time()
+        if any((swim_atis.store.report(i) or {}).get("received_at", 0) > now - max_age for i in icaos):
+            return
+        thread = self.start_query()
+        if thread:
+            thread.join(timeout)
+            if thread.is_alive():
+                print("ℹ️ SWIM %.0f 秒内没有回应，先按运行规则规划" % timeout)
+
     # ---------- 给模拟器 ----------
     def text_for_sim(self, icao):
-        """HTTP 线程调：MCDU 按 SEND = 请求最新 ATIS。RJ/RO 以外或暂时没有 → None。不会长时间阻塞。"""
+        """HTTP 线程调：MCDU 按 SEND = 请求最新 ATIS。RJ/RO 以外或暂时没有 → None。
+        最多约 _SWIM_WAIT_SEC 秒，在 Fenix 的超时以内。"""
         if icao not in self._airports:
             return None
-        finished = True
+        t0 = time.time()
+        login = not self.client.logged_in
         thread = self.start_query() if icao in swim_atis.SWIM_AIRPORTS else None
+        # 生成版与 SWIM 并行准备：还没有就先叫醒后台抓天气，不等 SWIM 超时后才开始
+        with self._lock:
+            snap = self._snap.get(icao)
+            if icao not in self.watch:
+                self._temp[icao] = t0
+            ready = self._ready.setdefault(icao, threading.Event())
+        if not snap or not snap.get("atis"):
+            self._wake.set()
+        finished = True
         if thread:
             thread.join(_SWIM_WAIT_SEC)
             finished = not thread.is_alive()
@@ -182,22 +213,17 @@ class LiveService:
                 print("ℹ️ MCDU 请求 %s：SWIM %.0f 秒内没有回应，先返回已有报文" % (icao, _SWIM_WAIT_SEC))
             return rep["raw"]
         if thread:
-            why = ("SWIM %.0f 秒内没有回应" % _SWIM_WAIT_SEC if not finished
+            why = ("SWIM %.0f 秒内没有回应%s" % (_SWIM_WAIT_SEC, "（含登录）" if login else "")
+                   if not finished
                    else "SWIM 没有这个机场的报文或查询失败（%s）" % swim_atis.store.status())
             print("ℹ️ MCDU 请求 %s：%s，返回生成版" % (icao, why))
-        with self._lock:
-            snap = self._snap.get(icao)
-            if icao not in self.watch:
-                self._temp[icao] = time.time()
-            ready = self._ready.setdefault(icao, threading.Event())
+        snap = self.snapshot(icao)
         if snap and snap.get("source") == "swim":         # 上次的真实报文过期了 → 改用生成版
             self._rebuild(icao)
             snap = self.snapshot(icao)
-        if not snap or not snap.get("atis"):
-            self._wake.set()
-            ready.wait(_FIRST_WAIT_SEC)
-            with self._lock:
-                snap = self._snap.get(icao)
+        if not snap or not snap.get("atis"):              # 天气还没到：等到总时限为止
+            ready.wait(max(0.0, t0 + (_SWIM_WAIT_SEC if thread else _FIRST_WAIT_SEC) - time.time()))
+            snap = self.snapshot(icao)
         return snap.get("atis") if snap else None
 
     # ---------- 后台 ----------

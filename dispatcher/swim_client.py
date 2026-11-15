@@ -2,7 +2,8 @@
 # ATIS情報リクエストサービス（S2005）：官方提供 WebAPI，サービス利用審査 無し。
 #   登录：POST top.swim.mlit.go.jp/swim/webapi/login {"id","password"} → Cookie MSMSI、MSMAI
 #   查询：GET  web.swim.mlit.go.jp/f2atrq/web/FLV402001?location=A,B&dispcnt=1
-# 实测一个请求查 23 场约 0.5 秒。
+# 实测一个请求查 23 场约 0.5 秒。服务器 15 秒就断开空闲连接（Keep-Alive: timeout=15），
+# 所以隔一会儿再查都要重新握手；要先登录的那次（启动后第一次 / 会话过期后）本机实测 2–4 秒。
 #
 # 账号和密码只在 _login 里短暂存在于局部变量；登录 Cookie 只放内存，从不落盘，也不打印。
 # 账号或密码错误后不再自动重试（避免锁账号），等用户重新保存。
@@ -41,6 +42,11 @@ class SwimClient:
         self._conn = None                # 查询用的长连接，下次查询省去握手
         self.bad_login = False
 
+    @property
+    def logged_in(self):
+        """有没有登录会话（只说有没有，不涉及 Cookie 内容）。会话可能已在服务器端过期。"""
+        return self._session is not None
+
     def reset(self):
         """账号或密码改了：丢掉会话，允许重新登录。"""
         with self._lock:
@@ -70,8 +76,9 @@ class SwimClient:
                         return dict(res, status=fail)
                 code, ctype, body = self._get(icaos, res)
                 if self._rejected(code, ctype):           # 会话过期：重新登录一次
+                    # 查询连接不关：被拒的响应已读完，连接还能用（服务器关了的话 http.client 会自动重连），
+                    # 省一次 TLS 握手（本机实测 0.2–1.1 秒，偶尔 3 秒以上）
                     self._session = None
-                    self._close()
                     fail = self._login(res)
                     if fail:
                         return dict(res, status=fail)

@@ -71,7 +71,7 @@ class DispatcherApp:
                              on_volanta=self._on_volanta_click,
                              on_auto_toggle=self._on_auto_toggle)
         self.result = ResultView(on_open_url=self._open_url, on_open_map=self._open_map)
-        self.proc = ProcView(on_open_url=self._open_url,
+        self.proc = ProcView(on_regen=self._regen_route, on_open_url=self._open_url,
                              on_preview_route=self._preview_full_route,
                              on_open_aip_dialog=self._open_aip_dialog)
         self.log = LogView()
@@ -79,6 +79,8 @@ class DispatcherApp:
         self.ops_view = OpsView(self.page, on_close=self._pop_view)
         self.aip_dialog = AipDialog(self.page, on_select=self.proc.select_candidate)
         self._plan_maps = []
+        self._plan = None                                # 当前结果卡对应的 FlightPlan（改 EOBT 重新生成航路时要更新它）
+        self._regen_seq = 0                              # 重新生成的请求序号：EOBT 逐字输入时只认最后一次
         self.live_svc = None
         self.live = LiveView(can_update=swim_atis.SWIM_AIRPORTS, on_add=self._live_add,
                              on_update=self._live_update, on_remove=self._live_remove,
@@ -300,7 +302,9 @@ class DispatcherApp:
 
     def _plan_worker(self, f):
         try:
-            plan, proc = C.plan(self.state, f)
+            # 规划也算一次用户发起的 SWIM 查询（30 分钟内查过就不查）：实测是选运行规则、定航路端点的首选依据
+            refresh = self.live_svc.ensure_fresh if self.live_svc else None
+            plan, proc = C.plan(self.state, f, refresh_measured=refresh)
             self.shell.post(self._render_plan, plan, proc)
         except Exception as e:                          # noqa: BLE001
             print(f"❌ 发生错误: {e}")
@@ -313,6 +317,8 @@ class DispatcherApp:
         self._refresh()
 
     def _render_plan(self, plan, proc=None):
+        self._plan = plan
+        self._regen_seq += 1                             # 新的一次规划：作废还没回来的重新生成
         self.result.render(VM.result_spans(plan, has_map=True))
         self._plan_maps = VM.plan_maps(plan)             # 本次规划的全部航路（地图标签页用）
         self._populate_proc(plan, proc)
@@ -325,7 +331,46 @@ class DispatcherApp:
             print("🧪 SELFTEST: 自动打开地图（%d 条航路）" % len(self._plan_maps))
             self._open_map(*self._plan_maps[0])
 
-    # ---------- 进离场面板（F20/F21/F24）----------
+    # ---------- 生成航路按运行规则重新生成（改 EOBT / 运行规则开关）----------
+    def _regen_route(self, req):
+        """面板改了 EOBT / 开关、生效的运行规则跟着变了 → 后台按新 EOBT 重新生成航路。"""
+        m, plan = self.proc.model, self._plan
+        if not m or not plan or not req:
+            return
+        self._regen_seq += 1
+        seq = self._regen_seq
+        self.shell.run_bg(self._regen_worker, seq, plan, req,
+                          m.dep_wx, m.arr_wx, dict(m.ntrack))
+
+    def _regen_worker(self, seq, plan, req, dep_wx, arr_wx, nt):
+        try:
+            res = C.regenerate_generated(self.state, plan.dep, plan.arr, req["eobt"],
+                                         dep_wx, arr_wx, nt, req["apply_ops"])
+        except Exception as e:                          # noqa: BLE001
+            print(f"⚠️ 重新生成航路失败（已保留原航路）: {e}")
+            return
+        if res:
+            self.shell.post(self._apply_regen, seq, plan, req, res)
+
+    def _apply_regen(self, seq, plan, req, res):
+        if seq != self._regen_seq or plan is not self._plan or not self.proc.model:
+            return                                       # 过期（又改了 EOBT / 又规划了一次）
+        gr = res["gr"]
+        old = plan.generated_route
+        plan.generated_route = gr["route_str"]
+        plan.generated_route_dist = gr["dist_nm"]
+        plan.generated_route_warn = gr.get("warn") or None
+        plan.generated_route_ops = gr.get("ops")
+        plan.gen_map, plan.gen_xfer = res["gen_map"], res["gen_xfer"]
+        plan.simbrief_url = C.simbrief_url(plan.sb_base, plan.generated_route)
+        self.result.render(VM.result_spans(plan, has_map=True))
+        self._plan_maps = VM.plan_maps(plan)
+        self.proc.replace_generated(res["candidate"])
+        if plan.generated_route != old:
+            print("🔁 EOBT %s%s：生效的运行规则变了，已重新生成航路 → %s"
+                  % (req["eobt"] or "（默认）", "" if req["apply_ops"] else "（已关闭按规则预选）",
+                     plan.generated_route))
+
     def _populate_proc(self, plan, proc):
         if not proc or not proc.get("aip_candidates"):
             self.proc.hide()

@@ -270,6 +270,22 @@ def star_connect_points(icao, dat_path=None):
     return out
 
 
+def connect_idents(icao, kind, names, runway=None, dat_path=None):
+    """这些 SID / STAR（裸程序名）能与航路衔接的【全部点】ident 集合——生成航路按运行规则定端点用。
+    与 `matching_choices` 同一判据（`_connect_points`），所以「航路从这些点起 / 收在这些点上」⟺「面板一定匹配得到这些程序」。
+    kind='SID'|'STAR'。给了 runway 就只取服务该跑道的 SID；STAR 不按跑道筛（目视盘旋时 STAR 跟进近那条跑道走）。"""
+    want = set(names or ())
+    out = set()
+    for name, d in enumerate_procedures(icao, dat_path)[kind].items():
+        if name not in want:
+            continue
+        if kind == "SID" and runway and d.get("runways") and runway not in d["runways"]:
+            continue
+        t, b = _connect_points(d, kind == "SID")
+        out |= set(t.values()) | set(b)
+    return out
+
+
 _ORDER_NEAR_FIXES = 6      # 排序只看靠端点这一段航路（加密后的航点），够表达来向、又不会被航路远端带偏
 
 
