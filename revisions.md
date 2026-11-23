@@ -1433,7 +1433,7 @@ VATJPN「到着」栏的一行 `…KOHWA Y546 AGPUK MIRAI ABENO IKOMA` 里其实
 
 ## v1.4.0(🚧 开发中 · 2026-06-27)— 本地航路生成 + SimBrief 集成 + 机型库 + 交互地图（F15/F16…；首次引入第三方库）
 
-- **关联**:`PRD.md` §8.2（原「规划中」）/ 新功能 F15；用户书面规则见工作目录 `flight_planning.txt`。
+- **关联**:`PRD.md` §8.2（原「规划中」）/ 新功能 F15；用户书面规则原见工作目录 `flight_planning.txt`（已从仓库移除，内容由 `.claude/skills/route_planning` skill 取代）。
 - **背景**:无直连 AIP 航路时希望自动生成参考航路。曾评估 SimBrief `/v2/routes/generate`（逆向可用），但其 Navigraph 登录 token **只在浏览器 JS 内存（LS/SS/IndexedDB 全无）、磁盘抠不到** → 放弃，改为**完全自给**：解析程序自带 `NavData/` 的 X-Plane 导航数据，本地 A* 寻路。纯标准库、离线、无第三方。
 - **状态**:核心逻辑全实现并自测通过；**几个可调旋钮待用户实测后再定**；文档本次先存盘；**dist 尚未重编**。
 
