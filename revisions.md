@@ -16,6 +16,135 @@
 
 ---
 
+## v2.2.0(✅ 2026-11-22)— 随机抽线选了地域后报「未能找到与要求匹配的航线」
+
+### 问题
+出发固定为熊本 / 鹿儿岛等九州、琉球机场，目的地随机、目的地域选北海道或东北 → 报错「未能找到与要求匹配的航线。」
+
+### 根因
+航程两栏留空时 `planner.parse_dist` 默认 200–450 NM；`routing.get_random_route` 先按地域筛候选池、再按这个窗口筛距离，候选为空就抛这句笼统的错。只有「严格基于现实航班」模式在航程留空时不套窗口。实测（84 个跑道 ≥5900 ft 的机场）：RJFT / RJFK / RJFF → 北海道 695–976 NM、→ 东北 497–741 NM；琉球 ↔ 关东、北海道 → 近畿 / 中国 / 四国 / 九州 / 琉球全部落空；同一地域内多半不到 200 NM 也落空。
+
+### 修改
+| 文件 | 改动 |
+| --- | --- |
+| `dispatcher/routing.py` | `NoRouteError(RuntimeError)`：`reason`（`pool` / `distance` / `scenery` / `aip`）、`pair`、`dist_range`、`subject`、`range_text`。`get_random_route` 枚举时按筛选顺序计数（距离 → 两端地景 → AIP）并记下全部机场对的大圆距离范围，候选为空时报第一个把计数清零的条件。`_side_desc` / `_routes_of` / `_range_text` / `_window_text` 拼报错文字 |
+| `dispatcher/controller.py` | `plan()` 记 `dist_blank`（航程两栏都留空）；随机抽线捕获 `NoRouteError`：`dist_blank` 且 `reason == "distance"` → 打印一行、以 `(0, 1e9)` 重抽一次；其他原样抛出 |
+
+用户定：先按默认窗口抽，抽不到再放开（不选「选了地域就不套窗口」）。填了航程的不放宽。
+
+### 验证（`test_noroute.py`，全过）
+- RJFT / RJFK / ROAH × 北海道 / 东北，航程留空：都规划成功，目的机场在所选地域，日志一行说明（如「但 RJFT → 目的地域「北海道」的航线都在 716–924 NM，已不限航程重新抽取」）。
+- 全表：84 个出发机场 × 9 个目的地域 + 9 × 9 两端按地域随机，共 837 例，0 报错，其中 320 例用到了放开（11 秒）。
+- 填了 200–450：报「RJFT → 目的地域「北海道」的航线大圆距离 716–924 NM，不在航程 200–450 NM 内」；只填上限也照样报；两端地景、AIP 造成的空集各报其原因（「严格基于现实航班」模式下 RJFT → 北海道没有 AIP 航路，也写明是 AIP 限制）。
+- 不变性：180 组会成功的输入（不选 / 选地域、固定一端、严格 AIP、已飞次数、航路长校验），固定随机种子，与 HEAD 的 `routing.py` 逐字一致。
+- F35 / 实测覆盖 / F36 三组测试照跑全过；真实窗口：在界面上填 RJFT、目的地域北海道、航程留空 → 抽到 RJER（885 NM）；航程填 200–450 → 结果区显示具体原因。
+
+---
+
+## v2.2.0(✅ 2026-11-22)— ETA 按机型性能剖面与高空风推算（F36）
+
+### 问题
+ETA 决定到达端用日间还是深夜规则、AIP 时段是否适用、F35 改端是否触发，原来只按 `EOBT + 15 分 + 航程 ÷ 450 kt`（`timed.plan_times_utc`）估：不算爬升 / 下降、不算风，各处的航程口径也不一（大圆、AIP 航路长、F21 弹窗所有行共用选中行的航路长），450 kt 对涡桨太快。用户问机型性能剖面和各高度的风能不能做。
+
+### 现状实测（2026-11-22）
+- FlightAware 排班轮挡（减 7 分滑入）对照 34 条 AIP 航线：旧算法中位偏早 12.5 分、最多 46 分。
+- 当日 250 hPa 关东上空 245° / 120 kt，只算巡航段、450 kt 真空速，较无风：RJCC→RJTT +8、RJTT→RJCC −5、RJFF→RJTT −13、RJTT→RJFF +21、ROAH→RJTT −21、RJTT→ROAH +39 分。
+
+### 数据来源（用户定）
+| 来源 | 情况 | 结论 |
+| --- | --- | --- |
+| `aircrafts.json` 原字段 | 只有 id / icao / name / engines / pax，没有速度 | 加 `perf` |
+| BADA | 要许可 | 不用 |
+| EUROCONTROL 研究数据 | 条款禁止转发 | 不用 |
+| OpenAP WRAP | LGPL-3.0，17 种喷气机，涡桨映射成 E190，没有 DH8D；本仓库公开且没有 LICENSE | 只作对照，不打包 |
+| Open-Meteo 气压层风 | F22 已在用；`jma_msm` 850–200 hPa 逐时、多坐标一次请求；平时 0.07–0.5 s，冷请求一次 25 s | 用，超时后 `jma_gsm`，再不行按无风 |
+
+用户追加：「飞机的性能数据一并写进 aircraft.json，不新建数据文件」。
+
+### 修改
+| 文件 | 改动 |
+| --- | --- |
+| `aircrafts.json` | 212 个机型各加 `perf`：`cls`、`clb`（FL100 下 / 上 CAS、Mach）、`roc`（三段爬升率）、`crz`（Mach 或真空速）、`des`（Mach、CAS、FL100 下 CAS）、`rod`（两段下降率）、`fl`（典型巡航高度）、`ceil`、`app`（最后进近速度）、`term`（终端区余量）。按大类给初值，日本机队常见型号逐个给巡航 Mach / 真空速；原字段一个字节不动（一次性脚本在每行末尾追加） |
+| `dispatcher/aircraft.py` | `perf_of(query)` → (perf, 机型 id, 是否回退)；留空 / 查不到 → `DEFAULT_PERF_ID`="A320"；机型库没有 perf → (None, None, True) |
+| `dispatcher/eta.py`（新） | ISA（`tas_from_cas` / `tas_from_mach` / `hpa_to_ft`）；`Path`（沿航迹插值）、`gc_points` / `resample`；`Winds`（最近两点反距离加权、按气压高度线性、按小时线性）；`cruise_fl`（航程定典型高度、AIP 高度条件收窄、东单西双，磁差按 8°W）；`estimate`（爬升 / 巡航 / 下降分段积分 + 最后 10 NM 进近 + `term`，爬不到就降高度）；`legacy`（没有性能数据时的旧算法）；`EtaModel`（一次规划一个，按 EOBT + 几何 + 高度缓存；EOBT 的日期与 `operations.eobt_weekday` 一致） |
+| `dispatcher/weather.py` | `fetch_winds_aloft(points)`：一次 GET 取多点 7 层风（`past_days=1`、`forecast_days=2`），点吸附 0.2° 网格、按点缓存 1 小时；`jma_msm` → `jma_gsm` → None；首次取到打印 CC BY 4.0 署名 |
+| `dispatcher/operations.py` | `rule_contexts(..., eta_jst=)`；`aip_fit(rows, eobt, etas, ed, eas)` / `aip_key(fits, ed, eas)` / `aip_splice_ends(fits, ed, eas, gc)`：每行自己的 ETA 与到达端限定；`measured_at(cfg, ctx, planned_default)`：离场按 EOBT、到达按 ETA |
+| `dispatcher/controller.py` | `plan()`：AIP 几何提前算，高空风与 SWIM / METAR 并行取（`_WIND_WAIT_SEC`=8）、`eta_model` / `eta_log`；`EndsAt`（按 ETA 取两端限定并缓存）；`rule_endpoints(..., eta_jst=, measured_default=)`；`generate_by_rules(em=, ends_at=)`：按生成航路自身 ETA 复核、变了重生成一次，带回 `pts`；`aip_alternatives(..., aip_pts, ends_at, eobt, em, ...)`：每行按自己的 ETA，改端版按自己的 ETA 复核、变了重改一次；`regenerate_aip` / `regenerate_generated(em=, measured_default=)`；`fp.aip_etas` / `gen_eta`、`proc["eta"]` |
+| `dispatcher/planner.py` | `FlightPlan.aip_etas` / `gen_eta` |
+| `dispatcher/viewmodel.py` | `ProcPanelModel.eta_model`、`decision_eta`、`_ctxs_at`、`_ends`、`eobt_is_default`、`_measured(icao, ctx)`（替换 `active_ntrack`）；`AipTableModel(eta_model=)` 每行一个 ETA（用户填的 FL 参与）；`flight_time_text`，结果卡每条航路「⏱️ 预计 EOBT → 落地约 h:mm」 |
+| `dispatcher/ui_flet/app.py` | 后台重算交全部实测 + `measured_default` + 面板的 `eta_model`；F21 表传入 `eta_model` |
+
+### 方案取舍（用户定）
+- **航程口径**：各航路用自己的几何（AIP 每行用原 AIP 的几何，F35 判据只随 EOBT 变、不在 AIP / 改端之间来回翻）；航路未知时用大圆；生成 / 改端后 ETA 落进另一组到达规则 → 最多重算一次。
+- **选规则用的几何不含 SID / STAR**：程序是规则按 ETA 选的，反过来用会绕圈。`term`=4 分吸收 SID / STAR 多出的航程。实测 92 条 AIP 航线（无风）：全程比航路几何中位多 27 NM；「全程、不加余量」比「航路 + 余量」中位差 0.0 分、均值 +1.0、p10 −3.4、p90 +5.7；少数短程程序很长（RJOO→RJGG 航路 80 NM、全程 231 NM）差得多。
+- **实测覆盖**：到达端按 ETA。
+- **SimBrief OFP 回读**：本次不做。
+
+### 验证
+- 校准：FlightAware 排班 34 条 AIP 航线（每条取班次最多的机型、中位起飞时刻、当日高空风、AIP 第一条航路几何）：中位误差 +1.3 分、中位绝对误差 3.2、最大 19.6（RJAA→RJTT 调机）；无风 +2.2 / 6.8；旧算法 −12.5 / 12.5 / 46.0。去回之差与排班同向（RJCC⇄RJOA 排班 +20、模型 +27；RJFR⇄RJTT −20 / −23；RJAA⇄RJFM +30 / +24）。
+- 专项测试 36 项全过：ISA、东单西双、AIP 高度条件、机型回退；RJCC→RJTT 周二 21:30 无风时两行 ETA 22:57 / 22:58（旧 22:44）；合成西风下东行快于西行；生成航路复核（假 ETA 大圆 22:50、航路 23:10 → 重生成一次走 MESSE）；F21 每行各算；断网、高空风 20 秒不回（规划多等 8.0 秒、按无风）、机型库缺失走旧算法。
+- 回归（网络打桩、高空风桩成取不到）：基线是按本会话修改逆向还原的 F35 定稿代码（先用 F35 的 37 项测试确认）。日间 10:00 1225 例、生成航路日间 / 深夜各 188 例，除新增的「⏱️ 预计」行外逐字一致；深夜 01:00 651 例中 175 例只是说明里的 ETA 晚了 10–20 分，航路 / 规则 / 地图不变；21:30 651 例中 26 例因 ETA 越过 23:00 / 22:00 换了到达规则或加了「时段不符、无从改端」的说明。
+- F35 场景 37 项、实测覆盖 22 项（到达端改按 ETA 后更新了 3 项预期，另加 EOBT 09:20 离场不覆盖、到达覆盖的检查）全过。
+- 真实窗口（真实 Open-Meteo `jma_msm`）：RJCC→RJTT 默认 EOBT 10:00 → ETA 11:31、官方 AIP + GODI1C；改 21:30 → ETA 23:10、改端 `TOBBY Y10 DAIGO Y108 MESSE` + MESSEN。
+- 面板一度在 EOBT 下显示两行 ETA（各段分钟、依据），用户看后说「这一段里的 ETA 信息可以不放。加上之后面板就太挤了」→ 去掉（`proc_view` 不再有该控件，`ProcPanelModel.eta_estimate` / `eta_text` 删除，`eta.estimate` 的 `term` 覆盖参数随之删除）；结果卡每条航路的预计飞行时间保留。去掉后重跑：三组测试全过，真实窗口面板恢复原样、21:30 仍改端。
+
+---
+
+## v2.2.0(✅ 2026-11-22)— AIP 不适用于本时段 / 本运行时，按运行规则改端（F35）
+
+### 问题
+SWIM 显示羽田深夜运用时，RJCC→RJTT 仍走日间 AIP，不换到 `Y108 MESSE` 接 MESSEN。用户要求新航路「大体和 AIP 一致，但是最后一段有不同」。
+
+### 根因
+- RJCC→RJTT 两条 AIP 都带 `EOBT 2201-1244 &ETA 2100-1359`（UTC），即到达 06:00–22:59 JST 的日间航路；深夜到羽田的官方航路（UHHH 等）都写 `… RUBIS Y10 DAIGO Y108 MESSE`。
+- `controller.plan` 查到 AIP 就不生成航路；时段只在 F21 弹窗里标注，运行规则 / 实测只影响面板预选。
+- 549 个 AIP 机场对里 112 对在某些时段没有任何一行时段适用（多为 RJCC / RJBB / RJBE 夜间出发与羽田）。
+
+### 修改
+| 文件 | 改动 |
+| --- | --- |
+| `dispatcher/procedures.py` | `lead_trail_fixes`：航路串两端由程序接管的点（第一个航路名之前 / 最后一个之后；纯直飞串两端都是全部点），判兼容时不再只看一个点 |
+| `dispatcher/operations.py` | `aip_fit` / `aip_key` / `aip_splice_ends`、`AIP_SHORT_NM`=250：每行是否在时段内、两端能否接上生效规则 / 实测的程序，要不要改端、改哪端。ETA 按大圆推；只有实测、没对上规则的一端不参与触发 |
+| `dispatcher/router.py` | `splice_route_ends`：保留 AIP、只改冲突的一端；进场端取最晚、离场端取最早的分叉 / 汇入点（新接段无大转弯、≤ 最短 + `_SPLICE_EXTRA_NM`=25）；AIP 部分按原 token 照抄（`_aip_nodes` / `_prefix_tokens` / `_suffix_tokens` / `_mid_tokens` / `_join_tokens`）；候选不按来向过滤 |
+| `dispatcher/controller.py` | `plan()` 只算一次 `rule_endpoints`（生成航路与改端共用，`generate_by_rules(ends=)`）；`_ops_basis`；`aip_alternatives` / `_aip_candidates` / `regenerate_aip`；`compute_proc(alts=)`；默认行的改端串作 SimBrief 默认航路 |
+| `dispatcher/planner.py` | `FlightPlan.aip_alts`、`aip_alt_note` |
+| `dispatcher/viewmodel.py` | 结果卡改端块、`plan_maps` 插改端地图、`aip_label` / F21 表标「🌙改端」、严格判定不按原时段拒改端行；`ProcPanelModel._aip_key` / `_check_regen`（kind=gen/aip）/ `replace_candidates`，`set_eobt` 不论开关都查 |
+| `dispatcher/ui_flet/app.py`、`proc_view.py`、`aip_dialog.py` | 后台重算按 kind 分支，`_apply_aip_regen`；`replace_candidates`；`AipDialog.refresh`；F21 带回 EOBT 后也触发重算 |
+
+### 方案取舍（实测，均为用户定）
+| 选项 | 实测 | 结论 |
+| --- | --- | --- |
+| 触发：只看 AIP 时段 vs 时段或规则不符 | 后者多出 RJCC→ROAH（AIP 不限时段、从 DALBI 起，新千岁深夜只走 CHE/KURIS）；日间冲突 8 对全是 ≤158 NM 短程 | 时段或规则不符，短程（≤250 NM 且有时段适用行）照旧 |
+| 多条 AIP：每条各改 vs 只出最短一条 | RJCC→RJTT 两条分属 FL260+ / FL250- | 每条各改，保留高度 / 机型 |
+| 分叉点：最短 vs 尽量晚（≤ +25 NM） | DALBI 那条最短在 VINAR 离开、跳过 METEL/SDE/RUBIS；晚到 DAIGO 只多 3 NM | 尽量晚 |
+
+实现中另外实测到两点：
+- **只有实测、没对上规则的一端不能参与触发**：用 23 个 SWIM 机场的单跑道合成构型，白天会误触发 108 对；真实羽田日间四种构型、新千岁 / 伊丹北向南向构型都是 0。
+- **改端时不能按出发机场方向筛进场门**：RJNT→RJTT 先往东北接 Y10 再南下，按西边的出发地去筛丢了 MESSE，改成 `… DAIGO Y88 NIKKO Y588 XAC`（+115 NM）；拿 AIP 上离场 100 NM 的点当参考，Y31 那条又在西边、连接不上。不筛后为 `… GUSGI Y10 DAIGO Y108 MESSE`（+45 NM）。
+
+### 验证
+- 回归（网络打桩、随机呼号固定种子）：日间 10:00 × 无实测 / 羽田北风好天·恶天·南风好天·恶天 / 新千岁北·南 / 伊丹北·南，共 1225 例，结果卡、地图、面板候选与预选、SimBrief 链接与改动前逐字一致；没有 AIP 的 188 对（生成航路）日间、深夜都与改动前逐字一致。
+- 深夜 01:00（无实测 + 羽田深夜 34R 实测，651 例）：改端 137 个候选，无报错、无「改端失败」；比原 AIP 多飞中位 +22、最多 +109 NM（羽田深夜离场先出海）。
+- 场景测试 37 项全过：RJCC→RJTT 周一 23:30（两条改端、保留 FL260+ / FL250-、面板 NAGAN5 / MESSEN、SimBrief 用改端串、每次规划 0.27 秒）；SWIM 深夜 `ILS Y RWY34R LDG 34R DEP 16L` 与 `ILS Y RWY34L LDG 34L DEP 05`；白天不改端；面板 EOBT 23:30 ↔ 10:00 来回切、关规则开关；F21 严格判定；严格 AIP 模式；RJCC→ROAH；短程不改。
+- 真实窗口（进程内起程序、运行时文件落临时目录）：周一 23:30 规划 → 改端 + NAGAN5 / MESSEN；EOBT 改 10:00 → 恢复官方 AIP + TOBBY9 / GODI1H；改回 23:30 → 再次改端。
+
+### 追加：实测只在报文覆盖的时段内算数
+用户发现白天把 EOBT 改到 23:00，程序仍按此刻的 SWIM 报文（白天 ILS Z RWY34L/34R）算：深夜规则要 ILS Y，对不上 → 以实测为主 → 34L/34R 全部程序（含 GODIN）→ `CHE Y10 GODIN` + GODI1C；没有实测时同一 EOBT 是 `CHE Y10 DAIGO Y108 MESSE` + MESSEN。面板里还会按白天 ILS Z 选中全天规则「北风ABC（进场，34R，恶天）」。
+
+用户定的逻辑：默认按当前时间规划、实测照用；手动改了 EOBT 且不在报文覆盖的时段内 → 以运行规则为准。覆盖时段 = 观测时刻起 90 分钟（`swim_atis.MAX_AGE_SEC`）。
+
+| 文件 | 改动 |
+| --- | --- |
+| `dispatcher/swim_atis.py` | `store.config` 另带 `obs_jst`（报文观测的 JST 分钟、星期）与 `valid_min` |
+| `dispatcher/ntrack.py` | `fetch_latest` 另带 `obs_jst`（`_obs_jst`：表里时刻串的 HH:MM，取不出用抓取时刻）与 `valid_min`=`OBS_VALID_MIN`=90 |
+| `dispatcher/operations.py` | `measured_covers(cfg, jst_min, weekday)` |
+| `dispatcher/viewmodel.py` | `ProcPanelModel.plan_eobt_min`、`_measured` / `active_ntrack`：EOBT 没改过照用实测，改了且不覆盖 → 不用；选规则、端点、`_aip_key`、✅在用、IAP 标注都经它；`nt_label` 改成属性，注明「未采用，按运行规则」 |
+| `dispatcher/ui_flet/proc_view.py`、`app.py` | 改 EOBT 一律全量回写；后台重算只交 `active_ntrack()` |
+
+验证：20 项全过（周一 09:50 报文、10:00 规划：默认 → 实测；23:00 → 深夜规则改端 MESSE / MESSEN；11:00 → 实测；12:00 → 规则；改回默认 → 实测；没有 AIP 的 RJCJ→RJTT 改 23:00 → 重新生成为 `PANSY Y10 DAIGO Y108 MESSE`）；真实窗口同样三步；日间 1225 例回归仍与改动前逐字一致。
+
+---
+
 ## v2.1.0_hotfix1(✅ 2026-11-15)— MCDU 第一次按 SEND 拿到生成版 ATIS（F33 修复）
 
 ### 问题

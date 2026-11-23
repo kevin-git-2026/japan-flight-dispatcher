@@ -337,6 +337,21 @@ def sid_star_endpoints(route_str):
     return dep_exit, arr_entry
 
 
+def lead_trail_fixes(route_str):
+    """航路串两端由程序接管的那几个点 → (前导点, 尾随点)，判断 AIP 能不能接上运行规则的程序用。
+    前导 = 第一个航路名之前的航点（官方常把 SID 逐点写出：RJCC 深夜 `CHE MKE HWE Y14 …` 的 SID 交接点是 CHE）；
+    尾随 = 最后一个航路名之后的航点；纯直飞串（`ROKKO KAMEO OTABE ABENO IKOMA`）两端都是全部航点。
+    只拿 sid_star_endpoints 那一个点去比会把这些写法误判成接不上。航路名判据与它相同；`DCT` 不算点。
+    串以航路名开头 / 结尾（没有前导 / 尾随点）→ 该端返回 None，调用方视作兼容。"""
+    toks = [t for t in (route_str or "").split() if t and t != "DCT"]
+    if not toks:
+        return None, None
+    awy = [i for i, t in enumerate(toks) if any(c.isdigit() for c in t)]
+    if not awy:
+        return list(toks), list(toks)
+    return (toks[:awy[0]] or None), (toks[awy[-1] + 1:] or None)
+
+
 def matching_choices(icao, dat_path, route_fixes, kind):
     """按航路端点预筛该机场可用跑道 + SID.TRANS / STAR(.TRANS)。
     route_fixes: 朝端点方向的航点 ident 有序列表 —— 离场(kind='dep')传航路【正序】(首点在前)，

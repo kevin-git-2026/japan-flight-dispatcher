@@ -1,6 +1,7 @@
 # ================= 机型库（SimBrief 机型参数）=================
 # 读取运行目录的 aircrafts.json（从 SimBrief 抓取、精简剥隐私后的机型库），
-# 提供：机型查找（用户输入 ICAO/简写/名字 → SimBrief aircraft_id）+ GUI 下拉选项。
+# 提供：机型查找（用户输入 ICAO/简写/名字 → SimBrief aircraft_id）+ GUI 下拉选项 + 性能剖面（F36，ETA 推算）。
+# 每条的 perf 是本项目手工维护的数据（SimBrief 原库没有），不能用原始抓取覆盖整个文件。
 # 纯标准库；文件缺失/损坏一律降级为空库（机型查找回退为原样透传），不崩。
 
 import os
@@ -9,7 +10,7 @@ import json
 
 from .config import get_real_run_path
 
-_DB = None          # [{"id","icao","name","engines","pax","cargo","search"}, ...]
+_DB = None          # [{"id","icao","name","engines","pax","cargo","search","perf"}, ...]
 _BY_CODE = None     # {ICAO或id(大写): id}
 
 # 常见简写消歧：裸数字/口语简写易匹配到老型号或多型，这里给最常见默认（值为 SimBrief id；
@@ -74,6 +75,26 @@ def find_aircraft_id(query):
             if digits in (a.get("icao") or ""):
                 return a["id"]
     return None
+
+
+DEFAULT_PERF_ID = "A320"   # 机型留空 / 查不到时按它估 ETA（日本国内最常见的一类：窄体喷气）
+
+
+def perf_of(query):
+    """机型输入 → (性能剖面 perf, 实际用的机型 id, 是否回退)。perf 字段见 aircrafts.json（F36，eta.py 用）：
+    cls / clb / roc / crz / des / rod / fl / ceil / app / term。
+    查不到或留空 → 用 DEFAULT_PERF_ID 的剖面（回退=True）；机型库缺失或没有 perf → (None, None, True)，
+    调用方退回 timed.plan_times_utc 的老算法。"""
+    load_aircraft_db()
+    aid = find_aircraft_id(query) if query else None
+    by_id = {a["id"]: a for a in _DB or ()}
+    a = by_id.get(aid) if aid else None
+    if a and isinstance(a.get("perf"), dict):
+        return a["perf"], aid, False
+    d = by_id.get(DEFAULT_PERF_ID)
+    if d and isinstance(d.get("perf"), dict):
+        return d["perf"], DEFAULT_PERF_ID, True
+    return None, None, True
 
 
 def aircraft_choices():

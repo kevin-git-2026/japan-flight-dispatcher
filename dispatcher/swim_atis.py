@@ -153,8 +153,11 @@ class AtisStore:
         r = self.report(icao, now)
         if not r or not (r["ldg"] or r["dep"]):
             return None
+        jst = r["time"] + datetime.timedelta(hours=9)
+        # obs_jst / valid_min：报文覆盖的时段（观测时刻起 MAX_AGE_SEC），面板改 EOBT 后据此判断实测还算不算数
         return {"approaches": r["approaches"], "ldg": r["ldg"], "dep": r["dep"], "raw": r["raw"],
-                "time_jst": "SWIM %s" % r["time"].strftime("%d%H%MZ"), "source": "SWIM"}
+                "time_jst": "SWIM %s" % r["time"].strftime("%d%H%MZ"), "source": "SWIM",
+                "obs_jst": (jst.hour * 60 + jst.minute, jst.isoweekday()), "valid_min": MAX_AGE_SEC // 60}
 
 
 store = AtisStore()

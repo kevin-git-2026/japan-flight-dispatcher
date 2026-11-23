@@ -1360,6 +1360,220 @@ def generate_route(dep_airport, arr_airport, dat_path=None, aip_data=None, airpo
     return res
 
 
+# ---- AIP 改端：AIP 不适用于本时段 / 本运行时，保留 AIP 主体、只把冲突的一端接到运行规则的程序上 ----
+
+_SPLICE_EXTRA_NM = 25.0         # 尽量晚离开 AIP（离场端尽量早汇入）：比最短分叉最多多飞这么多（用户定）
+
+
+def _aip_nodes(route_str, graph):
+    """AIP 串 → (加密节点 [key…], 各段航路名 [[awy]|[]…], 各节点的位置 [(tok, awy, a, b)…], token 列表)。
+    位置：原串里的航点 → (该 token 下标, None, None, None)；沿航路加密出来的中间点 → (None, 航路名, 前一换路点下标, 后一换路点下标)。
+    与 _parse_aip_route 同一套解析（图里找不到的 token 当航路名），只是多记了每个点在原串里的位置，
+    这样改端时 AIP 部分能按原 token 原样保留，不必整条重排。"""
+    toks = route_str.split()
+    seq, pending = [], None
+    for i, tok in enumerate(toks):
+        key = graph.by_ident.get(tok)
+        if key:
+            seq.append((key, i, pending))
+            pending = None
+        else:
+            pending = tok
+    if len(seq) < 2:
+        return None, None, None, toks
+    path, names, pos = [seq[0][0]], [], [(seq[0][1], None, None, None)]
+    for i in range(1, len(seq)):
+        a, ia = seq[i - 1][0], seq[i - 1][1]
+        b, ib, awy = seq[i]
+        seg = _trace_airway(graph, a, b, awy) if (awy and awy != "DCT") else None
+        if seg and len(seg) > 2:
+            for k in seg[1:-1]:
+                path.append(k)
+                names.append([awy])
+                pos.append((None, awy, ia, ib))
+        path.append(b)
+        names.append([awy] if (awy and awy != "DCT") else [])
+        pos.append((ib, None, None, None))
+    return path, names, pos, toks
+
+
+def _prefix_tokens(toks, pos, k, ident):
+    """原串里到第 k 个节点为止的 token（含该点）；中间点 → `… 前一换路点 航路 该点`。"""
+    t, awy, a, _b = pos[k]
+    return toks[:t + 1] if t is not None else toks[:a + 1] + [awy, ident]
+
+
+def _suffix_tokens(toks, pos, j, ident):
+    """原串里从第 j 个节点起的 token（含该点）；中间点 → `该点 航路 后一换路点 …`。"""
+    t, awy, _a, b = pos[j]
+    return toks[t:] if t is not None else [ident, awy] + toks[b:]
+
+
+def _mid_tokens(toks, pos, P, j, k):
+    """原串里第 j 到第 k 个节点之间的 token（两端都含）；端点是加密出来的中间点时补上航路名。"""
+    if j == k:
+        return [P[j][0]]
+    tj, awy_j, _aj, bj = pos[j]
+    tk, awy_k, ak, _bk = pos[k]
+    if tj is None and tk is None and (_aj, bj) == (ak, _bk):      # 同一段航路中间的两个点
+        return [P[j][0], awy_j, P[k][0]]
+    lead, s = ([], tj) if tj is not None else ([P[j][0], awy_j], bj)
+    trail, e = ([], tk) if tk is not None else ([awy_k, P[k][0]], ak)
+    return lead + toks[s:e + 1] + trail
+
+
+def _join_tokens(left, right):
+    """两段 token 在同一个点相接：去掉重复的接点；接点两侧是同一条航路时连成一段（`Y10 X Y10` → `Y10`）。"""
+    if not left:
+        return list(right)
+    if not right:
+        return list(left)
+    out = left + right[1:]
+    i = len(left) - 1                                    # 接点下标
+    if 0 < i < len(out) - 1 and out[i - 1] == out[i + 1] and any(c.isdigit() for c in out[i - 1]):
+        out = out[:i - 1] + out[i + 1:]
+    return out
+
+
+def _tail_with_arrival_dct(graph, arr, path, names, dat_path):
+    """新接的进场段补上 VATJPN「到着」门后直飞点（与 _append_arrival_tail 同一套判据），names 按图里的真实边补。"""
+    extra = _arrival_tail_keys(graph, arr, path[-1], dat_path)
+    if not extra:
+        return path, names
+    names = list(names)
+    for a, b in zip([path[-1]] + extra[:-1], extra):
+        e = next((x for x in graph.adj.get(a, ()) if x[0] == b), None)
+        names.append(list(e[2]) if e else [])
+    return path + extra, names
+
+
+def _new_part_suspect(graph, keys):
+    """只查分叉 / 汇入处与新接的那段有没有大角度转弯（AIP 本身的转弯不算在改端头上）。"""
+    if len(keys) < 3:
+        return False
+    coords = [(graph.nodes[k][0], graph.nodes[k][1]) for k in keys]
+    return _check_continuity(coords, [k[0] for k in keys])[0]
+
+
+def splice_route_ends(dep_airport, arr_airport, route_str, dat_path=None, aip_data=None,
+                      dep_fixes=None, arr_fixes=None):
+    """AIP 改端：保留官方 AIP 航路的主体，只把与运行规则冲突的一端改接到规则程序的衔接点上。
+    用户的要求：深夜飞羽田「大体和 AIP 一致，但是最后一段有不同」——RJCC→RJTT 的日间 AIP `TOBBY Y10 GODIN`
+    在羽田深夜运用时改为 `TOBBY Y10 DAIGO Y108 MESSE`（接 MESSEN）。
+
+    `arr_fixes`：进场端要接的点（operations.route_endpoints 的 fixes）。沿 AIP 每个点试着从那里离开、A* 接过去，
+    取【新接段无大角度转弯、且总长 ≤ 最短 + _SPLICE_EXTRA_NM】中最晚离开的那个点（尽量多走 AIP，用户定）。
+    `dep_fixes`：离场端同理，取最早汇入 AIP 的点。两端都给时先改进场端，离场端只能汇入进场分叉点之前的 AIP。
+    候选端点用 _arrival_candidates / _departure_candidates + _limit_cands（与生成航路同一套方向过滤）。
+
+    AIP 部分按原 token 原样保留，只把新接的那段交给 _format_route（_parse_aip_route 会把图里找不到的 token
+    当航路名，整条重排在这种串上不保证原样）。
+
+    → (结果 dict | None, 原因 | None)。结果与 generate_route 同形，另有 source='aip_spliced'、
+      branch（进场端离开 AIP 的点）/ join（离场端汇入 AIP 的点）、aip_route（原串）。"""
+    graph = get_graph(dat_path)
+    if not graph.adj or not (dep_fixes or arr_fixes):
+        return None, "没有要改的一端"
+    _ensure_directions(graph, aip_data)
+    dep, arr = dep_airport, arr_airport
+    P, names, pos, toks = _aip_nodes(route_str, graph)
+    if not P:
+        return None, "AIP 航路解析不出航点"
+    xy = lambda k: (graph.nodes[k][0], graph.nodes[k][1])
+    seg = lambda a, b: haversine_nm(*xy(a), *xy(b))
+    lo = graph.legal_seg
+    branch = join = None
+    k_cut = j_cut = None                                 # 进场端离开 / 离场端汇入的 AIP 节点下标（P 的下标）
+    head_toks = tail_toks = None
+
+    # ---- 进场端：尽量晚离开 AIP ----
+    if arr_fixes:
+        # 不按来向过滤（toward=None）：生成航路按「出发机场的方位」筛门，可 AIP 常先绕到某条走廊再进场——
+        # RJNT→RJTT 先往东北接 Y10、再从北边南下，按西边的出发地去筛会把该用的 MESSE 筛掉，改成绕回西边的 XAC（+115 NM）；
+        # 拿 AIP 上某个点当参考也不稳（Y31 那条的 100 NM 点还在西边）。候选已限定在规则程序的衔接点上，
+        # 再加上「新接段无大角度转弯 + 不超过最短 25 NM」，反方向的入口不会被选中。
+        ex = {k: d for k, d in _limit_cands(_arrival_candidates(arr, graph, dat_path, toward=None), set(arr_fixes))}
+        if not ex:
+            return None, "%s 进场规则的程序在这个方向接不上航路网" % arr.code
+        cum = [haversine_nm(dep.lat_dd, dep.lon_dd, *xy(P[0]))]
+        for i in range(1, len(P)):
+            cum.append(cum[-1] + seg(P[i - 1], P[i]))
+        ref = _astar(graph, {P[k]: cum[k] for k in range(len(P))}, ex, arr.lat_dd, arr.lon_dd)
+        if not ref:
+            return None, "%s 进场规则的程序从这条 AIP 上接不过去" % arr.code
+        k0 = P.index(ref[0][0])
+        rp, rn = _tail_with_arrival_dct(graph, arr, ref[0], ref[1], dat_path)
+        best = _finish(graph, dep, arr, P[:k0] + rp, names[:k0] + rn, "x")["dist_nm"]
+        pick = None
+        for k in range(len(P) - 1, -1, -1):
+            res = _astar(graph, {P[k]: cum[k]}, ex, arr.lat_dd, arr.lon_dd)
+            if not res:
+                continue
+            tp, tn = _tail_with_arrival_dct(graph, arr, res[0], res[1], dat_path)
+            full = _finish(graph, dep, arr, P[:k] + tp, names[:k] + tn, "x")
+            if full["dist_nm"] > best + _SPLICE_EXTRA_NM:
+                continue
+            if _new_part_suspect(graph, P[max(k - 1, 0):k] + tp):
+                continue
+            pick = (k, tp, tn)
+            break
+        if not pick:
+            return None, "%s 进场改端处都有大角度转弯" % arr.code
+        k_cut, tp, tn = pick
+        branch = P[k_cut][0]
+        tail_toks = _format_route(tp, tn, graph.oneway, lo).split()
+        bp, bn = P[:k_cut] + tp, names[:k_cut] + tn          # 当前整条航路（P 的前 k_cut 个节点下标不变）
+        last_aip = k_cut
+    else:
+        bp, bn = P, names
+        last_aip = len(P) - 1
+
+    # ---- 离场端：尽量早汇入 AIP（只能汇入进场分叉点之前的 AIP 部分）----
+    if dep_fixes:
+        st = {k: d for k, d in _limit_cands(_departure_candidates(dep, graph, dat_path, toward=None), set(dep_fixes))}   # 同上
+        if not st:
+            return None, "%s 离场规则的程序在这个方向接不上航路网" % dep.code
+        rem = [0.0] * len(bp)
+        rem[-1] = haversine_nm(*xy(bp[-1]), arr.lat_dd, arr.lon_dd)
+        for i in range(len(bp) - 2, -1, -1):
+            rem[i] = rem[i + 1] + seg(bp[i], bp[i + 1])
+        ref = _astar(graph, st, {bp[j]: rem[j] for j in range(last_aip + 1)}, arr.lat_dd, arr.lon_dd)
+        if not ref:
+            return None, "%s 离场规则的程序接不到这条 AIP 上" % dep.code
+        j0 = bp.index(ref[0][-1])
+        best = _finish(graph, dep, arr, ref[0] + bp[j0 + 1:], ref[1] + bn[j0:], "x")["dist_nm"]
+        pick = None
+        for j in range(0, last_aip + 1):
+            res = ref if j == j0 else _astar(graph, st, {bp[j]: rem[j]}, arr.lat_dd, arr.lon_dd)
+            if not res or res[0][-1] != bp[j]:
+                continue
+            full = _finish(graph, dep, arr, res[0] + bp[j + 1:], res[1] + bn[j:], "x")
+            if full["dist_nm"] > best + _SPLICE_EXTRA_NM:
+                continue
+            if _new_part_suspect(graph, res[0] + bp[j + 1:j + 2]):
+                continue
+            pick = (j, res)
+            break
+        if not pick:
+            return None, "%s 离场改端处都有大角度转弯" % dep.code
+        j_cut, (hp, hn) = pick
+        join = P[j_cut][0]
+        head_toks = _format_route(hp, hn, graph.oneway, lo).split()
+        bp, bn = hp + bp[j_cut + 1:], hn + bn[j_cut:]
+
+    # ---- 拼航路串：AIP 部分照抄原 token，新接段用 _format_route 的写法 ----
+    if j_cut is None:
+        out_toks = _join_tokens(_prefix_tokens(toks, pos, k_cut, P[k_cut][0]), tail_toks)
+    elif k_cut is None:
+        out_toks = _join_tokens(head_toks, _suffix_tokens(toks, pos, j_cut, P[j_cut][0]))
+    else:
+        out_toks = _join_tokens(_join_tokens(head_toks, _mid_tokens(toks, pos, P, j_cut, k_cut)), tail_toks)
+    path, nms = bp, bn
+    res = _finish(graph, dep, arr, path, nms, "aip_spliced")
+    res.update(route_str=" ".join(out_toks), suspect=False, warn=None, branch=branch, join=join, aip_route=route_str)
+    return res, None
+
+
 def route_geometry(dep_airport, arr_airport, route_str, dat_path=None):
     """把航路串解析成带坐标的航点序列 [(ident, lat, lon), ...]，含起降机场首尾。
     用于算航路长度与画图；解析不到坐标的 token（airway 名）自动跳过。图不可用时只返回起降两点。"""

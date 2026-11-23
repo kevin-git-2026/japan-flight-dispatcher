@@ -36,6 +36,42 @@ def _in_region(ap, region):
     return regions.region_of(ap.lat_dd, ap.lon_dd) == region
 
 
+class NoRouteError(RuntimeError):
+    """随机抽线时候选为空。reason = 第一个把候选清空的条件：'pool'（两端只剩同一机场）/ 'distance'（航程窗口）/
+    'scenery'（两端地景）/ 'aip'（严格 AIP）。pair = 两端的描述（「RJFT → 目的地域「北海道」」），
+    dist_range = 这些机场对的大圆距离 (最小, 最大)。controller 据此决定航程留空时放开窗口重抽，或原样报给用户。"""
+
+    def __init__(self, reason, pair, dist_range, detail):
+        super().__init__("未能找到与要求匹配的航线：" + detail)
+        self.reason, self.pair, self.dist_range = reason, pair, dist_range
+        self.subject = _routes_of(pair)                  # 「RJFT → 目的地域「北海道」的航线」
+
+    @property
+    def range_text(self):
+        return _range_text(*(self.dist_range or (0, 0)))
+
+
+def _range_text(lo, hi):
+    return ("%.0f NM" % lo) if round(lo) == round(hi) else ("%.0f–%.0f NM" % (lo, hi))
+
+
+def _side_desc(fixed, region, word):
+    """抽线一端的描述：固定端写 ICAO；随机端有地域写「出发 / 目的地域「X」」，没有写「随机机场」。"""
+    if fixed:
+        return fixed
+    return "%s地域「%s」" % (word, region) if region else "随机机场"
+
+
+def _routes_of(pair):
+    """「RJFT → 目的地域「北海道」的航线」/「RJFT → RJCC 的航线」：西文结尾才空一格。"""
+    return pair + (" " if pair[-1:].isascii() and pair[-1:].isalnum() else "") + "的航线"
+
+
+def _window_text(lo, hi):
+    """航程窗口的说法（接在「在 / 不在」后面）。"""
+    return "不限航程时" if hi >= 1e8 else "航程 %.0f–%.0f NM 内" % (lo, hi)
+
+
 def get_random_route(airport_list, min_dist, max_dist, aip_routes_data=None, strict_aip=False,
                      fixed_dep=None, fixed_dest=None, flown_counts=None, aip_index=None,
                      require_both_scenery=False, active_sims=None, route_len_fn=None,
@@ -74,13 +110,21 @@ def get_random_route(airport_list, min_dist, max_dist, aip_routes_data=None, str
     #   权重 w = 1/(count+1)**2 —— 未飞(count=0)权重 1.0，飞得越多权重越低但恒 >0(软优先)
     # 同时按「军用端数量」分层(0=两端民用 / 1=一端军用 / 2=两端军用)，供「优先民用」选择。
     tiers = {0: ([], []), 1: ([], []), 2: ([], [])}
+    # 各道筛选后还剩多少对 + 全部机场对的大圆距离范围：候选为空时据此说清是哪个条件卡住（NoRouteError）
+    n_pair = n_dist = n_scen = 0
+    d_lo = d_hi = None
     for ap1 in pool_dep:
         for ap2 in pool_dest:
             if ap1.code == ap2.code: continue
             dist = calculate_distance_nm(ap1, ap2)
+            n_pair += 1
+            d_lo = dist if d_lo is None else min(d_lo, dist)
+            d_hi = dist if d_hi is None else max(d_hi, dist)
             if not (pre_min <= dist <= max_dist): continue
+            n_dist += 1
             # 需求 B：仅在两端都已安装地景的机场间抽线（按所选模拟器；未检测 None 时恒 True，过滤自然失效）
             if require_both_scenery and not (ap1.has_scenery_for(active_sims) and ap2.has_scenery_for(active_sims)): continue
+            n_scen += 1
             if strict_aip and (ap1.code, ap2.code) not in (aip_index or set()): continue
             count = flown_counts.get((ap1.code, ap2.code), 0)
             w = 1.0 / (count + 1) ** 2
@@ -98,7 +142,19 @@ def get_random_route(airport_list, min_dist, max_dist, aip_routes_data=None, str
             candidates, weights = tiers[mil]
             break
     if not candidates:
-        raise RuntimeError("未能找到与要求匹配的航线。")
+        pair = "%s → %s" % (_side_desc(fixed_dep, dep_region, "出发"), _side_desc(fixed_dest, arr_region, "目的"))
+        win = _window_text(min_dist, max_dist)
+        if n_pair == 0:
+            raise NoRouteError("pool", pair, None, "%s：出发与目的只剩同一个机场。" % pair)
+        rng, subj = (d_lo, d_hi), _routes_of(pair)
+        if n_dist == 0:
+            raise NoRouteError("distance", pair, rng, "%s大圆距离 %s，不在%s。" % (subj, _range_text(*rng), win))
+        if n_scen == 0:
+            raise NoRouteError("scenery", pair, rng, "%s在%s有 %d 条，但两端都装了所选模拟器地景的为 0。"
+                               % (subj, win, n_dist))
+        raise NoRouteError("aip", pair, rng, "%s在%s有 %d 条，但没有一条有已公布的 AIP 航路"
+                                             "（「严格要求 AIP 规定航路」与「严格基于现实航班」都只在 AIP 航路里抽）。"
+                           % (subj, win, n_scen))
 
     def _finish(cand):
         ap1, ap2, dist, count = cand

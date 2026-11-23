@@ -339,6 +339,110 @@ def grid_to_metar(icao, grid):
     return (" ".join(p for p in parts if p), obs_time)
 
 
+# ================= F36 高空风（Open-Meteo 气压层风，ETA 推算用）=================
+# 与 F22 同一个免费、免 key 的接口。jma_msm（日本 5 km）有 850–200 hPa 各层逐时风，一次请求可带多个坐标；
+# 实测平时 0.07–0.5 s，偶尔冷请求要 25 s → 设超时，失败改 jma_gsm，再失败返回 None（ETA 按无风算、注明）。
+# 取样点吸附到 0.2° 网格，按点缓存 1 小时：不同航线、改 EOBT 后的重算都能复用；序列覆盖昨天 00Z 到明天 23Z。
+
+_WIND_LEVELS = (850, 700, 500, 400, 300, 250, 200)
+_WIND_TTL = 3600
+_WIND_SNAP = 0.2
+_WIND_CACHE = {}                 # (lat, lon) → (fetched_at, model, t0, u[层][时], v[层][时])
+_WIND_MAX_PTS = 80               # 一次请求最多带的点数（URL 长度）
+_wind_credited = [False]
+
+
+def _snap(x):
+    return round(round(x / _WIND_SNAP) * _WIND_SNAP, 2)
+
+
+def _fill_none(seq):
+    """序列里的 None 用最近的有效值补（模型时效末端常是 None）；全是 None → None。"""
+    idx = [i for i, v in enumerate(seq) if v is not None]
+    if not idx:
+        return None
+    out, k = [], 0
+    for i in range(len(seq)):
+        while k + 1 < len(idx) and abs(idx[k + 1] - i) <= abs(idx[k] - i):
+            k += 1
+        out.append(seq[i] if seq[i] is not None else seq[idx[k]])
+    return out
+
+
+def _fetch_winds_raw(pts, model, timeout):
+    """一次 GET 取多点各层逐时风 → [(t0, u, v)]（与 pts 同序）｜None（网络 / 解析失败、或有点整列为空）。"""
+    hourly = ",".join("%s_%dhPa" % (k, p) for p in _WIND_LEVELS for k in ("wind_speed", "wind_direction"))
+    params = {"latitude": ",".join("%.2f" % p[0] for p in pts),
+              "longitude": ",".join("%.2f" % p[1] for p in pts),
+              "hourly": hourly, "models": model, "wind_speed_unit": "kn", "timezone": "GMT",
+              "past_days": "1", "forecast_days": "2"}
+    url = _OPENMETEO_URL + "?" + urllib.parse.urlencode(params)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": _UA, "Accept-Encoding": "gzip"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read()
+            if (r.headers.get("Content-Encoding") or "").lower() == "gzip":
+                import gzip
+                raw = gzip.decompress(raw)
+        data = json.loads(raw.decode("utf-8", "ignore"))
+    except Exception:
+        return None
+    data = data if isinstance(data, list) else [data]
+    if len(data) != len(pts):
+        return None
+    out = []
+    for x in data:
+        h = (x or {}).get("hourly") or {}
+        times = h.get("time") or []
+        try:
+            t = datetime.datetime.strptime(times[0], "%Y-%m-%dT%H:%M").replace(tzinfo=datetime.timezone.utc)
+        except (IndexError, ValueError, TypeError):
+            return None
+        u, v = [], []
+        for p in _WIND_LEVELS:
+            spd = _fill_none(h.get("wind_speed_%dhPa" % p) or [])
+            dirs = _fill_none(h.get("wind_direction_%dhPa" % p) or [])
+            if spd is None or dirs is None:
+                return None
+            # 风向是「从哪来」：u（东向）= −spd·sin(dir)，v（北向）= −spd·cos(dir)
+            u.append([-s * math.sin(math.radians(d)) for s, d in zip(spd, dirs)])
+            v.append([-s * math.cos(math.radians(d)) for s, d in zip(spd, dirs)])
+        out.append((t.timestamp() / 3600.0, u, v))
+    return out
+
+
+def fetch_winds_aloft(points, timeout=6.0):
+    """取样点 [(lat, lon)] → {model, levels, pts:[(lat, lon, t0, u, v)]}（eta.Winds 的输入）｜None。
+    缓存命中的点不再请求；jma_msm 失败 → jma_gsm；两者都失败且缓存里也没有 → None。"""
+    want = []
+    for la, lo in points or ():
+        k = (_snap(la), _snap(lo))
+        if k not in want:
+            want.append(k)
+    now = time.time()
+    need = [k for k in want if not (k in _WIND_CACHE and now - _WIND_CACHE[k][0] < _WIND_TTL)]
+    for i in range(0, len(need), _WIND_MAX_PTS):
+        chunk = need[i:i + _WIND_MAX_PTS]
+        for model, to in (("jma_msm", timeout), ("jma_gsm", min(timeout, 5.0))):
+            got = _fetch_winds_raw(chunk, model, to)
+            if got:
+                for k, (t0, u, v) in zip(chunk, got):
+                    _WIND_CACHE[k] = (time.time(), model, t0, u, v)
+                break
+    pts, models = [], set()
+    for k in want:
+        hit = _WIND_CACHE.get(k)
+        if hit:
+            pts.append((k[0], k[1], hit[2], hit[3], hit[4]))
+            models.add(hit[1])
+    if not pts:
+        return None
+    if not _wind_credited[0]:
+        _wind_credited[0] = True
+        print("🌐 高空风数据来自 Open-Meteo (CC BY 4.0)")
+    return {"model": "/".join(sorted(models)), "levels": list(_WIND_LEVELS), "pts": pts}
+
+
 def resolve_airport_wx(icao, lat, lon, metar_max_age=_TTL, taf_max_age=_TTL):
     """统一天气解析：METAR 新鲜→用实测；缺测/过期→Open-Meteo 网格合成 METAR（清楚标注非实测）。
     → {source:'metar'|'grid'|None, wind:(dir,spd,gust), metar_raw, metar_age_sec, taf_raw, model}。"""

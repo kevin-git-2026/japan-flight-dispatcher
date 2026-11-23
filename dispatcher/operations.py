@@ -404,16 +404,18 @@ def eobt_weekday(eobt_min, now_min, now_wd):
     return now_wd
 
 
-def rule_contexts(eobt_jst, dist_nm, dep_wind, dep_sky, arr_wind, arr_sky):
-    """规则匹配上下文 → (dep_ctx, arr_ctx)：离场按 EOBT、到达按 ETA（EOBT + 滑出 + 航程 ÷ 巡航速度）。
-    sky = weather.parse_sky 的 (layers, vis_m)。到达跨午夜时星期 +1。"""
+def rule_contexts(eobt_jst, dist_nm, dep_wind, dep_sky, arr_wind, arr_sky, eta_jst=None):
+    """规则匹配上下文 → (dep_ctx, arr_ctx)：离场按 EOBT、到达按 ETA。
+    eta_jst = 调用方用 eta.EtaModel 算好的 ETA（F36：机型剖面 + 高空风 + 该航路的几何）；
+    不给 → 旧算法（EOBT + 滑出 + dist_nm ÷ 巡航速度）。sky = weather.parse_sky 的 (layers, vis_m)。到达跨午夜时星期 +1。"""
     now_min, now_wd = weather.now_jst()
     dep_wd = eobt_weekday(eobt_jst, now_min, now_wd)              # 默认 EOBT 跨午夜 → 是明天
-    try:
-        _eu, eta_utc = timed.plan_times_utc(eobt_jst, dist_nm or 0)
-        eta_jst = (eta_utc + 540) % 1440
-    except Exception:                                             # noqa: BLE001
-        eta_jst = eobt_jst
+    if eta_jst is None:
+        try:
+            _eu, eta_utc = timed.plan_times_utc(eobt_jst, dist_nm or 0)
+            eta_jst = (eta_utc + 540) % 1440
+        except Exception:                                         # noqa: BLE001
+            eta_jst = eobt_jst
     arr_wd = dep_wd if eta_jst >= eobt_jst else (dep_wd % 7 + 1)  # 到达跨午夜 → 星期 +1
     dep_sky, arr_sky = dep_sky or ([], None), arr_sky or ([], None)
     return ({"jst_min": eobt_jst, "weekday": dep_wd, "wind": dep_wind,
@@ -485,3 +487,78 @@ def route_endpoints(ops_data, icao, side, ctx, nt_cfg, dat_path=None):
     source = ("rule" if not unmatched else "rule+measured") if active else "measured"
     return {"source": source, "measured": bool(config), "rules": [r.get("name", "") for r, _ in active],
             "runways": rwys, "unmatched": unmatched, "procs": procs, "fixes": fixes}
+
+
+# ================= AIP 适用性：时段 + 运行规则（AIP 改端的触发判据）=================
+# 官方 AIP 不总是全天适用：RJCC→RJTT 的两条都写着 ETA 06:00–22:59 JST，深夜到羽田要走 `… DAIGO Y108 MESSE`；
+# RJCC→ROAH 的 AIP 不限时段，却从 DALBI 起飞，而新千岁深夜离场只走 CHE / KURIS。
+# 没有一条 AIP 行「既在时段内、又能接上此刻生效规则 / 实测的程序」→ 按规则改端（router.splice_route_ends）。
+
+AIP_SHORT_NM = 250      # 大圆不超过它、又有时段适用行的短程照旧用 AIP（短程多靠雷达引导，规则程序常接不上，与 F34 同口径）
+
+
+def _ends_hit(e, pts):
+    """这一端的点能不能接上规则 / 实测的程序 → None（这一端不限定）/ True / False。航路串该端没有点 → True。"""
+    if not e:
+        return None
+    if not pts:
+        return True
+    return any(p in e["fixes"] for p in pts)
+
+
+def aip_fit(rows, eobt_jst, etas, ed, eas):
+    """每条 AIP 行此刻是否适用 → [{time_ok, dep_hit, arr_hit}]。
+    rows = AIP 原始行 [DEP, DEST, 时段, 高度, 机型, 航路, …]；ed = 离场端 route_endpoints 的结果或 None。
+    F36：每行用【自己的】ETA（etas，JST 当日分钟，按该行原 AIP 的几何算）和自己的到达端限定（eas，按该 ETA 选的规则）。
+    用的是原 AIP 的几何、不是改端版的：判据只随 EOBT 变，不会在「AIP / 改端」之间来回翻。"""
+    eobt_utc = (int(eobt_jst) - 540) % 1440
+    out = []
+    for r, eta_jst, ea in zip(rows, etas, eas):
+        lead, trail = procedures.lead_trail_fixes(r[5] if len(r) > 5 else "")
+        out.append({"time_ok": timed.route_matches_time(r[2] if len(r) > 2 else "", eobt_utc, (eta_jst - 540) % 1440),
+                    "dep_hit": _ends_hit(ed, lead), "arr_hit": _ends_hit(ea, trail)})
+    return out
+
+
+def aip_key(fits, ed, eas):
+    """面板据此判断改 EOBT / 规则开关后要不要重算改端：两端的限定（到达端每行一个）+ 各行是否在时段内。"""
+    f = lambda e: (frozenset(e["fixes"]), e["source"]) if e else None
+    return (f(ed), tuple(f(e) for e in eas), tuple(x["time_ok"] for x in fits))
+
+
+def aip_splice_ends(fits, ed, eas, gc_nm):
+    """要不要改端 → None（照旧用 AIP）或每行要改的端 [{"dep","arr"} 的子集 …]（空集 = 这一行改不了，只是时段不符）。
+    只有实测、没对上任何规则的一端（source='measured'）不参与触发：那时衔接点是实测跑道上的全部程序，
+    零散的实测构型（只报一条跑道）会让白天也误触发；已经触发时，这一端照常按实测衔接点改。"""
+    ok = lambda hit, e: hit is not False or (e or {}).get("source") == "measured"
+    if any(x["time_ok"] and ok(x["dep_hit"], ed) and ok(x["arr_hit"], ea) for x, ea in zip(fits, eas)):
+        return None
+    if gc_nm <= AIP_SHORT_NM and any(x["time_ok"] for x in fits):
+        return None
+    return [{s for s, hit in (("dep", x["dep_hit"]), ("arr", x["arr_hit"])) if hit is False} for x in fits]
+
+
+# ================= 实测的覆盖时段（用户定）=================
+# 实测（SWIM 报文 / 羽田 ntrack）只代表报文那一刻。程序默认按「现在」规划，实测照用；
+# 用户手动改了 EOBT → 按改后的时刻规划，这个时刻不在报文覆盖的时段里就以运行规则为准
+# （白天的报文不能拿去定深夜 23:00 的航路：会按白天的 ILS Z 落 GODIN，而深夜规则要走 MESSE）。
+
+def measured_covers(cfg, jst_min, weekday):
+    """计划时刻（JST 当日分钟 + ISO 星期）是否落在这份实测覆盖的时段内：观测时刻起 valid_min 分钟。
+    实测没带观测时刻（旧数据 / 测试桩）→ True（照旧使用）。"""
+    obs = (cfg or {}).get("obs_jst")
+    if not obs or jst_min is None:
+        return True
+    week = 7 * 1440
+    d = (((weekday or 1) - 1) * 1440 + jst_min - ((obs[1] - 1) * 1440 + obs[0])) % week
+    return d <= (cfg.get("valid_min") or 90)
+
+
+def measured_at(cfg, ctx, planned_default=True):
+    """这一端的实测此刻算不算数 → cfg 或 None。ctx = rule_contexts 给这一端的上下文（离场按 EOBT、到达按 ETA，用户定）。
+    planned_default = EOBT 还是规划时的默认值（按「现在」规划）→ 实测照用；用户改了 EOBT → 只在报文覆盖的时段内算数。"""
+    if not cfg:
+        return None
+    if planned_default:
+        return cfg
+    return cfg if measured_covers(cfg, ctx.get("jst_min"), ctx.get("weekday")) else None

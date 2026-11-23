@@ -17,7 +17,8 @@ import re
 import time
 
 from . import ntrack, operations, procedures, router, timed, weather
-from .aircraft import aircraft_choices
+from . import eta as eta_mod
+from .aircraft import aircraft_choices, perf_of
 from .planner import simbrief_url as _planner_simbrief_url
 
 
@@ -112,12 +113,12 @@ def result_spans(plan, has_map=True):
     def ins(text, style="", action=None):
         out.append(Span(text, style, action))
 
-    def _map_link(mp):
+    def _map_link(mp, text="       🗺️ 在地图查看本航路\n"):
         """mp=(coords,title)：为该条航路插入一个独立的「在地图查看」链接。"""
         if not (has_map and mp and mp[0]):
             return
         coords, title = mp
-        ins("       🗺️ 在地图查看本航路\n", "maplink", ("map", coords, title))
+        ins(text, "maplink", ("map", coords, title))
 
     def ins_airport(role, ap):
         ins(f"  {role} : ", "label")
@@ -155,10 +156,35 @@ def result_spans(plan, has_map=True):
         for ln in xfer_lines(x.get("rows")):
             ins(pad + "    " + ln + "\n", "muted")
 
+    def _alt(v):
+        """AIP 改端（该行此刻不适用）：原因 + 改端航路 + 依据 + 进近移管 + 地图；改不了 → 一行原因。"""
+        if not v:
+            return
+        if not v.get("route"):
+            ins("       ℹ️ " + v.get("note", "") + "\n", "warn")
+            return
+        ins("       🌙 " + v.get("why", "") + "\n", "warn")
+        ins("       ↳ 按运行规则改端（非官方 AIP）：\n", "muted")
+        ins("         " + v["route"] + "\n", "aip")
+        extra = [x for x in (_dev(v.get("dist")),
+                             ("较原 AIP %+.0f NM" % (v["dist"] - v["aip_dist"])) if v.get("aip_dist") else "",
+                             v.get("where") or "") if x]
+        if extra:
+            ins("         └ " + " · ".join(extra) + "\n", "muted")
+        if v.get("eta"):
+            ins("         └ " + flight_time_text(v["eta"]) + "\n", "muted")
+        for text, kind in rule_basis_lines(v.get("ops")):
+            ins("         " + text + "\n", kind)
+        _xfer(v.get("xfer"), "         ")
+        _map_link(v.get("map"), "         🗺️ 在地图查看改端航路\n")
+
     if plan.aip_routes:
         ins("\n  📜 AIP 航路\n", "section")
+        if getattr(plan, "aip_alt_note", None):
+            ins("  ℹ️ " + plan.aip_alt_note + "\n", "warn")
         _dists = plan.aip_route_dists or []
         _maps = plan.aip_maps or []
+        _alts = getattr(plan, "aip_alts", None) or []
         for i, rr in enumerate(plan.aip_routes, 1):
             cols = [x.strip() for x in rr.split(",")]     # rr=逗号拼接行 → [DEP,DEST,时段,高度,机型,航路,备注]
             route_s = cols[5] if len(cols) > 5 else rr
@@ -174,9 +200,13 @@ def result_spans(plan, has_map=True):
             _dd = _dev(_dists[i - 1] if i - 1 < len(_dists) else None)
             if _dd:
                 ins("       └ " + _dd + "\n", "muted")
+            _et = getattr(plan, "aip_etas", None) or []
+            if i - 1 < len(_et) and _et[i - 1]:
+                ins("       └ " + flight_time_text(_et[i - 1]) + "\n", "muted")
             _xf = getattr(plan, "aip_xfers", None) or []
             _xfer(_xf[i - 1] if i - 1 < len(_xf) else None, "       ")
             _map_link(_maps[i - 1] if i - 1 < len(_maps) else None)
+            _alt(_alts[i - 1] if i - 1 < len(_alts) else None)
 
     if plan.generated_route:
         ins("\n  🧭 生成航路（本地导航数据，非官方 AIP）\n", "section")
@@ -184,6 +214,8 @@ def result_spans(plan, has_map=True):
         _gd = _dev(plan.generated_route_dist)
         if _gd:
             ins("  " + _gd + "\n", "muted")
+        if getattr(plan, "gen_eta", None):
+            ins("  " + flight_time_text(plan.gen_eta) + "\n", "muted")
         for text, kind in rule_basis_lines(getattr(plan, "generated_route_ops", None)):
             ins("  " + text + "\n", kind)
         _xfer(getattr(plan, "gen_xfer", None), "  ")
@@ -265,9 +297,13 @@ def plan_maps(plan):
     """本次规划里所有【可看地图】的航路：[(coords, title)] —— 各 AIP 行 + 生成航路，跳过没几何的。
     它们做成同一个地图窗口里的标签页（每点一次 🗺️ 开一个新的地图窗口，见 ui_flet/map_window.py）。"""
     out = []
-    for mp in (getattr(plan, "aip_maps", None) or []):
+    alts = getattr(plan, "aip_alts", None) or []
+    for i, mp in enumerate(getattr(plan, "aip_maps", None) or []):
         if mp and mp[0]:
             out.append(mp)
+        v = alts[i] if i < len(alts) else None
+        if v and v.get("map") and v["map"][0]:
+            out.append(v["map"])                         # 改端版紧跟原 AIP（同一个对象：_open_map 按 is 匹配标签页）
     gm = getattr(plan, "gen_map", None)
     if gm and gm[0]:
         out.append(gm)
@@ -726,6 +762,33 @@ def filter_labels(all_labels, typed):
     return [v for v in all_labels if t in v.lower()] or list(all_labels)
 
 
+def _hhmm(m):
+    return "%02d:%02d" % (int(m) // 60 % 24, int(m) % 60)
+
+
+def _dur(minutes):
+    m = int(round(minutes))
+    return "%d:%02d" % (m // 60, m % 60)
+
+
+def default_eta_model(plan):
+    """面板没拿到 controller 的 EtaModel 时（旧测试桩）：按表单机型的剖面、无风。"""
+    perf, aid, fb = perf_of(((getattr(plan, "sb_base", None) or {}).get("actype")) or "")
+    return eta_mod.EtaModel(plan.dep, plan.arr, perf, None, aid, fb)
+
+
+def flight_time_text(r):
+    """结果卡每条航路下的一行（F36）：EOBT → 落地的预计时长 + 巡航高度 + 巡航段平均顺 / 逆风。"""
+    if not r:
+        return ""
+    if r.get("source") == "legacy":
+        return "⏱️ 预计 EOBT → 落地约 %s（机型库缺失，按旧算法粗估）" % _dur(r["block"])
+    w = r.get("wind_kt") or 0.0
+    wind = ("巡航平均%s风 %.0f kt" % ("顺" if w > 0 else "逆", abs(w))) if r.get("source") == "wind" and abs(w) >= 1 \
+        else ("无风估算" if r.get("source") != "wind" else "巡航基本无风")
+    return "⏱️ 预计 EOBT → 落地约 %s（FL%03d · %s）" % (_dur(r["block"]), r["fl"], wind)
+
+
 def eobt_jst_min(text):
     """EOBT 输入(JST HHMM) → 当日分钟；空/非法 → None。"""
     return timed.parse_hhmm(text) if text else None
@@ -750,8 +813,8 @@ eobt_weekday = operations.eobt_weekday
 
 
 def aip_label(i, c):
-    """AIP 航路下拉紧凑标签：[序号] 时段 · 距离 · 航路首…尾。"""
-    restr = c.get("restr") or "全时段"
+    """AIP 航路下拉紧凑标签：[序号] 时段 · 距离 · 航路首…尾；改端行标「🌙改端」。"""
+    restr = ("🌙改端 · " if c.get("variant") else "") + (c.get("restr") or "全时段")
     dist = ("%.0fNM · " % c["dist"]) if c.get("dist") else ""
     toks = (c.get("route") or "").split()
     short = " ".join(toks) if len(toks) <= 4 else "%s…%s" % (" ".join(toks[:2]), toks[-1])
@@ -818,7 +881,16 @@ class ProcPanelModel:
         if nm is None:
             nm = default_eobt_min()
         self.eobt = "%02d%02d" % (nm // 60, nm % 60)
-        self.regen_request = None                        # 生成航路要按新的运行规则重算：{eobt, apply_ops}（UI 取走后清空）
+        self.plan_eobt_min = nm                          # 规划时的默认 EOBT：没改过 = 按「现在」规划，实测照用
+        self.regen_request = None                       # 要按新的 EOBT / 开关重算：{kind: gen|aip, eobt, apply_ops}（UI 取走后清空）
+        # AIP 改端：规划时的 AIP 原始行、原候选、判据（operations.aip_key）；改 EOBT / 开关后判据变了就后台重算
+        self.aip_rows = proc.get("aip_rows")
+        self.aip_orig = proc.get("aip_orig")
+        self.aip_key = proc.get("aip_key")
+        self.aip_strict = bool(proc.get("aip_strict"))
+        self.aip_gc = proc.get("aip_gc") or self.dist_nm
+        # F36：ETA 模型（机型剖面 + 高空风），与 controller 规划时同一个对象；没有（旧测试桩）→ 按默认机型、无风
+        self.eta_model = proc.get("eta") or default_eta_model(plan)
 
         self.sel_idx = 0
         self.items = {"dep": [], "arr": []}              # [{disp,rwy,labels,ok,hw}]
@@ -827,10 +899,13 @@ class ProcPanelModel:
         self.sel_proc = {"dep": "", "arr": ""}
         self.ops_label = {"dep": "", "arr": ""}
         self.circling = None                             # 目视盘旋规则生效时：{盘旋落地的跑道: 飞进近的跑道}
-        self.nt_label = {"dep": self._nt_text("dep"), "arr": self._nt_text("arr")}
         self.select_candidate(proc.get("selected", 0))
 
     # ---- 只读派生 ----
+    @property
+    def nt_label(self):
+        """实测运用状况的显示文字（随 EOBT 变：改到报文覆盖时段之外会注明「按运行规则」）。"""
+        return {"dep": self._nt_text("dep"), "arr": self._nt_text("arr")}
     @property
     def visible(self):
         return bool(self.candidates)
@@ -972,7 +1047,7 @@ class ProcPanelModel:
         self.eobt = text or ""
         if self.apply_ops:
             self.select_candidate(self.sel_idx)
-            self._check_regen()
+        self._check_regen()                               # AIP 的时段与规则开关无关，关着也要查
 
     def set_apply_ops(self, on):
         """勾/取消「按运行规则预选」：重跑当前候选（开→应用规则、关→回按风预选）。
@@ -988,64 +1063,141 @@ class ProcPanelModel:
         self.candidates[self.sel_idx] = candidate
         self.select_candidate(self.sel_idx)
 
+    def replace_candidates(self, candidates, key):
+        """AIP 改端重算后整体换候选（与 AIP 行一一对应）：保留选中的行号；该行航路没变就不重选，
+        用户已选的跑道 / 程序不被打乱。"""
+        if not candidates:
+            return
+        old = self.base_route
+        self.candidates = list(candidates)
+        self.aip_key = key
+        idx = self.sel_idx if self.sel_idx < len(self.candidates) else 0
+        if self.candidates[idx].get("route") != old:
+            self.select_candidate(idx)
+        else:
+            self.sel_idx = idx
+
     # ---- 内部：生成航路按运行规则定端点 ----
     def _is_generated(self):
         return bool(self.candidates) and bool(self.candidates[self.sel_idx].get("generated"))
 
-    def _ops_ctxs(self):
-        """(离场 ctx, 到达 ctx)：离场按 EOBT、到达按 ETA。与 controller 生成航路时用同一个函数。"""
-        c = self.candidates[self.sel_idx]
+    def _is_variant(self):
+        return bool(self.candidates) and bool(self.candidates[self.sel_idx].get("variant"))
+
+    def _eobt_min(self):
         j = eobt_jst_min(self.eobt)
-        dep_jst = j if j is not None else default_eobt_min()          # EOBT 被清空 → 同默认值
-        dist = c.get("dist") or self.dist_nm or 0
-        return operations.rule_contexts(dep_jst, dist, self.wind["dep"], self.sky["dep"],
-                                        self.wind["arr"], self.sky["arr"])
+        return j if j is not None else default_eobt_min()          # EOBT 被清空 → 同默认值
+
+    def eobt_is_default(self):
+        """EOBT 还是规划时的默认值（= 按「现在」规划，实测照用）。"""
+        j = eobt_jst_min(self.eobt)
+        return j is None or j == self.plan_eobt_min
+
+    def decision_eta(self, c=None):
+        """候选 c（默认当前选中）用来选规则的 ETA（JST 当日分钟）：按它自己的航路几何 + 高度条件（F36，与 controller 同口径）。
+        不含 SID / STAR 本身（那是规则按 ETA 选出来的），SID / STAR 多出的平均航程由剖面的终端区余量吸收。"""
+        c = c if c is not None else (self.candidates[self.sel_idx] if self.candidates else {})
+        return self.eta_model.eta_jst(self._eobt_min(), c.get("pts") or None, alt_cond=c.get("alt") or None)
+
+    def _ctxs_at(self, eta_jst):
+        return operations.rule_contexts(self._eobt_min(), None, self.wind["dep"], self.sky["dep"],
+                                        self.wind["arr"], self.sky["arr"], eta_jst=eta_jst)
+
+    def _ops_ctxs(self):
+        """(离场 ctx, 到达 ctx)：离场按 EOBT、到达按当前候选自己的 ETA。与 controller 生成航路 / 改端时用同一个函数。"""
+        return self._ctxs_at(self.decision_eta())
+
+    def _ends(self, dctx, actx):
+        """(离场, 到达) 端点限定：与 controller.rule_endpoints 同一套（实测是否算数：离场按 EOBT、到达按 ETA）。"""
+        return tuple(operations.route_endpoints(self.ops_data, icao, side, ctx, self._measured(icao, ctx), self.dat_path)
+                     for side, icao, ctx in (("dep", self.dep_icao, dctx), ("arr", self.arr_icao, actx)))
 
     def ends_key(self):
         """当前 EOBT / 开关下，生成航路两端该受的限定 → (离场 fixes, 到达 fixes)，不限定的一侧为 None。
         与 controller.plan 生成航路时的算法相同（operations.route_endpoints），比较它就知道要不要重新生成。"""
         if not self.apply_ops or not self.candidates:
             return (None, None)
-        dctx, actx = self._ops_ctxs()
-        out = []
-        for side, icao, ctx in (("dep", self.dep_icao, dctx), ("arr", self.arr_icao, actx)):
-            e = operations.route_endpoints(self.ops_data, icao, side, ctx, self.ntrack.get(icao), self.dat_path)
-            out.append(frozenset(e["fixes"]) if e else None)
-        return tuple(out)
+        return tuple(frozenset(e["fixes"]) if e else None for e in self._ends(*self._ops_ctxs()))
+
+    def _aip_key(self):
+        """当前 EOBT / 开关下的 AIP 改端判据（与 controller.aip_alternatives 同一套：operations.aip_fit / aip_key）。
+        每行按自己原 AIP 的几何算 ETA、按该 ETA 选到达端的规则。"""
+        dep_jst = self._eobt_min()
+        etas = [self.decision_eta(c) for c in self.aip_orig]
+        ed, eas = None, [None] * len(etas)
+        if self.apply_ops:
+            memo = {}
+            for k, e in enumerate(etas):
+                if e not in memo:
+                    memo[e] = self._ends(*self._ctxs_at(e))
+                ed, eas[k] = memo[e][0], memo[e][1]
+        return operations.aip_key(operations.aip_fit(self.aip_rows, dep_jst, etas, ed, eas), ed, eas)
 
     def _check_regen(self):
-        if not self._is_generated():
+        """生效的规则 / AIP 适用性变了 → 置 regen_request，由 UI 在后台重算（生成航路重生成 / AIP 重新改端）。"""
+        if not self.candidates:
             return
-        if self.ends_key() != self.candidates[self.sel_idx].get("ends_key"):
-            self.regen_request = {"eobt": self.eobt, "apply_ops": self.apply_ops}
+        if self._is_generated():
+            if self.ends_key() != self.candidates[self.sel_idx].get("ends_key"):
+                self.regen_request = {"kind": "gen", "eobt": self.eobt, "apply_ops": self.apply_ops}
+            return
+        if not (self.aip_rows and self.aip_orig) or self.aip_key is None:
+            return
+        try:
+            key = self._aip_key()
+        except Exception as e:                            # noqa: BLE001
+            print("⚠️ AIP 适用性判定失败:", e)
+            return
+        if key != self.aip_key:
+            self.regen_request = {"kind": "aip", "eobt": self.eobt, "apply_ops": self.apply_ops}
 
     # ---- 内部：实测运用状况（ntrack）----
     def _icao(self, side):
         return self.dep_icao if side == "dep" else self.arr_icao
 
+    def _measured(self, icao, ctx=None):
+        """这个机场的实测此刻还算不算数 → 实测 cfg 或 None（用户定）：
+        EOBT 还是规划时的默认值 = 按「现在」规划，实测照用；用户改了 EOBT → 只在报文覆盖的时段内算数，
+        离场按 EOBT、到达按 ETA（ctx = 这一端的规则上下文；不给 → 按当前候选算）。operations.measured_at 与 controller 同一套。
+        用于选规则、定端点、AIP 改端判据、✅在用标记；显示文字照旧列出实测（另注明未采用）。"""
+        cfg = self.ntrack.get(icao)
+        if not cfg or self.eobt_is_default():
+            return cfg or None
+        if ctx is None:
+            dctx, actx = self._ops_ctxs() if self.candidates else self._ctxs_at(self._eobt_min())
+            ctx = dctx if icao == self.dep_icao else actx
+        return operations.measured_at(cfg, ctx, False)
+
     def _nt_cfg(self, side):
-        return self.ntrack.get(self._icao(side))
+        return self._measured(self._icao(side))
 
     def _nt_rwys(self, side):
-        """该侧【实测在用】的跑道集合；无数据 → None。离场看 DEP、到达看 LDG。"""
+        """该侧【实测在用】的跑道集合；无数据 / 不在报文覆盖时段内 → None。离场看 DEP、到达看 LDG。"""
         cfg = self._nt_cfg(side)
         if not cfg:
             return None
         return set(cfg.get("dep" if side == "dep" else "ldg") or ()) or None
 
     def _nt_text(self, side):
-        cfg = self._nt_cfg(side)
+        icao = self._icao(side)
+        cfg = self.ntrack.get(icao)
         if not cfg:
             return ""
-        icao, t = self._icao(side), cfg.get("time_jst", "")
+        t = cfg.get("time_jst", "")
+        if self._measured(icao):
+            off = ""
+        elif side == "dep":
+            off = "（EOBT %s 不在该报文覆盖的时段内，未采用，按运行规则）" % (self.eobt or "—")
+        else:
+            off = "（ETA %s 不在该报文覆盖的时段内，未采用，按运行规则）" % _hhmm(self.decision_eta())
         if side == "dep":
-            return "✈️ %s 实测运用（%s）：离场 %s" % (
-                icao, t, "/".join(r.replace("RW", "") for r in cfg.get("dep") or []))
+            return "✈️ %s 实测运用（%s）：离场 %s%s" % (
+                icao, t, "/".join(r.replace("RW", "") for r in cfg.get("dep") or []), off)
         iaps = self.nt_iaps.get(icao) or []
-        return "✈️ %s 实测运用（%s）：落地 %s · 进近 %s%s" % (
+        return "✈️ %s 实测运用（%s）：落地 %s · 进近 %s%s%s" % (
             icao, t, "/".join(r.replace("RW", "") for r in cfg.get("ldg") or []),
             " / ".join(cfg.get("approaches") or []) or "—",
-            ("（IAP %s）" % " ".join(iaps)) if iaps else "")
+            ("（IAP %s）" % " ".join(iaps)) if iaps else "", off)
 
     # ---- 内部 ----
     def _fill_rwy(self, side, rows):
@@ -1134,7 +1286,7 @@ class ProcPanelModel:
         try:
             iaps = procedures.enumerate_approaches(icao, self.dat_path) if nt else []
             cfg = operations.measured_config(nt, side, iaps)
-            if self._is_generated():
+            if self._is_generated() or self._is_variant():   # 端点按这组规则定的：只在其中选
                 active, _cfgs, _rows = operations.airport_active_rules(self.ops_data, icao, ctx, nt, self.dat_path)
                 if active[side]:
                     rules = [r for r, _w in active[side]]
@@ -1171,7 +1323,7 @@ class ProcPanelModel:
         iap = ""
         if side == "arr":
             # IAP 也以实测为准：ntrack 明确给出当前在用的进近，比规则里录的更准
-            iaps = self.nt_iaps.get(icao) or (rule.get("arr") or {}).get("iaps") or []
+            iaps = (self.nt_iaps.get(icao) if nt else None) or (rule.get("arr") or {}).get("iaps") or []
             if iaps:
                 iap = "  IAP %s" % " / ".join(iaps[:2])
         self.ops_label[side] = ("🎯 %s 运行规则：%s → RW%s / %s %s%s%s"
@@ -1186,10 +1338,11 @@ class AipTableModel:
     """F21 弹窗的表模型：仿真实 AIP 航路表（航路/时段/高度/机型/用途/距离）＋（严格模式）判定列。
     严格模式下由用户给的 EOBT/机型/巡航高度实时判定，唯一可用即可自动定。"""
 
-    def __init__(self, candidates, sel_idx=0, strict=False):
+    def __init__(self, candidates, sel_idx=0, strict=False, eta_model=None):
         self.candidates = list(candidates)
         self.sel_idx = sel_idx
         self.strict = bool(strict)
+        self.eta_model = eta_model                       # F36：每行按自己的几何 + 高度条件（或用户填的 FL）算 ETA
         self.eobt = ""
         self.cat = "JET"
         self.fl = ""
@@ -1203,9 +1356,13 @@ class AipTableModel:
         for i, c in enumerate(self.candidates):
             v = self.verdicts[i] if self.verdicts else None
             dist = ("%.0f NM" % c["dist"]) if c.get("dist") else "-"
-            row = ["●" if i == self.sel_idx else "○", c.get("route", ""), c.get("restr") or "-",
-                   c.get("alt") or "-", c.get("aircraft") or "-",
-                   timed.describe_restriction(c.get("restr", "")), dist]
+            route = ("🌙改端 %s（原 AIP %s）" % (c.get("route", ""), c.get("aip_route", ""))
+                     if c.get("variant") else c.get("route", ""))
+            use = timed.describe_restriction(c.get("restr", ""))
+            if c.get("variant"):
+                use = "按运行规则改端（原 AIP：%s）" % use
+            row = ["●" if i == self.sel_idx else "○", route, c.get("restr") or "-",
+                   c.get("alt") or "-", c.get("aircraft") or "-", use, dist]
             if self.strict:
                 row.append({"match": "✓可用", "no": "✗不符", "unknown": "？待定"}.get(v, "-"))
             out.append((i, row, v))
@@ -1232,10 +1389,19 @@ class AipTableModel:
             return None
         eobt = timed.parse_hhmm(self.eobt)
         fl = timed.parse_fl(self.fl)
-        eobt_utc = eta_utc = None
-        if eobt is not None:
-            eobt_utc, eta_utc = timed.plan_times_utc(eobt, self.candidates[self.sel_idx].get("dist"))
-        self.verdicts = timed.filter_candidates(self.candidates, eobt_utc, eta_utc, self.cat, fl)
+        # 改端行就是为本时段改的：它原 AIP 的时段不再作数（restr 置空），高度 / 机型照旧判
+        cands = [dict(c, restr="") if c.get("variant") else c for c in self.candidates]
+        self.verdicts = []
+        for c in cands:
+            eobt_utc = eta_utc = None
+            if eobt is not None:
+                eobt_utc = (eobt - 540) % 1440
+                if self.eta_model:                         # 每行自己的 ETA（以前所有行共用选中行的）
+                    eta_utc = (self.eta_model.eta_jst(eobt, c.get("pts") or None, alt_cond=c.get("alt") or None,
+                                                      fl=fl) - 540) % 1440
+                else:
+                    eta_utc = timed.plan_times_utc(eobt, c.get("dist"))[1]
+            self.verdicts += timed.filter_candidates([c], eobt_utc, eta_utc, self.cat, fl)
         uniq = timed.resolve_unique(self.verdicts)
         if uniq is not None and eobt is not None and fl is not None:
             self.sel_idx = uniq

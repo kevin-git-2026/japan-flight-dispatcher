@@ -28,9 +28,20 @@ class AipDialog:
         self._on_select = on_select
         self.model = None
         self.dlg = None
+        self.is_open = False
+
+    def refresh(self, candidates):
+        """弹窗开着时候选被换了（AIP 改端重算回来）：换表模型的候选并重画。"""
+        if not (self.is_open and self.model):
+            return
+        self.model.candidates = list(candidates)
+        self.model.recompute()
+        self._redraw()
+        self.page.update()
 
     def open(self, model, dep_icao, arr_icao):
         self.model = model
+        self.is_open = True
         m = model
 
         self.status = ft.Text(m.status, size=12, color=ft.Colors.GREY)
@@ -80,6 +91,7 @@ class AipDialog:
 
     def _close(self):
         # 确认关闭：把弹窗里最终的 EOBT 继承到面板（用户在此填的撤轮挡时刻，面板 EOBT / SimBrief 都该跟上）
+        self.is_open = False
         if self._eobt_val() is not None:
             self._on_select(self.model.sel_idx, self._eobt_val())
         self.page.pop_dialog()

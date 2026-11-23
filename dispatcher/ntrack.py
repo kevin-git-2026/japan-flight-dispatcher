@@ -101,7 +101,23 @@ def fetch_latest(icao="RJTT"):
     if not cfg:
         return None
     cfg["time_jst"] = t
+    cfg["obs_jst"], cfg["valid_min"] = _obs_jst(t, _cache["at"]), OBS_VALID_MIN
     return cfg
+
+
+OBS_VALID_MIN = 90               # 实测覆盖时段：观测时刻起这么久（与 SWIM 报文的有效期 swim_atis.MAX_AGE_SEC 一致）
+
+
+def _obs_jst(t, fetched_at):
+    """这条记录的观测时刻 → (JST 当日分钟, ISO 星期)。表里的时刻串取得出 HH:MM 就用它
+    （比当前晚一个多小时的视为昨天），取不出就用抓取时刻。"""
+    now = time.gmtime(fetched_at + 9 * 3600)
+    now_min, now_wd = now.tm_hour * 60 + now.tm_min, now.tm_wday + 1
+    m = re.search(r"(\d{1,2}):(\d{2})", t or "")
+    if not m:
+        return now_min, now_wd
+    obs = int(m.group(1)) % 24 * 60 + int(m.group(2))
+    return obs, (now_wd if obs <= now_min + 60 else (now_wd + 5) % 7 + 1)
 
 
 def _norm(s):

@@ -333,21 +333,33 @@ class DispatcherApp:
 
     # ---------- 生成航路按运行规则重新生成（改 EOBT / 运行规则开关）----------
     def _regen_route(self, req):
-        """面板改了 EOBT / 开关、生效的运行规则跟着变了 → 后台按新 EOBT 重新生成航路。"""
+        """面板改了 EOBT / 开关：生效的运行规则变了 → 后台重新生成航路（kind=gen）；
+        AIP 的适用性变了 → 后台重新改端（kind=aip）。worker 只拿快照，不碰 plan 与面板 model。"""
         m, plan = self.proc.model, self._plan
         if not m or not plan or not req:
             return
         self._regen_seq += 1
         seq = self._regen_seq
+        aip = {"rows": m.aip_rows, "orig": m.aip_orig, "strict": m.aip_strict, "gc": m.aip_gc,
+               "ops": m.ops_data, "eta": m.eta_model, "measured_default": m.eobt_is_default()}
+        # 实测全部交过去 + 「EOBT 是否还是默认」：改过 EOBT → 实测只在报文覆盖的时段内算数（离场按 EOBT、到达按 ETA，用户定），
+        # 由 controller 按每条航路自己的 ETA 判断
         self.shell.run_bg(self._regen_worker, seq, plan, req,
-                          m.dep_wx, m.arr_wx, dict(m.ntrack))
+                          m.dep_wx, m.arr_wx, dict(m.ntrack), aip)
 
-    def _regen_worker(self, seq, plan, req, dep_wx, arr_wx, nt):
+    def _regen_worker(self, seq, plan, req, dep_wx, arr_wx, nt, aip):
         try:
-            res = C.regenerate_generated(self.state, plan.dep, plan.arr, req["eobt"],
-                                         dep_wx, arr_wx, nt, req["apply_ops"])
+            if req.get("kind") == "aip":
+                res = C.regenerate_aip(self.state, plan.dep, plan.arr, aip["rows"], aip["orig"], req["eobt"],
+                                       dep_wx, arr_wx, nt, req["apply_ops"], aip["strict"], aip["gc"],
+                                       ops_data=aip["ops"], em=aip["eta"],
+                                       measured_default=aip["measured_default"])
+            else:
+                res = C.regenerate_generated(self.state, plan.dep, plan.arr, req["eobt"],
+                                             dep_wx, arr_wx, nt, req["apply_ops"], em=aip["eta"],
+                                             measured_default=aip["measured_default"])
         except Exception as e:                          # noqa: BLE001
-            print(f"⚠️ 重新生成航路失败（已保留原航路）: {e}")
+            print(f"⚠️ 重新计算航路失败（已保留原航路）: {e}")
             return
         if res:
             self.shell.post(self._apply_regen, seq, plan, req, res)
@@ -355,6 +367,9 @@ class DispatcherApp:
     def _apply_regen(self, seq, plan, req, res):
         if seq != self._regen_seq or plan is not self._plan or not self.proc.model:
             return                                       # 过期（又改了 EOBT / 又规划了一次）
+        if res.get("kind") == "aip":
+            self._apply_aip_regen(plan, req, res)
+            return
         gr = res["gr"]
         old = plan.generated_route
         plan.generated_route = gr["route_str"]
@@ -362,6 +377,7 @@ class DispatcherApp:
         plan.generated_route_warn = gr.get("warn") or None
         plan.generated_route_ops = gr.get("ops")
         plan.gen_map, plan.gen_xfer = res["gen_map"], res["gen_xfer"]
+        plan.gen_eta = res.get("eta")
         plan.simbrief_url = C.simbrief_url(plan.sb_base, plan.generated_route)
         self.result.render(VM.result_spans(plan, has_map=True))
         self._plan_maps = VM.plan_maps(plan)
@@ -370,6 +386,29 @@ class DispatcherApp:
             print("🔁 EOBT %s%s：生效的运行规则变了，已重新生成航路 → %s"
                   % (req["eobt"] or "（默认）", "" if req["apply_ops"] else "（已关闭按规则预选）",
                      plan.generated_route))
+
+    def _apply_aip_regen(self, plan, req, res):
+        """AIP 改端重算回来（UI 线程）：换结果卡里的改端版、地图、SimBrief 链接与面板候选。"""
+        alts = res["alts"]
+        old = [(v or {}).get("route") for v in (plan.aip_alts or [])]
+        new = [(v or {}).get("route") for v in (alts.get("rows") or [])]
+        if not any(old) and not any(new) and not plan.aip_alts and not alts.get("rows") \
+                and plan.aip_alt_note == alts.get("note"):
+            self.proc.model.aip_key = res["key"]         # 前后都不改端：只记下新判据
+            return
+        plan.aip_alts, plan.aip_alt_note = alts.get("rows"), alts.get("note")
+        plan.aip_etas = res.get("aip_etas") or plan.aip_etas
+        plan.simbrief_url = C.simbrief_url(plan.sb_base, res["sb_route"])
+        self.result.render(VM.result_spans(plan, has_map=True))
+        self._plan_maps = VM.plan_maps(plan)
+        self.proc.replace_candidates(res["candidates"], res["key"])
+        self.aip_dialog.refresh(res["candidates"])
+        tag = "%s%s" % (req["eobt"] or "（默认）", "" if req["apply_ops"] else "（已关闭按规则预选）")
+        if any(new):
+            print("🔁 EOBT %s：AIP 在此时段 / 运行下不适用，已按运行规则改端 → %s"
+                  % (tag, " ｜ ".join(r for r in new if r)))
+        elif any(old):
+            print("🔁 EOBT %s：AIP 已适用，恢复官方 AIP 航路" % tag)
 
     def _populate_proc(self, plan, proc):
         if not proc or not proc.get("aip_candidates"):
@@ -394,7 +433,7 @@ class DispatcherApp:
         m = self.proc.model
         if not m or not m.show_aip_row:
             return
-        tm = VM.AipTableModel(m.candidates, m.sel_idx, m.strict_ops)
+        tm = VM.AipTableModel(m.candidates, m.sel_idx, m.strict_ops, eta_model=m.eta_model)
         tm.eobt = m.eobt                                 # 用面板的 EOBT（默认＝当前 JST + 30 分钟）预填，省得重敲
         self.aip_dialog.open(tm, m.dep_icao, m.arr_icao)
 

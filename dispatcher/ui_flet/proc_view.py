@@ -130,8 +130,8 @@ class ProcView:
         if self._syncing or not self.model:
             return
         self.model.set_eobt(self.eobt.value)
-        # 开关开着时 set_eobt 会按新时段重选跑道/程序 → 得全量回写
-        self.sync() if self.model.apply_ops else self.sync_derived()
+        # 全量回写：开关开着时 set_eobt 会按新时段重选跑道/程序；实测那行的「未采用」注明也随 EOBT 变
+        self.sync()
         self._take_regen()
 
     def _on_apply_ops(self):
@@ -151,6 +151,13 @@ class ProcView:
         if not self.model:
             return
         self.model.replace_generated(candidate)
+        self.sync()
+
+    def replace_candidates(self, candidates, key):
+        """AIP 改端重算回来了：整体换候选（行号对应、保留选中行），全量回写（下拉标签也跟着换）。"""
+        if not self.model:
+            return
+        self.model.replace_candidates(candidates, key)
         self.sync()
 
     def _on_aip_select(self):
@@ -183,6 +190,7 @@ class ProcView:
             self.model.set_eobt(eobt)
         self.model.select_candidate(idx)
         self.sync()
+        self._take_regen()                               # 弹窗带回的 EOBT 也可能让 AIP 适用性 / 生效规则变了
 
     def show(self, model):
         self.model = model

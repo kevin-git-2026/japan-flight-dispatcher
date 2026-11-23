@@ -5,6 +5,8 @@
 # 这些函数原本是 gui.py 里的 _init_worker / _plan_worker / _compute_proc / _volanta_worker 的主体。
 
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 from .config import get_real_run_path
 from .navdata import find_navdata_file, check_airac_currency, airac_cycle
@@ -15,11 +17,16 @@ from .volanta import (
     load_volanta_flown_routes, volanta_auto_enabled, set_volanta_auto,
     try_fetch_volanta_json_via_session, _open_volanta_in_browser,
 )
-from .routing import calculate_distance_nm, find_aip_route, get_random_route
+from .routing import calculate_distance_nm, find_aip_route, get_random_route, NoRouteError
 from .flightaware import fetch_real_flights_with_filter
 from .planner import build_flight_plan, parse_runway_ft, parse_dist, simbrief_url
-from .router import generate_route, route_geometry, route_length_nm, reload_transfer_points, transfer_entry
+from .router import (generate_route, route_geometry, route_length_nm, reload_transfer_points, transfer_entry,
+                     splice_route_ends)
+from .aircraft import perf_of
 from . import procedures, weather, timed, ntrack, vatjpn, swim_atis, operations
+from . import eta as eta_mod
+
+_WIND_WAIT_SEC = 8.0     # 规划时最多等高空风多久（与 SWIM / METAR 并行取；平时 0.1–0.5 s，冷请求偶尔更久）
 
 
 class NavDataMissing(Exception):
@@ -129,6 +136,7 @@ def plan(state, f, refresh_measured=None):
     refresh_measured(icaos)：UI 注入的「规划前查一次 SWIM」（LiveService.ensure_fresh）；controller 不碰 UI。"""
     min_rwy = parse_runway_ft(f["runway"])
     dmin, dmax = parse_dist(f["dmin"], f["dmax"])
+    dist_blank = not ((f.get("dmin") or "").strip() or (f.get("dmax") or "").strip())   # 两栏都留空 → 200–450 只是默认值
     all_airports = load_airports_from_navigraph(state.dat_path, state.scenery_map, min_rwy)
     if not all_airports:
         raise RuntimeError("未能找到任何符合条件的机场。请检查跑道长度或数据文件。")
@@ -226,45 +234,27 @@ def plan(state, f, refresh_measured=None):
         route_len_fn = None if real_flight else _route_len
         if real_flight and pick_strict and not strict:
             print("🎯 严格基于现实航班：仅在 AIP 已公布航路的机场对中抽取（现实在飞的航线必有官方航路）。")
-        dep_obj, arr_obj, dist, route, flown_count = get_random_route(
-            all_airports, dmin, dmax, state.aip_data, pick_strict, f["dep"], f["dest"],
-            state.flown_counts, state.aip_index, require_both_scenery=f["scenery_only"],
-            active_sims=active, route_len_fn=route_len_fn,
-            dep_region=dep_region, arr_region=arr_region,
-            accept_fn=accept_fn, on_verify=on_verify, on_giveup=on_giveup)
-
-    # 天气与实测运用状况放在航路生成之前：生成航路要按运行规则 / 实测定端点（面板也用这同一份）
-    eobt_min = operations.default_eobt_min()
-    if refresh_measured:
+        def _pick(lo, hi):
+            return get_random_route(
+                all_airports, lo, hi, state.aip_data, pick_strict, f["dep"], f["dest"],
+                state.flown_counts, state.aip_index, require_both_scenery=f["scenery_only"],
+                active_sims=active, route_len_fn=route_len_fn,
+                dep_region=dep_region, arr_region=arr_region,
+                accept_fn=accept_fn, on_verify=on_verify, on_giveup=on_giveup)
         try:
-            refresh_measured([dep_obj.code, arr_obj.code])   # 规划也算一次用户发起的 SWIM 查询（用户定）
-        except Exception as e:                          # noqa: BLE001
-            print(f"⚠️ 查询 SWIM 失败（已忽略）: {e}")
-    print("🌦️ 正在获取机场天气（METAR / 网格回退）…")
-    dep_wx = weather.resolve_airport_wx(dep_obj.code, dep_obj.lat_dd, dep_obj.lon_dd)
-    arr_wx = weather.resolve_airport_wx(arr_obj.code, arr_obj.lat_dd, arr_obj.lon_dd)
-    nt = measured_configs(dep_obj, arr_obj)
-
-    # F15：无 AIP 航路且非严格模式 → 用本地导航数据 A* 生成一条参考航路（两分支统一在此处理）
-    generated = generated_warn = generated_dist = gr = None
-    if route is None and not strict:
-        try:
-            gr = generate_by_rules(state, dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, all_airports)
-            if gr:
-                generated = gr["route_str"]
-                generated_dist = gr["dist_nm"]
-                # warn 有就显示 —— 两种：① 含大角度转弯（suspect）② 短程已降级为直飞（source='direct'）。
-                # router 出的是【完整成句】的提示，UI 只负责画，不再自己拼后缀。
-                generated_warn = gr.get("warn") or None
-                print("🧭 无 AIP 航路，已用本地导航数据生成参考航路"
-                      + ("（短程降级为直飞）。" if gr.get("source") == "direct" else "。"))
-            else:
-                print("ℹ️ 本地导航数据未能连通该航线，跳过航路生成。")
-        except Exception as e:
-            print(f"⚠️ 航路生成失败（已忽略）: {e}")   # 绝不让生成中断规划
+            dep_obj, arr_obj, dist, route, flown_count = _pick(dmin, dmax)
+        except NoRouteError as e:
+            # 航程两栏都留空 = 用户没限航程，200–450 只是默认值：被它清空（熊本 → 北海道 716–976 NM、琉球 ↔ 关东、
+            # 同一地域内的短途）就不限航程再抽一次（用户定：先按默认窗口、抽不到再放开）。填了航程的照原样报具体原因。
+            if not (dist_blank and e.reason == "distance"):
+                raise
+            print("ℹ️ 航程留空时默认抽 %.0f–%.0f NM，但%s%s都在 %s，已不限航程重新抽取。"
+                  % (dmin, dmax, " " if e.subject[:1].isascii() else "", e.subject, e.range_text))
+            dep_obj, arr_obj, dist, route, flown_count = _pick(0.0, 1e9)
 
     # 各 AIP 航路：长度（与 find_aip_route 同序）+ 地图航点（每条一份）+ 航点(供 F21 端点预筛复用)
     # + 进近移管（F32：这条航路对上 VATJPN 移管表的哪个到着组 → 移管点 / 高度 / 席位）
+    # 放在取天气之前：F36 的高空风按这些航路的几何取样（与大圆一起一次取完）
     matched = aip_dists = aip_maps = aip_pts = aip_xfers = None
     gen_map = gen_xfer = None
     tp_arr = transfer_entry(arr_obj.code)
@@ -282,22 +272,87 @@ def plan(state, f, refresh_measured=None):
             aip_dists.append(route_length_nm(pts) if pts else None)
             aip_maps.append((pts, "%s→%s  %s" % (dep_obj.code, arr_obj.code, rs)) if pts else None)
             aip_xfers.append(vatjpn.match_arrival(tp_arr, rs, [p[0] for p in pts or ()]))
-    elif generated and gr and gr.get("coords"):
+
+    # F36：高空风与 SWIM / METAR 并行取（ETA 推算用）；最多等 _WIND_WAIT_SEC，取不到就按无风算
+    pool = ThreadPoolExecutor(max_workers=1)
+    t_wind = time.time()
+    wind_job = pool.submit(weather.fetch_winds_aloft, wind_points(dep_obj, arr_obj, aip_pts))
+    pool.shutdown(wait=False)
+
+    # 天气与实测运用状况放在航路生成之前：生成航路要按运行规则 / 实测定端点（面板也用这同一份）
+    eobt_min = operations.default_eobt_min()
+    if refresh_measured:
+        try:
+            refresh_measured([dep_obj.code, arr_obj.code])   # 规划也算一次用户发起的 SWIM 查询（用户定）
+        except Exception as e:                          # noqa: BLE001
+            print(f"⚠️ 查询 SWIM 失败（已忽略）: {e}")
+    print("🌦️ 正在获取机场天气（METAR / 网格回退）…")
+    dep_wx = weather.resolve_airport_wx(dep_obj.code, dep_obj.lat_dd, dep_obj.lon_dd)
+    arr_wx = weather.resolve_airport_wx(arr_obj.code, arr_obj.lat_dd, arr_obj.lon_dd)
+    nt = measured_configs(dep_obj, arr_obj)
+    gc_nm = calculate_distance_nm(dep_obj, arr_obj)
+    try:
+        winds = wind_job.result(timeout=max(0.0, _WIND_WAIT_SEC - (time.time() - t_wind)))
+    except Exception:                                   # noqa: BLE001  超时 / 网络失败 → 按无风
+        winds = None
+    em = eta_model(dep_obj, arr_obj, f.get("aircraft"), winds)
+    print("⏱️ " + eta_log(em, eobt_min))
+    ends_at = EndsAt(dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, state.dat_path)
+    ends = ends_at(em.eta_jst(eobt_min))                 # 航路还没有：按大圆几何的 ETA 定端点（生成航路用）
+
+    # F15：无 AIP 航路且非严格模式 → 用本地导航数据 A* 生成一条参考航路（两分支统一在此处理）
+    generated = generated_warn = generated_dist = gr = None
+    if route is None and not strict:
+        try:
+            gr = generate_by_rules(state, dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, all_airports, ends=ends,
+                                   em=em, ends_at=ends_at)
+            if gr:
+                generated = gr["route_str"]
+                generated_dist = gr["dist_nm"]
+                # warn 有就显示 —— 两种：① 含大角度转弯（suspect）② 短程已降级为直飞（source='direct'）。
+                # router 出的是【完整成句】的提示，UI 只负责画，不再自己拼后缀。
+                generated_warn = gr.get("warn") or None
+                print("🧭 无 AIP 航路，已用本地导航数据生成参考航路"
+                      + ("（短程降级为直飞）。" if gr.get("source") == "direct" else "。"))
+            else:
+                print("ℹ️ 本地导航数据未能连通该航线，跳过航路生成。")
+        except Exception as e:
+            print(f"⚠️ 航路生成失败（已忽略）: {e}")   # 绝不让生成中断规划
+    if not route and generated and gr and gr.get("coords"):
         gen_map = (gr["coords"], "%s→%s  %s" % (dep_obj.code, arr_obj.code, generated))
         gen_xfer = vatjpn.match_arrival(tp_arr, generated, [p[0] for p in gr["coords"]])
+
+    # AIP 不适用于本时段 / 本运行时：按运行规则改端（每行各一条，保留各自的高度 / 机型条件）
+    alts = None
+    if matched:
+        alts = aip_alternatives(state, dep_obj, arr_obj, matched, aip_dists, aip_pts, ends_at, eobt_min, em,
+                                gc_nm, strict, nt)
+        for v in (alts.get("rows") or ()):
+            if v and v.get("route"):
+                print("🌙 %s" % v["log"])
 
     print("🔎 正在拉取现实排班...")
     fp = build_flight_plan(dep_obj, arr_obj, dist, route,
                            f["airline"], f["aircraft"], f["time"], flown_count,
                            generated_route=generated, generated_route_warn=generated_warn,
+                           timed_route=_alt_sb_route(alts, matched),
                            generated_route_dist=generated_dist, aip_route_dists=aip_dists,
                            aip_maps=aip_maps, gen_map=gen_map, aip_xfers=aip_xfers, gen_xfer=gen_xfer)
     fp.active_sims = active                             # 问题1：渲染按所用模拟器标注地景
     fp.generated_route_ops = (gr or {}).get("ops")
+    fp.aip_alts = (alts or {}).get("rows")
+    fp.aip_alt_note = (alts or {}).get("note")
+    # F36：结果卡每条航路的预计飞行时间（EOBT → 落地，按航路几何 + 该行高度条件）
+    fp.aip_etas = ([em.estimate(eobt_min, p, alt_cond=_alt_of(r)) if p else None
+                    for r, p in zip(matched, aip_pts)] if matched else None)
+    fp.gen_eta = em.estimate(eobt_min, gr.get("pts")) if (gr and gr.get("pts") and generated) else None
     proc = compute_proc(state, dep_obj, arr_obj, generated,   # F20/F21：逐 AIP 候选预筛跑道/SID/STAR
                         matched=matched, aip_dists=aip_dists, aip_pts=aip_pts,
                         strict_ops=f.get("strict_ops"), gr=gr,
-                        dep_wx=dep_wx, arr_wx=arr_wx, nt=nt, eobt_min=eobt_min)
+                        dep_wx=dep_wx, arr_wx=arr_wx, nt=nt, eobt_min=eobt_min, alts=alts)
+    proc["aip_strict"] = bool(strict)
+    proc["aip_gc"] = gc_nm
+    proc["eta"] = em
     return fp, proc
 
 
@@ -321,43 +376,281 @@ def _wind_sky(wx):
     return wx.get("wind"), weather.parse_sky(wx.get("metar_raw"))
 
 
-def rule_endpoints(dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, dat_path, apply_ops=True):
+def _alt_of(row):
+    """AIP 原始行的高度条件（与 timed.annotate_routes 的 alt 同一个值：面板 / F21 按它算该行的巡航高度）。"""
+    return ((row[3] if len(row) > 3 else "") or "").strip()
+
+
+def wind_points(dep_obj, arr_obj, geoms=()):
+    """高空风的取样点：大圆 + 各条 AIP 航路几何，每约 50 NM 一点（weather.fetch_winds_aloft 再吸附 / 去重）。"""
+    pts = eta_mod.gc_points((dep_obj.lat_dd, dep_obj.lon_dd), (arr_obj.lat_dd, arr_obj.lon_dd), 50.0)
+    for g in geoms or ():
+        if g:
+            pts += eta_mod.resample(g, 50.0)
+    return pts
+
+
+def eta_model(dep_obj, arr_obj, aircraft_text, winds):
+    """F36：一次规划的 ETA 模型（机型剖面 aircrafts.json · perf + 高空风）。机型留空 / 查不到 → 按默认机型估。"""
+    perf, aid, fallback = perf_of(aircraft_text)
+    return eta_mod.EtaModel(dep_obj, arr_obj, perf, eta_mod.Winds(winds) if winds else None, aid, fallback)
+
+
+def eta_log(em, eobt_min):
+    """规划日志里的一行 ETA 依据（按大圆）。"""
+    r = em.estimate(eobt_min)
+    who = ("%s（未填 / 查不到机型，按 %s 估）" % (em.ac_id, em.ac_id)) if em.fallback else (em.ac_id or "机型库缺失")
+    if r["source"] == "legacy":
+        return "ETA 按旧算法估（机型库缺失：EOBT + 15 分 + 航程 ÷ 450 kt）"
+    wind = ("高空风 Open-Meteo %s" % em.winds.model) if em.winds else "未取到高空风，按无风估"
+    return ("ETA 估算：%s · 按大圆 FL%d · EOBT %s 起约 %d 分钟落地 · %s"
+            % (who, r["fl"], _hhmm(eobt_min), round(r["block"]), wind))
+
+
+class EndsAt:
+    """按 ETA 取两端限定（离场只随 EOBT 变、到达随 ETA 变）；同一个 ETA 只算一次。
+    F36：每条航路按自己的 ETA 选到达端的规则，AIP 各行 / 生成航路 / 改端版都从这里取。"""
+
+    def __init__(self, dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, dat_path, apply_ops=True, ops_data=None,
+                 measured_default=True):
+        self.args = (dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, dat_path, apply_ops, ops_data)
+        self.measured_default = measured_default
+        self._memo = {}
+
+    def __call__(self, eta_jst):
+        k = int(eta_jst)
+        if k not in self._memo:
+            self._memo[k] = rule_endpoints(*self.args, eta_jst=k, measured_default=self.measured_default)
+        return self._memo[k]
+
+
+def rule_endpoints(dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, dat_path, apply_ops=True, ops_data=None,
+                   eta_jst=None, measured_default=True):
     """生成航路两端的限定 (离场, 到达)：operations.route_endpoints 的结果或 None。
-    离场按 EOBT、到达按 ETA（大圆航程推算，与面板一致）；实测优先、对不上以实测为主、没有实测按规则（用户定）。
-    apply_ops=False（面板关了「按机场运行规则预选」）→ 都不限定。"""
+    离场按 EOBT、到达按 ETA（eta_jst；F36 由 EtaModel 按该航路的几何算，不给 → 旧算法按大圆）；
+    实测优先、对不上以实测为主、没有实测按规则（用户定）。实测是否算数：operations.measured_at（离场按 EOBT、到达按 ETA）。
+    apply_ops=False（面板关了「按机场运行规则预选」）→ 都不限定。ops_data：面板手上那份规则（不传 → 现读文件）。"""
     if not apply_ops:
         return None, None
     try:
-        ops = operations.load_operations()
+        ops = operations.load_operations() if ops_data is None else ops_data
         dw, ds = _wind_sky(dep_wx)
         aw, asky = _wind_sky(arr_wx)
-        dctx, actx = operations.rule_contexts(eobt_min, calculate_distance_nm(dep_obj, arr_obj), dw, ds, aw, asky)
-        ed = operations.route_endpoints(ops, dep_obj.code, "dep", dctx, (nt or {}).get(dep_obj.code), dat_path)
-        ea = operations.route_endpoints(ops, arr_obj.code, "arr", actx, (nt or {}).get(arr_obj.code), dat_path)
+        dctx, actx = operations.rule_contexts(eobt_min, calculate_distance_nm(dep_obj, arr_obj), dw, ds, aw, asky,
+                                              eta_jst=eta_jst)
+        nd = operations.measured_at((nt or {}).get(dep_obj.code), dctx, measured_default)
+        na = operations.measured_at((nt or {}).get(arr_obj.code), actx, measured_default)
+        ed = operations.route_endpoints(ops, dep_obj.code, "dep", dctx, nd, dat_path)
+        ea = operations.route_endpoints(ops, arr_obj.code, "arr", actx, na, dat_path)
         return ed, ea
     except Exception as e:                              # noqa: BLE001
         print(f"⚠️ 运行规则定端点失败（已按最短规划）: {e}")
         return None, None
 
 
-def generate_by_rules(state, dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, airports=None, apply_ops=True):
-    """按运行规则 / 实测定端点后生成航路；附上 ops（依据，给结果卡）与 ends_key（面板据此判断改 EOBT 后要不要重算）。"""
-    ed, ea = rule_endpoints(dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, state.dat_path, apply_ops)
-    gr = generate_route(dep_obj, arr_obj, dat_path=state.dat_path, aip_data=state.aip_data, airports=airports,
-                        dep_fixes=ed["fixes"] if ed else None, arr_fixes=ea["fixes"] if ea else None)
-    if gr:
-        gr["ends_key"] = (frozenset(ed["fixes"]) if ed else None, frozenset(ea["fixes"]) if ea else None)
-        # 实际接上的是哪几条程序（结果卡写依据用）：航路起点 / 终点能衔接的规则程序
-        exit_, entry = procedures.sid_star_endpoints(gr["route_str"])
-        used = {}
-        for side, e, icao, kind, pt in (("dep", ed, dep_obj.code, "SID", exit_), ("arr", ea, arr_obj.code, "STAR", entry)):
-            used[side] = [n for n in (e or {}).get("procs", [])
-                          if pt and pt in procedures.connect_idents(icao, kind, [n], dat_path=state.dat_path)]
-        gr["ops"] = {"dep": ed, "arr": ea, "dep_icao": dep_obj.code, "arr_icao": arr_obj.code,
-                     "eobt_min": eobt_min, "nt": {k: v.get("time_jst", "") for k, v in (nt or {}).items()},
-                     "dep_point": exit_, "arr_point": entry, "dep_used": used["dep"], "arr_used": used["arr"],
-                     "unreached": gr.get("ops_unreached") or [], "note": gr.get("ops_note")}
+def _fixes(e):
+    return frozenset(e["fixes"]) if e else None
+
+
+def _ops_basis(dep_obj, arr_obj, route_str, ed, ea, eobt_min, nt, dat_path, unreached=(), note=None):
+    """结果卡写依据用的 ops：两端按哪条规则 / 哪份实测，实际接上的是哪几条程序（航路起点 / 终点能衔接的规则程序）。
+    生成航路与 AIP 改端共用，写法由 viewmodel.rule_basis_lines 定。"""
+    exit_, entry = procedures.sid_star_endpoints(route_str)
+    used = {}
+    for side, e, icao, kind, pt in (("dep", ed, dep_obj.code, "SID", exit_), ("arr", ea, arr_obj.code, "STAR", entry)):
+        used[side] = [n for n in (e or {}).get("procs", [])
+                      if pt and pt in procedures.connect_idents(icao, kind, [n], dat_path=dat_path)]
+    return {"dep": ed, "arr": ea, "dep_icao": dep_obj.code, "arr_icao": arr_obj.code,
+            "eobt_min": eobt_min, "nt": {k: v.get("time_jst", "") for k, v in (nt or {}).items()},
+            "dep_point": exit_, "arr_point": entry, "dep_used": used["dep"], "arr_used": used["arr"],
+            "unreached": list(unreached or []), "note": note}
+
+
+def generate_by_rules(state, dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, airports=None, apply_ops=True,
+                      ends=None, em=None, ends_at=None, measured_default=True):
+    """按运行规则 / 实测定端点后生成航路；附上 ops（依据，给结果卡）、ends_key（面板据此判断改 EOBT 后要不要重算）
+    与 pts（航路几何，面板按它算 ETA）。ends：plan() 已算好的 (离场, 到达) 端点；不传就按大圆 ETA 现算。
+    F36：航路生成出来后按它自己的几何再算一次 ETA；到达端该受的限定变了（例如 ETA 晚到跨进深夜时段）→ 按新 ETA
+    再生成【一次】，采用第二次的结果（用户定：最多重算一次）。"""
+    if ends_at is None:
+        ends_at = EndsAt(dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, state.dat_path, apply_ops,
+                         measured_default=measured_default)
+    if ends is None:
+        ends = ends_at(em.eta_jst(eobt_min)) if em else rule_endpoints(
+            dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, state.dat_path, apply_ops,
+            measured_default=measured_default)
+    ed, ea = ends
+
+    def gen(ed, ea):
+        return generate_route(dep_obj, arr_obj, dat_path=state.dat_path, aip_data=state.aip_data, airports=airports,
+                              dep_fixes=ed["fixes"] if ed else None, arr_fixes=ea["fixes"] if ea else None)
+    gr = gen(ed, ea)
+    if not gr:
+        return gr
+    pts = route_geometry(dep_obj, arr_obj, gr["route_str"], state.dat_path)
+    if em and apply_ops:
+        eta2 = em.eta_jst(eobt_min, pts)
+        ed2, ea2 = ends_at(eta2)
+        if (_fixes(ed2), _fixes(ea2)) != (_fixes(ed), _fixes(ea)):
+            gr2 = gen(ed2, ea2)
+            if gr2:
+                print("⏱️ 按生成航路自身的 ETA %s 重新选了到达端的运行规则，已重新生成一次：%s → %s"
+                      % (_hhmm(eta2), gr["route_str"], gr2["route_str"]))
+                gr, ed, ea = gr2, ed2, ea2
+                pts = route_geometry(dep_obj, arr_obj, gr["route_str"], state.dat_path)
+    gr["pts"] = pts
+    gr["ends_key"] = (_fixes(ed), _fixes(ea))
+    # 依据里的实测时刻只在这一端真用上实测时才显示（e["measured"]），不在报文覆盖时段内的那端自然不写
+    gr["ops"] = _ops_basis(dep_obj, arr_obj, gr["route_str"], ed, ea, eobt_min, nt, state.dat_path,
+                           gr.get("ops_unreached") or [], gr.get("ops_note"))
     return gr
+
+
+# ---------- AIP 改端：AIP 不适用于本时段 / 本运行时 ----------
+
+def _hhmm(m):
+    return "%02d:%02d" % (m // 60 % 24, m % 60)
+
+
+def _alt_why(dep_obj, arr_obj, row, fit, sides, ed, ea, eobt_min, eta_min):
+    """这一行为什么不能照用 → 一句话（结果卡与日志用）。"""
+    parts = []
+    if not fit["time_ok"]:
+        parts.append("本次 EOBT %s · ETA %s 不在该 AIP 时段内（%s）"
+                     % (_hhmm(eobt_min), _hhmm(eta_min), timed.describe_restriction(row[2] if len(row) > 2 else "")))
+    lead, trail = procedures.lead_trail_fixes(row[5] if len(row) > 5 else "")
+    for side, e, icao, pts, word in (("dep", ed, dep_obj.code, lead, "起点"), ("arr", ea, arr_obj.code, trail, "末端")):
+        if side in sides and e:
+            rules = "、".join("「%s」" % r for r in e.get("rules") or []) or "（实测）"
+            parts.append("%s 此刻生效的运行规则%s的程序接不上 AIP %s %s"
+                         % (icao, rules, word, "/".join((pts or [])[-1:] if side == "dep" else (pts or [])[:1])))
+    return "；".join(parts)
+
+
+def aip_row_etas(em, eobt_min, rows, geoms):
+    """每条 AIP 行自己的 ETA（JST 当日分钟）：按该行原 AIP 的几何 + 该行的高度条件；几何缺失 → 大圆。"""
+    return [em.eta_jst(eobt_min, g or None, alt_cond=_alt_of(r)) for r, g in zip(rows, geoms)]
+
+
+def aip_alternatives(state, dep_obj, arr_obj, rows, aip_dists, aip_pts, ends_at, eobt_min, em, gc_nm,
+                     strict=False, nt=None):
+    """AIP 改端（用户提出：深夜到羽田时「大体和 AIP 一致，但是最后一段有不同」）。
+    → {key, rows, note, default}：
+      key   = operations.aip_key（面板改 EOBT / 规则开关后比它，变了就后台重算）；
+      rows  = None（有适用的 AIP 行 → 照旧，结果与以前逐字一致）或与 AIP 行同序的列表，每项为
+              None / 改端版 {route, dist, pts, map, xfer, ops, why, log} / 改不了 {note}；
+      note  = 整体说明（严格 AIP 模式不改端时）；default = 默认选中哪一行（第一条改端行）或 None。
+    触发：没有一条 AIP 行既在时段内、又能接上此刻生效规则 / 实测的程序（operations.aip_splice_ends）；
+    只改冲突的那一端（router.splice_route_ends）。
+    F36：每行按自己的 ETA（原 AIP 几何）判时段、选到达端的规则；改端版按自己的几何再算一次 ETA，
+    到达端该受的限定变了 → 按新的限定再改端【一次】（用户定：最多重算一次）。"""
+    geoms = list(aip_pts or [None] * len(rows))
+    etas = aip_row_etas(em, eobt_min, rows, geoms)
+    ed = ends_at(etas[0] if etas else em.eta_jst(eobt_min))[0]
+    eas = [ends_at(e)[1] for e in etas]
+    fits = operations.aip_fit(rows, eobt_min, etas, ed, eas)
+    out = {"key": operations.aip_key(fits, ed, eas), "rows": None, "note": None, "default": None}
+    plan_sides = operations.aip_splice_ends(fits, ed, eas, gc_nm)
+    if plan_sides is None:
+        return out
+    if strict:
+        out["note"] = ("本次 EOBT %s · ETA %s 没有适用的 AIP 航路（时段或运行规则不符）；"
+                       "已勾选「严格要求 AIP 规定航路」，不改端，仍按 AIP 显示"
+                       % (_hhmm(eobt_min), " / ".join(sorted({_hhmm(e) for e in etas}))))
+        return out
+    tp_arr = transfer_entry(arr_obj.code)
+    res_rows = []
+    for i, (row, fit, sides, ea, eta_min) in enumerate(zip(rows, fits, plan_sides, eas, etas)):
+        why = _alt_why(dep_obj, arr_obj, row, fit, sides, ed, ea, eobt_min, eta_min)
+        rs = row[5].strip() if len(row) > 5 else ""
+        if not sides:
+            res_rows.append({"note": why + "；两端没有与之冲突的运行规则，无从改端 → 仍按 AIP 显示，请自行核对"})
+            continue
+
+        def splice(ea_):
+            try:
+                return splice_route_ends(dep_obj, arr_obj, rs, state.dat_path, state.aip_data,
+                                         dep_fixes=ed["fixes"] if "dep" in sides else None,
+                                         arr_fixes=ea_["fixes"] if ("arr" in sides and ea_) else None)
+            except Exception as e:                      # noqa: BLE001
+                return None, "改端出错（%s）" % type(e).__name__
+        res, fail = splice(ea)
+        if res and "arr" in sides:
+            ea2 = ends_at(em.eta_jst(eobt_min, res["coords"], alt_cond=_alt_of(row)))[1]
+            if ea2 and _fixes(ea2) != _fixes(ea):        # 改端版自己的 ETA 落进了另一组到达规则 → 按它再改一次
+                res2, _f2 = splice(ea2)
+                if res2:
+                    print("⏱️ AIP [%d] 改端版的 ETA 落进另一组到达规则，已按它重新改端一次：%s → %s"
+                          % (i + 1, res["route_str"], res2["route_str"]))
+                    res, ea = res2, ea2
+        if not res:
+            res_rows.append({"note": why + "；改端失败：%s → 仍按 AIP 显示，请自行核对" % fail})
+            continue
+        route_s = res["route_str"]
+        pts = res["coords"]
+        ops = _ops_basis(dep_obj, arr_obj, route_s, ed if "dep" in sides else None,
+                         ea if "arr" in sides else None, eobt_min, nt, state.dat_path)
+        aip_len = aip_dists[i] if aip_dists and i < len(aip_dists) else None
+        where = "、".join(x for x in (("离场端在 %s 汇入 AIP" % res["join"]) if res.get("join") else "",
+                                       ("进场端在 %s 离开 AIP" % res["branch"]) if res.get("branch") else "") if x)
+        res_rows.append({"route": route_s, "dist": res["dist_nm"], "pts": pts, "ops": ops, "why": why, "where": where,
+                         "aip_route": rs, "aip_dist": aip_len,
+                         "eta": em.estimate(eobt_min, pts, alt_cond=_alt_of(row)),
+                         "map": (pts, "%s→%s  %s" % (dep_obj.code, arr_obj.code, route_s)),
+                         "xfer": vatjpn.match_arrival(tp_arr, route_s, [p[0] for p in pts]),
+                         "log": "%s→%s AIP [%d] 改端（%s）：%s → %s" % (dep_obj.code, arr_obj.code, i + 1, where,
+                                                                      rs, route_s)})
+        if out["default"] is None:
+            out["default"] = i
+    out["rows"] = res_rows
+    return out
+
+
+def _alt_sb_route(alts, rows):
+    """改端时 SimBrief 默认航路 = 默认选中那行的改端串；没改端 → None（照旧用首条 AIP）。"""
+    if not alts or not alts.get("rows") or alts.get("default") is None:
+        return None
+    return alts["rows"][alts["default"]]["route"]
+
+
+def _aip_candidates(state, dep_obj, arr_obj, orig, alts):
+    """面板候选：有改端版的行换成改端版（航路 / 长度 / 几何 / 端点预筛都换），时段 / 高度 / 机型保留，
+    另记 variant=True 与原 AIP 串；其余行原样。"""
+    rows = (alts or {}).get("rows") or []
+    out = []
+    for i, c in enumerate(orig):
+        v = rows[i] if i < len(rows) else None
+        if v and v.get("route"):
+            dr, dm, ar, am, gate = _prefilter(state, dep_obj, arr_obj, v["route"], v["pts"])
+            out.append({**c, "route": v["route"], "dist": v["dist"], "pts": v["pts"],
+                        "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am, "arr_gate": gate,
+                        "variant": True, "aip_route": c.get("route"), "variant_why": v.get("why")})
+        else:
+            out.append(c)
+    return out
+
+
+def regenerate_aip(state, dep_obj, arr_obj, rows, orig, eobt_text, dep_wx, arr_wx, nt, apply_ops, strict,
+                   gc_nm, ops_data=None, em=None, measured_default=True):
+    """面板改了 EOBT / 运行规则开关、AIP 的适用性跟着变了 → 重算改端（后台线程调）。
+    → {kind, key, alts, candidates, selected, sb_route}。rows / orig = 规划时的 AIP 原始行与原候选。
+    em = 规划时的 EtaModel（面板的同一个）；nt = 全部实测，measured_default = EOBT 是否还是规划时的默认值
+    （改过 → 实测只在报文覆盖的时段内算数，离场按 EOBT、到达按 ETA）。
+    sb_route = 结果卡 SimBrief 链接的航路：改端 → 默认行的改端串；不改端 → 首条 AIP（与规划时 build_flight_plan 相同）。"""
+    j = timed.parse_hhmm(eobt_text) if eobt_text else None
+    eobt_min = j if j is not None else operations.default_eobt_min()
+    if em is None:
+        em = eta_model(dep_obj, arr_obj, "", None)
+    ends_at = EndsAt(dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, state.dat_path, apply_ops, ops_data,
+                     measured_default)
+    alts = aip_alternatives(state, dep_obj, arr_obj, rows, [c.get("dist") for c in orig], [c.get("pts") for c in orig],
+                            ends_at, eobt_min, em, gc_nm, strict, nt)
+    return {"kind": "aip", "key": alts["key"], "alts": alts,
+            "candidates": _aip_candidates(state, dep_obj, arr_obj, orig, alts),
+            "selected": alts["default"],
+            "aip_etas": [em.estimate(eobt_min, c.get("pts"), alt_cond=_alt_of(r)) if c.get("pts") else None
+                         for r, c in zip(rows, orig)],
+            "sb_route": _alt_sb_route(alts, rows) or ((rows[0][5].strip() or None) if rows and len(rows[0]) > 5 else None)}
 
 
 def _prefilter(state, dep_obj, arr_obj, base_route, pts):
@@ -396,10 +689,12 @@ def _prefilter(state, dep_obj, arr_obj, base_route, pts):
 def generated_candidate(state, dep_obj, arr_obj, gr):
     """生成航路 → 面板的单个候选（无时段/机型/高度）。带 generated / ends_key，面板据此在改 EOBT 时判断要不要重算。"""
     generated = gr["route_str"]
-    try:
-        gpts = route_geometry(dep_obj, arr_obj, generated, state.dat_path)
-    except Exception:
-        gpts = None
+    gpts = gr.get("pts")                                 # generate_by_rules 已按航路串算好（面板按它算 ETA，须同一份）
+    if gpts is None:
+        try:
+            gpts = route_geometry(dep_obj, arr_obj, generated, state.dat_path)
+        except Exception:
+            gpts = None
     dr, dm, ar, am, gate = _prefilter(state, dep_obj, arr_obj, generated, gpts)
     return {"route": generated, "restr": "", "alt": "", "aircraft": "", "dist": None, "pts": gpts,
             "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am, "arr_gate": gate,
@@ -408,20 +703,23 @@ def generated_candidate(state, dep_obj, arr_obj, gr):
 
 def compute_proc(state, dep_obj, arr_obj, generated, matched=None,
                  aip_dists=None, aip_pts=None, strict_ops=False, gr=None,
-                 dep_wx=None, arr_wx=None, nt=None, eobt_min=None):
+                 dep_wx=None, arr_wx=None, nt=None, eobt_min=None, alts=None):
     """F20/F21（后台线程）：为每条 AIP 航路（或生成航路）预算端点预筛的跑道/SID·STAR。
     matched=该航线全部 AIP 原始行（>1 条→用户在弹窗按 EOBT/机型/高度选或定唯一）；aip_pts/aip_dists 与之同序
     （复用 plan() 已算几何、免重算）。天气 / 实测运用 / EOBT 由 plan() 先取好传进来（没传就现取）。
+    alts = aip_alternatives 的结果：有改端版的行在面板里用改端版，默认选中第一条改端行。
     任一步失败都不影响主规划（返回空/None，UI 优雅降级）。"""
     candidates = []
+    orig = []
     if matched:                                          # AIP 分支：逐条候选（含时段/高度/机型 + 端点预筛）
         for i, anno in enumerate(timed.annotate_routes(matched)):
             pts = aip_pts[i] if (aip_pts and i < len(aip_pts)) else None
             dist = aip_dists[i] if (aip_dists and i < len(aip_dists)) else None
             dr, dm, ar, am, gate = _prefilter(state, dep_obj, arr_obj, anno["route"], pts)
-            candidates.append({**anno, "dist": dist, "pts": pts,   # pts 供全段航路预览复用 enroute 几何
-                               "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am,
-                               "arr_gate": gate})
+            orig.append({**anno, "dist": dist, "pts": pts,   # pts 供全段航路预览复用 enroute 几何
+                         "dep_rows": dr, "dep_matched": dm, "arr_rows": ar, "arr_matched": am,
+                         "arr_gate": gate})
+        candidates = _aip_candidates(state, dep_obj, arr_obj, orig, alts)
     elif generated:                                      # 生成航路：单候选
         candidates.append(generated_candidate(state, dep_obj, arr_obj, gr or {"route_str": generated}))
 
@@ -431,19 +729,28 @@ def compute_proc(state, dep_obj, arr_obj, generated, matched=None,
         arr_wx = weather.resolve_airport_wx(arr_obj.code, arr_obj.lat_dd, arr_obj.lon_dd)
     if nt is None:
         nt = measured_configs(dep_obj, arr_obj)
+    default = (alts or {}).get("default")
     return {
-        "aip_candidates": candidates, "selected": 0, "strict_ops": bool(strict_ops),
+        "aip_candidates": candidates, "selected": default if default is not None else 0,
+        "strict_ops": bool(strict_ops),
         "dep_wx": dep_wx, "arr_wx": arr_wx, "ntrack": nt,
         "eobt_min": eobt_min,
+        # AIP 改端的后台重算要用：原始行、原候选、上次的判据（改 EOBT / 规则开关后比它）
+        "aip_rows": list(matched) if matched else None, "aip_orig": orig or None,
+        "aip_key": (alts or {}).get("key"),
     }
 
 
-def regenerate_generated(state, dep_obj, arr_obj, eobt_text, dep_wx, arr_wx, nt, apply_ops):
+def regenerate_generated(state, dep_obj, arr_obj, eobt_text, dep_wx, arr_wx, nt, apply_ops, em=None,
+                         measured_default=True):
     """面板改了 EOBT / 运行规则开关、生效的规则跟着变了 → 按新的 EOBT 重新生成航路（后台线程调）。
-    → {gr, candidate, gen_map, gen_xfer}；生成失败 → None。"""
+    em / nt / measured_default 同 regenerate_aip。→ {gr, candidate, gen_map, gen_xfer, eta}；生成失败 → None。"""
     j = timed.parse_hhmm(eobt_text) if eobt_text else None
     eobt_min = j if j is not None else operations.default_eobt_min()
-    gr = generate_by_rules(state, dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, apply_ops=apply_ops)
+    if em is None:
+        em = eta_model(dep_obj, arr_obj, "", None)
+    gr = generate_by_rules(state, dep_obj, arr_obj, eobt_min, dep_wx, arr_wx, nt, apply_ops=apply_ops, em=em,
+                           measured_default=measured_default)
     if not gr:
         return None
     generated = gr["route_str"]
@@ -451,7 +758,8 @@ def regenerate_generated(state, dep_obj, arr_obj, eobt_text, dep_wx, arr_wx, nt,
     gen_xfer = (vatjpn.match_arrival(transfer_entry(arr_obj.code), generated, [p[0] for p in gr["coords"]])
                 if gr.get("coords") else None)
     return {"gr": gr, "candidate": generated_candidate(state, dep_obj, arr_obj, gr),
-            "gen_map": gen_map, "gen_xfer": gen_xfer}
+            "gen_map": gen_map, "gen_xfer": gen_xfer,
+            "eta": em.estimate(eobt_min, gr.get("pts")) if gr.get("pts") else None}
 
 
 # ---------- Volanta ----------
