@@ -1,0 +1,36 @@
+# performance_calculation skill 实测（reference/validation.md）所用的精确版本：2026-11-25，Python 3.13，Windows。
+# 只装进开发用的独立 venv，不要装进打包 exe 用的全局 Python：
+#   <venv>\Scripts\python -m pip install --only-binary=:all: -r .claude/skills/performance_calculation/scripts/requirements-lock.txt
+# openpyxl / et_xmlfile 只用于 matrix 的 T4 读 EEA 表。
+Cartopy==0.26.0
+casadi==3.8.2
+certifi==2026.11.20
+click==8.5.1
+cloudpickle==3.1.3
+contourpy==1.4.0
+cycler==0.12.1
+et_xmlfile==2.0.0
+fonttools==4.68.0
+joblib==1.6.0
+kiwisolver==1.5.1
+matplotlib==3.11.2
+narwhals==2.29.0
+numpy==2.5.5
+openap==2.6.2
+openpyxl==3.1.5
+opentop==2.7.0
+packaging==26.4
+pandas==3.1.1
+pillow==13.0.0
+pyarrow==26.0.1
+pyparsing==3.3.3
+pyproj==3.8.0
+pyshp==3.1.9
+python-dateutil==4.0.0
+PyYAML==6.0.4
+scikit-learn==1.9.1
+scipy==1.18.1
+shapely==2.2.0
+threadpoolctl==3.8.0
+tzdata==2026.6
+xarray==2026.9.0
